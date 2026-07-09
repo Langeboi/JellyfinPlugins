@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "changelog": "Fix: Shows/{id}/Episodes ignores SortBy/SortOrder and always returns episodes in season/episode order, so the 1.0.4.0 fix always resolved to episode S1E1 instead of the actual newest episode. Switched to Users/{userId}/Items?ParentId={seriesId}&IncludeItemTypes=Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending, which correctly honors the sort.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.0.5.0/newbadges_1.0.5.0.zip",
+        "checksum": "7092b150e0ff9d37685134461dd6f757",
+        "timestamp": "2026-07-09T13:15:00Z"
+      },
+      {
         "version": "1.0.4.0",
         "changelog": "Fix: Series cards in Recently Added rows were checked against the series' own DateCreated (when the show was first added to the library) instead of the newest episode's arrival date, so a brand-new episode of a long-owned show never got a badge. Series-type cards now look up the latest episode via Shows/{id}/Episodes sorted by DateCreated.",
         "targetAbi": "10.11.0.0",

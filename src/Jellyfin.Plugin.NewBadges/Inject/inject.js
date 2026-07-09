@@ -58,12 +58,17 @@
   function fetchLatestEpisodeDate(seriesId) {
     var apiClient = window.ApiClient;
     var userId = apiClient.getCurrentUserId();
-    var url = apiClient.getUrl('Shows/' + seriesId + '/Episodes', {
-      userId: userId,
-      Fields: 'DateCreated',
+    // Shows/{id}/Episodes ignores SortBy/SortOrder and always returns
+    // episodes in season/episode order, so use the generic Items endpoint
+    // instead, which does honor sorting by DateCreated.
+    var url = apiClient.getUrl('Users/' + userId + '/Items', {
+      ParentId: seriesId,
+      IncludeItemTypes: 'Episode',
+      Recursive: true,
       SortBy: 'DateCreated',
       SortOrder: 'Descending',
-      Limit: 1
+      Limit: 1,
+      Fields: 'DateCreated'
     });
 
     return apiClient.getJSON(url).then(function (result) {
