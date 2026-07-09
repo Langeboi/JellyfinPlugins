@@ -2,12 +2,20 @@
   {
     "guid": "b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70",
     "name": "New Badges",
-    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago).",
+    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), and shows the season/episode of a show's newest episode in place of its unwatched count.",
     "overview": "Real 'added < 7 days ago' NEW badges for Recently Added rows.",
     "owner": "Langeboi",
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.0.6.0",
+        "changelog": "New feature: on Recently Added rows, when a show has a new episode (< 7 days old), the blue unwatched-count badge in the top-right corner now shows the season/episode of that new episode (e.g. S9E7) instead of the total unplayed count. Badge widened from a fixed circle to a pill shape so 4-character labels fit cleanly.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.0.6.0/newbadges_1.0.6.0.zip",
+        "checksum": "c4bad665dc20768fa30c131117b13cf2",
+        "timestamp": "2026-07-09T16:30:00Z"
+      },
       {
         "version": "1.0.5.0",
         "changelog": "Fix: Shows/{id}/Episodes ignores SortBy/SortOrder and always returns episodes in season/episode order, so the 1.0.4.0 fix always resolved to episode S1E1 instead of the actual newest episode. Switched to Users/{userId}/Items?ParentId={seriesId}&IncludeItemTypes=Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending, which correctly honors the sort.",

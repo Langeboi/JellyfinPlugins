@@ -2,8 +2,10 @@
   'use strict';
 
   var BADGE_CLASS = 'newBadges-badge';
+  var EPISODE_LABEL_CLASS = 'newBadges-episodeLabel';
   var MAX_AGE_DAYS = 7;
   var dateCache = {}; // itemId -> DateCreated string (or null if unknown)
+  var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
   var pendingIds = new Set();
   var debounceTimer = null;
 
@@ -29,7 +31,11 @@
       '.' + BADGE_CLASS + '{position:absolute;top:8px;left:8px;z-index:6;' +
       'background:linear-gradient(135deg,#e50914,#b0060f);color:#fff;' +
       'font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 7px;' +
-      'border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;}';
+      'border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;}' +
+      '.countIndicator.indicator.' + EPISODE_LABEL_CLASS + '{' +
+      'width:auto!important;min-width:26.1875px!important;height:20px!important;' +
+      'padding:0 7px!important;border-radius:10px!important;font-size:11px!important;' +
+      'font-weight:700!important;letter-spacing:0!important;}';
     document.head.appendChild(style);
   }
 
@@ -44,6 +50,18 @@
     imgContainer.appendChild(badge);
   }
 
+  function applyEpisodeLabel(card, id) {
+    var label = episodeLabelCache[id];
+    if (!label) {
+      return;
+    }
+    var indicator = card.querySelector('.countIndicator.indicator');
+    if (indicator && indicator.textContent !== label) {
+      indicator.textContent = label;
+      indicator.classList.add(EPISODE_LABEL_CLASS);
+    }
+  }
+
   function applyBadgeIfNew(card, id) {
     var created = dateCache[id];
     if (!created) {
@@ -52,10 +70,11 @@
     var ageMs = Date.now() - new Date(created).getTime();
     if (ageMs >= 0 && ageMs < MAX_AGE_DAYS * 86400000) {
       addBadge(card);
+      applyEpisodeLabel(card, id);
     }
   }
 
-  function fetchLatestEpisodeDate(seriesId) {
+  function fetchLatestEpisodeInfo(seriesId) {
     var apiClient = window.ApiClient;
     var userId = apiClient.getCurrentUserId();
     // Shows/{id}/Episodes ignores SortBy/SortOrder and always returns
@@ -73,7 +92,15 @@
 
     return apiClient.getJSON(url).then(function (result) {
       var items = result.Items || [];
-      return items.length > 0 ? items[0].DateCreated : null;
+      if (items.length === 0) {
+        return { date: null, label: null };
+      }
+      var episode = items[0];
+      var label = null;
+      if (episode.ParentIndexNumber != null && episode.IndexNumber != null) {
+        label = 'S' + episode.ParentIndexNumber + 'E' + episode.IndexNumber;
+      }
+      return { date: episode.DateCreated, label: label };
     });
   }
 
@@ -107,8 +134,13 @@
 
     seriesIds.forEach(function (seriesId) {
       promises.push(
-        fetchLatestEpisodeDate(seriesId)
-          .then(function (date) { map[seriesId] = date; })
+        fetchLatestEpisodeInfo(seriesId)
+          .then(function (info) {
+            map[seriesId] = info.date;
+            if (info.label) {
+              episodeLabelCache[seriesId] = info.label;
+            }
+          })
           .catch(function () { map[seriesId] = null; })
       );
     });
