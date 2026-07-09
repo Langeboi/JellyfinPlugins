@@ -2,12 +2,20 @@
   {
     "guid": "b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70",
     "name": "New Badges",
-    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, forces item-detail backdrop images to render at any window width, and replaces the Next Up row with a Trending row ranked by other users' recent plays.",
+    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, forces item-detail backdrop images to render at any window width, replaces the Next Up row with a Trending row ranked by other users' recent plays, and merges Continue Watching with Next Up into one row.",
     "overview": "Real 'added < 7 days ago' NEW badges for Recently Added rows.",
     "owner": "Langeboi",
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.2.0.0",
+        "changelog": "Two changes: (1) The Trending row's cards now get the same white hover-ring border and glare-sweep effect as every other native row - they were missing the card-hoverable class and an empty cardOverlayContainer element that those effects hang off of. (2) New feature: Continue Watching (Fortsæt afspilning) and Next Up (Næste afsnit) are merged into a single row. In-progress items keep their normal progress bar; shows whose last-watched episode is now fully finished get a blue NEXT card recommending the next unwatched episode instead of just disappearing from Continue Watching once you're caught up. Sourced from Users/{id}/Items/Resume and Shows/NextUp, deduplicated by series and sorted by last-played date.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.2.0.0/newbadges_1.2.0.0.zip",
+        "checksum": "89e8022132019515049b8a5aa59c20de",
+        "timestamp": "2026-07-09T13:23:01Z"
+      },
       {
         "version": "1.1.0.0",
         "changelog": "New feature: replaces the Next Up home row with a Trending row, showing what other household members have watched in the last 30 days, ranked by distinct viewer count then play count. Sourced from the Playback Reporting plugin's own SQLite report DB via its submit_custom_query endpoint. Episode plays are resolved to their parent series so a show ranks as one unit. Horizontally scrollable like native rows (built on the real emby-scroller custom element), with a gold #rank badge on each poster - and the red NEW ribbon appears alongside it, rank first, when that item also qualifies as recently added. Falls back to leaving Next Up untouched if fewer than 4 distinct items are trending.",

@@ -56,7 +56,12 @@
       '.newBadges-badgeRow{position:absolute;top:8px;left:8px;z-index:6;' +
       'display:flex;align-items:flex-start;gap:4px;}' +
       '.newBadges-badgeRow .' + BADGE_CLASS + ',' +
-      '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}';
+      '.newBadges-badgeRow .newBadges-rankBadge,' +
+      '.newBadges-badgeRow .newBadges-nextBadge{position:static;top:auto;left:auto;}' +
+      '.newBadges-nextBadge{position:absolute;top:8px;left:8px;z-index:6;' +
+      'background:rgba(0,122,255,.85);color:#fff;font-size:10px;font-weight:700;' +
+      'letter-spacing:.05em;padding:3px 7px;border-radius:4px;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;}';
     document.head.appendChild(style);
   }
 
@@ -485,14 +490,19 @@
       (isRecentDate(dateCache[item.Id]) ? '<div class="' + BADGE_CLASS + '">NEW</div>' : '') +
       '</div>';
 
+    // card-hoverable enables ElegantFin's white hover-ring border on
+    // .cardScalable, and an (otherwise-empty) .cardOverlayContainer is what
+    // its glare-sweep :after pseudo-element hangs off - neither needs any
+    // interactive buttons inside to get the purely visual hover effects.
     return (
-      '<div class="card overflowPortraitCard" data-id="' + item.Id + '" data-type="' + item.Type + '">' +
+      '<div class="card overflowPortraitCard card-hoverable" data-id="' + item.Id + '" data-type="' + item.Type + '">' +
         '<div class="cardBox cardBox-bottompadded">' +
           '<div class="cardScalable">' +
             '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
             '<a href="#/details?id=' + item.Id + '" class="cardImageContainer coveredImage cardContent itemAction"' + bgStyle + '>' +
               badgesHtml +
             '</a>' +
+            '<div class="cardOverlayContainer itemAction"></div>' +
           '</div>' +
           '<div class="cardText cardTextCentered cardText-first"><bdi>' + name + '</bdi></div>' +
         '</div>' +
@@ -574,6 +584,204 @@
     }
   }
 
+  // Merge "Fortsæt afspilning" (Continue Watching) and "Næste afsnit"
+  // (Next Up) into a single row - items already in progress keep their
+  // normal progress bar, and shows whose last-watched episode is now fully
+  // finished get a "NEXT" card recommending the next unwatched episode,
+  // instead of the show just vanishing from Continue Watching once it's
+  // caught up.
+  var CONTINUE_WATCHING_TITLES = ['Fortsæt afspilning', 'Continue Watching'];
+  var CONTINUE_MAX_ITEMS = 20;
+  var continueRendered = false;
+
+  function isContinueWatchingSection(section) {
+    var titleEl = section.querySelector('.sectionTitle, [class*="sectionTitle"]');
+    if (!titleEl) {
+      return false;
+    }
+    var title = titleEl.textContent.trim();
+    return CONTINUE_WATCHING_TITLES.indexOf(title) !== -1;
+  }
+
+  function fetchMergedContinueItems() {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+
+    var resumePromise = apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/Resume', {
+      Limit: CONTINUE_MAX_ITEMS,
+      Recursive: true,
+      MediaTypes: 'Video',
+      Fields: 'SeriesId,ProductionYear'
+    })).catch(function () { return { Items: [] }; });
+
+    var nextUpPromise = apiClient.getJSON(apiClient.getUrl('Shows/NextUp', {
+      userId: userId,
+      Limit: CONTINUE_MAX_ITEMS,
+      Fields: 'SeriesId,ProductionYear'
+    })).catch(function () { return { Items: [] }; });
+
+    return Promise.all([resumePromise, nextUpPromise]).then(function (results) {
+      var resumeItems = results[0].Items || [];
+      var nextUpItems = results[1].Items || [];
+
+      // Shows/NextUp still points at an in-progress episode as "next up" for
+      // any series that already has a Resume entry - drop those so a series
+      // never appears twice (once with a progress bar, once as "NEXT").
+      var resumeSeriesIds = {};
+      resumeItems.forEach(function (item) {
+        if (item.Type === 'Episode' && item.SeriesId) {
+          resumeSeriesIds[item.SeriesId] = true;
+        }
+        item._source = 'resume';
+      });
+      var filteredNextUp = nextUpItems.filter(function (item) {
+        return !(item.SeriesId && resumeSeriesIds[item.SeriesId]);
+      });
+      filteredNextUp.forEach(function (item) { item._source = 'nextup'; });
+
+      // Both endpoints expose UserData.LastPlayedDate (Next Up carries the
+      // series' last-watched date forward onto its recommended episode), so
+      // it doubles as a shared sort key for interleaving the two lists by
+      // recency instead of just concatenating them.
+      var combined = resumeItems.concat(filteredNextUp);
+      combined.sort(function (a, b) {
+        var da = (a.UserData && a.UserData.LastPlayedDate) ? new Date(a.UserData.LastPlayedDate).getTime() : 0;
+        var db = (b.UserData && b.UserData.LastPlayedDate) ? new Date(b.UserData.LastPlayedDate).getTime() : 0;
+        return db - da;
+      });
+
+      return combined.slice(0, CONTINUE_MAX_ITEMS);
+    });
+  }
+
+  function getContinueCardImageUrl(item) {
+    var apiClient = window.ApiClient;
+    var type = null;
+    var tag = null;
+    if (item.Type === 'Episode' && item.ImageTags && item.ImageTags.Primary) {
+      type = 'Primary';
+      tag = item.ImageTags.Primary;
+    } else if (item.ImageTags && item.ImageTags.Thumb) {
+      type = 'Thumb';
+      tag = item.ImageTags.Thumb;
+    } else if (item.BackdropImageTags && item.BackdropImageTags.length) {
+      type = 'Backdrop';
+      tag = item.BackdropImageTags[0];
+    } else if (item.ImageTags && item.ImageTags.Primary) {
+      type = 'Primary';
+      tag = item.ImageTags.Primary;
+    }
+    if (!type) {
+      return null;
+    }
+    return apiClient.getScaledImageUrl(item.Id, { type: type, tag: tag, maxWidth: 400 });
+  }
+
+  function getContinueCardTextLines(item) {
+    if (item.Type === 'Episode') {
+      var season = item.ParentIndexNumber != null ? item.ParentIndexNumber : '';
+      var episode = item.IndexNumber != null ? item.IndexNumber : '';
+      var epLabel = 'S' + season + ':E' + episode + (item.Name ? ' - ' + item.Name : '');
+      return [item.SeriesName || item.Name, epLabel];
+    }
+    return [item.Name, item.ProductionYear ? String(item.ProductionYear) : ''];
+  }
+
+  function buildContinueCardHtml(item) {
+    var imgUrl = getContinueCardImageUrl(item);
+    var bgStyle = imgUrl ? ' style="background-image:url(&quot;' + imgUrl + '&quot;)"' : '';
+    var lines = getContinueCardTextLines(item);
+    var line1 = escapeHtml(lines[0] || '');
+    var line2 = escapeHtml(lines[1] || '');
+
+    var footerHtml;
+    if (item._source === 'resume') {
+      var pct = (item.UserData && item.UserData.PlayedPercentage) || 0;
+      footerHtml = '<div class="innerCardFooter fullInnerCardFooter innerCardFooterClear">' +
+        '<div class="itemProgressBar"><div class="itemProgressBarForeground" style="width:' + pct + '%;"></div></div>' +
+        '</div>';
+    } else {
+      footerHtml = '<div class="newBadges-badgeRow"><div class="newBadges-nextBadge">NEXT</div></div>';
+    }
+
+    // Same card-hoverable + empty cardOverlayContainer combo the Trending
+    // cards use to pick up the native hover-ring and glare-sweep effects.
+    return (
+      '<div class="card overflowBackdropCard card-hoverable" data-id="' + item.Id + '" data-type="' + item.Type + '">' +
+        '<div class="cardBox cardBox-bottompadded">' +
+          '<div class="cardScalable">' +
+            '<div class="cardPadder cardPadder-overflowBackdrop"></div>' +
+            '<a href="#/details?id=' + item.Id + '" class="cardImageContainer coveredImage cardContent itemAction"' + bgStyle + '>' +
+              footerHtml +
+            '</a>' +
+            '<div class="cardOverlayContainer itemAction"></div>' +
+          '</div>' +
+          '<div class="cardText cardTextCentered cardText-first"><bdi>' + line1 + '</bdi></div>' +
+          '<div class="cardText cardTextCentered cardText-secondary"><bdi>' + line2 + '</bdi></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderContinueSection(cwSection) {
+    cwSection.style.display = 'none';
+
+    var titleEl = cwSection.querySelector('.sectionTitle, [class*="sectionTitle"]');
+    var titleText = titleEl ? titleEl.textContent.trim() : 'Fortsæt afspilning';
+
+    var section = document.createElement('div');
+    section.className = 'verticalSection newBadges-continueSection';
+    section.innerHTML =
+      '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+        '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(titleText) + '</h2>' +
+      '</div>' +
+      '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+        '<div class="itemsContainer scrollSlider focuscontainer-x"></div>' +
+      '</div>';
+
+    cwSection.parentNode.insertBefore(section, cwSection.nextSibling);
+
+    fetchMergedContinueItems()
+      .then(function (items) {
+        if (items.length === 0) {
+          section.remove();
+          cwSection.style.display = '';
+          return;
+        }
+        var itemsContainer = section.querySelector('.itemsContainer');
+        itemsContainer.innerHTML = items.map(buildContinueCardHtml).join('');
+      })
+      .catch(function () {
+        section.remove();
+        cwSection.style.display = '';
+      });
+  }
+
+  function renderContinueIfHome() {
+    if (!isHomeRoute()) {
+      // Reset so navigating away and back to home retries cleanly - the
+      // Continue Watching section is a fresh DOM element each time home
+      // re-renders.
+      continueRendered = false;
+      return;
+    }
+    if (continueRendered) {
+      return;
+    }
+    var homePage = getActiveHomePage();
+    if (!homePage) {
+      return;
+    }
+    var sections = homePage.querySelectorAll('.verticalSection');
+    for (var i = 0; i < sections.length; i++) {
+      if (isContinueWatchingSection(sections[i])) {
+        continueRendered = true;
+        renderContinueSection(sections[i]);
+        return;
+      }
+    }
+  }
+
   function scheduleScan() {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -582,6 +790,7 @@
       scan();
       ensureBackdrop();
       renderTrendingIfHome();
+      renderContinueIfHome();
     }, 400);
   }
 
