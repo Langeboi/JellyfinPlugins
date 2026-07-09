@@ -397,6 +397,63 @@
       });
   }
 
+  // ---- Config page wiring ----
+
+  // Jellyfin's dashboard loads plugin config pages via a mechanism that does
+  // not execute embedded <script> tags on this server (confirmed live - an
+  // inline script in configPage.html never ran, so its submit handler never
+  // attached, and the native type="submit" fallback leaked the API key into
+  // the URL as a query string). This script IS proven to load reliably
+  // (injected straight into index.html), so config-page behavior is wired
+  // up from here instead, the same way everything else in this plugin scans
+  // for and reacts to DOM it doesn't control.
+  var PLUGIN_ID = '23b52a27-7ca8-4923-9e3b-65889d3e98e8';
+  var CONFIG_WIRED_ATTR = 'data-seerr-config-wired';
+
+  function wireConfigPageIfPresent() {
+    var page = document.querySelector('#SeerrRequestsConfigPage');
+    if (!page || page.hasAttribute(CONFIG_WIRED_ATTR)) {
+      return;
+    }
+    page.setAttribute(CONFIG_WIRED_ATTR, 'true');
+
+    var apiClient = window.ApiClient;
+    var urlInput = page.querySelector('#SeerrBaseUrl');
+    var keyInput = page.querySelector('#SeerrApiKey');
+    var resultEl = page.querySelector('#SeerrRequestsTestResult');
+
+    window.Dashboard.showLoadingMsg();
+    apiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+      urlInput.value = config.SeerrBaseUrl || '';
+      keyInput.value = config.SeerrApiKey || '';
+      window.Dashboard.hideLoadingMsg();
+    });
+
+    page.querySelector('#SeerrRequestsSaveButton').addEventListener('click', function () {
+      window.Dashboard.showLoadingMsg();
+      apiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
+        config.SeerrBaseUrl = urlInput.value.trim().replace(/\/+$/, '');
+        config.SeerrApiKey = keyInput.value.trim();
+        apiClient.updatePluginConfiguration(PLUGIN_ID, config).then(function (result) {
+          window.Dashboard.processPluginConfigurationUpdateResult(result);
+        });
+      });
+    });
+
+    page.querySelector('#SeerrRequestsTestButton').addEventListener('click', function () {
+      resultEl.textContent = 'Tester forbindelse...';
+      apiGet('test-connection')
+        .then(function (data) {
+          resultEl.textContent = data && data.ok
+            ? 'Forbundet - Seerr version ' + data.version
+            : 'Kunne ikke forbinde: ' + (data && data.error ? data.error : 'ukendt fejl');
+        })
+        .catch(function (err) {
+          resultEl.textContent = 'Kunne ikke forbinde: ' + err.message;
+        });
+    });
+  }
+
   // ---- Scan cycle ----
 
   function scheduleScan() {
@@ -405,6 +462,7 @@
     }
     debounceTimer = setTimeout(function () {
       injectButtonIfHome();
+      wireConfigPageIfPresent();
     }, 400);
   }
 

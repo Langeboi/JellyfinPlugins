@@ -7,95 +7,49 @@
   <div id="SeerrRequestsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
     <div data-role="content">
       <div class="content-primary">
-        <form id="SeerrRequestsConfigForm">
-          <div class="verticalSection">
-            <h2>Seerr Requests</h2>
-            <p>Connect this Jellyfin server to your Seerr instance so household members can search for and request new movies/shows without leaving Jellyfin.</p>
-          </div>
+        <div class="verticalSection">
+          <h2>Seerr Requests</h2>
+          <p>Connect this Jellyfin server to your Seerr instance so household members can search for and request new movies/shows without leaving Jellyfin.</p>
+        </div>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SeerrBaseUrl">Seerr Base URL</label>
-            <input id="SeerrBaseUrl" name="SeerrBaseUrl" type="text" is="emby-input" placeholder="http://10.10.100.3:5050" />
-            <div class="fieldDescription">The base URL of your Seerr instance, no trailing slash.</div>
-          </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SeerrBaseUrl">Seerr Base URL</label>
+          <input id="SeerrBaseUrl" name="SeerrBaseUrl" type="text" is="emby-input" placeholder="http://10.10.100.3:5050" />
+          <div class="fieldDescription">The base URL of your Seerr instance, no trailing slash.</div>
+        </div>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SeerrApiKey">Seerr API Key</label>
-            <input id="SeerrApiKey" name="SeerrApiKey" type="password" is="emby-input" placeholder="Settings &gt; General &gt; API Key in Seerr" />
-            <div class="fieldDescription">An admin-level API key from Seerr. Stored server-side only, never sent to the browser.</div>
-          </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SeerrApiKey">Seerr API Key</label>
+          <input id="SeerrApiKey" name="SeerrApiKey" type="password" is="emby-input" placeholder="Settings &gt; General &gt; API Key in Seerr" />
+          <div class="fieldDescription">An admin-level API key from Seerr. Stored server-side only, never sent to the browser.</div>
+        </div>
 
-          <div id="SeerrRequestsTestResult" style="margin-top:1em;"></div>
+        <div id="SeerrRequestsTestResult" style="margin-top:1em;"></div>
 
-          <div style="margin-top:1.5em;">
-            <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-              <span>Save</span>
-            </button>
-            <button is="emby-button" type="button" id="SeerrRequestsTestButton" class="raised block emby-button">
-              <span>Test connection</span>
-            </button>
-          </div>
-        </form>
+        <div style="margin-top:1.5em;">
+          <button is="emby-button" type="button" id="SeerrRequestsSaveButton" class="raised button-submit block emby-button">
+            <span>Save</span>
+          </button>
+          <button is="emby-button" type="button" id="SeerrRequestsTestButton" class="raised block emby-button">
+            <span>Test connection</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
-  <script type="text/javascript">
-    (function () {
-      var pluginId = "23b52a27-7ca8-4923-9e3b-65889d3e98e8";
-
-      function loadConfig(page) {
-        Dashboard.showLoadingMsg();
-        ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-          page.querySelector('#SeerrBaseUrl').value = config.SeerrBaseUrl || '';
-          page.querySelector('#SeerrApiKey').value = config.SeerrApiKey || '';
-          Dashboard.hideLoadingMsg();
-        });
-      }
-
-      function saveConfig(page) {
-        Dashboard.showLoadingMsg();
-        ApiClient.getPluginConfiguration(pluginId).then(function (config) {
-          config.SeerrBaseUrl = page.querySelector('#SeerrBaseUrl').value.replace(/\/+$/, '');
-          config.SeerrApiKey = page.querySelector('#SeerrApiKey').value;
-          ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
-            Dashboard.processPluginConfigurationUpdateResult(result);
-          });
-        });
-      }
-
-      function testConnection(page) {
-        var resultEl = page.querySelector('#SeerrRequestsTestResult');
-        resultEl.textContent = 'Tester forbindelse...';
-        ApiClient.ajax({
-          type: 'GET',
-          url: ApiClient.getUrl('SeerrRequests/test-connection'),
-          dataType: 'json'
-        }).then(function (data) {
-          resultEl.textContent = data && data.ok
-            ? 'Forbundet - Seerr version ' + data.version
-            : 'Kunne ikke forbinde: ' + (data && data.error ? data.error : 'ukendt fejl');
-        }).catch(function () {
-          resultEl.textContent = 'Kunne ikke forbinde - tjek URL og API-nøgle, og gem først.';
-        });
-      }
-
-      document.querySelector('#SeerrRequestsConfigPage')
-        .addEventListener('pageshow', function () {
-          loadConfig(this);
-        });
-
-      document.querySelector('#SeerrRequestsConfigForm')
-        .addEventListener('submit', function (e) {
-          saveConfig(this.closest('.page'));
-          e.preventDefault();
-          return false;
-        });
-
-      document.querySelector('#SeerrRequestsTestButton')
-        .addEventListener('click', function () {
-          testConnection(this.closest('.page'));
-        });
-    })();
-  </script>
+  <!--
+    Deliberately no inline <script> here: Jellyfin's dashboard loads plugin
+    config pages via a mechanism that does not execute embedded <script>
+    tags on this server (confirmed live - inline scripts were silently
+    dropped, and the original <form type="submit"> fell through to a native
+    form submission that leaked the API key into the URL as a query string).
+    All the load/save/test-connection wiring lives in Inject/inject.js
+    instead, which is proven to load and run reliably (it's injected into
+    index.html itself, not fetched as a page fragment) and it watches for
+    this page via the same MutationObserver scan cycle used everywhere else
+    in this plugin family. Buttons here are deliberately type="button", not
+    type="submit", and there is no surrounding <form> element, so even if
+    that wiring somehow fails to attach, nothing can silently submit.
+  -->
 </body>
 </html>

@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.0.1.0",
+        "changelog": "Fix: the config page's embedded <script> never actually executed on this server (Jellyfin's dashboard loads plugin config pages via a mechanism that drops inline scripts), so the Save button's submit handler never attached and clicking it fell through to a native form submission - which leaked the Seerr API key into the browser URL as a plaintext query string. The Save/Test connection form no longer uses a <form>/type=\"submit\" at all, and all of its load/save/test-connection logic now lives in inject.js instead (already proven to load reliably, since it's injected into index.html itself rather than fetched as a page fragment).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.0.1.0/seerrrequests_1.0.1.0.zip",
+        "checksum": "599358eec22ff6cf86c6ad0be4d78c5a",
+        "timestamp": "2026-07-09T21:52:19Z"
+      },
+      {
         "version": "1.0.0.0",
         "changelog": "Initial release. Adds a 'Tilføj Film/Serie' button to the home page tab row that opens a themed panel with search, a 'Seneste anmodninger' (recent requests) row, and an 'Udforsk' (browse/trending) grid, all backed by a Seerr instance configured in the plugin's settings page (base URL + admin API key). Requests are proxied server-side (avoids CORS entirely) and attributed to the requesting household member's own Seerr account via Seerr's Jellyfin-user lookup, when they've linked one - falls back to the shared admin account otherwise.",
         "targetAbi": "10.11.0.0",
