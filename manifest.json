@@ -2,12 +2,20 @@
   {
     "guid": "b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70",
     "name": "New Badges",
-    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), and shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show.",
+    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, and forces item-detail backdrop images to render at any window width.",
     "overview": "Real 'added < 7 days ago' NEW badges for Recently Added rows.",
     "owner": "Langeboi",
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.0.8.0",
+        "changelog": "New feature: force item-detail-page backdrop images to render at any window width. Jellyfin's own renderBackdrop() only sets the backdrop when innerWidth >= 1000px AND not in mobile layout, checked once at page load - below that it calls clearBackdrop() and never even requests the image, so no CSS override could ever fix this. This plugin now detects when the backdrop container is empty on an item details page and injects the backdrop image itself via the same ApiClient.getScaledImageUrl used natively, matching Jellyfin's own styling.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.0.8.0/newbadges_1.0.8.0.zip",
+        "checksum": "d76bcc6c3ca181cfa59907d28dd6e898",
+        "timestamp": "2026-07-09T22:00:00Z"
+      },
       {
         "version": "1.0.7.0",
         "changelog": "Expand the season/episode badge to every still-airing show in Recently Added rows, not just ones with an episode newer than 7 days. A show now gets the S{n}E{m} badge whenever its Status is Continuing (shown in the UI as \"{year} - Nuværende\"), regardless of when its latest episode was added. Ended shows keep the normal unwatched-count badge. The red NEW ribbon is unchanged and still only shows for episodes added in the last 7 days.",

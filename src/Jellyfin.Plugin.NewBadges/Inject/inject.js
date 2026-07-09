@@ -8,6 +8,7 @@
   var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
   var ongoingCache = {}; // seriesId -> true if the show's Status is "Continuing"
   var pendingIds = new Set();
+  var pendingBackdropIds = new Set();
   var debounceTimer = null;
 
   function isRecentlyAddedSection(section) {
@@ -222,11 +223,97 @@
       });
   }
 
+  // Jellyfin's own item-details backdrop is gated behind a hardcoded
+  // `!layoutManager.mobile && innerWidth >= 1000` check evaluated once at
+  // page load (src/apps/legacy/controllers/itemDetails/index.js,
+  // renderBackdrop()) - below that width it calls clearBackdrop() instead,
+  // which no amount of CSS can override since the image is never even
+  // requested. Render it ourselves when Jellyfin didn't.
+  function isItemDetailsRoute() {
+    return location.hash.indexOf('#/details') === 0;
+  }
+
+  function getCurrentDetailsItemId() {
+    var qIndex = location.hash.indexOf('?');
+    if (qIndex === -1) {
+      return null;
+    }
+    return new URLSearchParams(location.hash.slice(qIndex + 1)).get('id');
+  }
+
+  function ensureBackdrop() {
+    if (!isItemDetailsRoute()) {
+      return;
+    }
+    var itemId = getCurrentDetailsItemId();
+    if (!itemId || pendingBackdropIds.has(itemId)) {
+      return;
+    }
+    var container = document.querySelector('.backdropContainer');
+    if (!container || container.querySelector('.displayingBackdropImage')) {
+      return;
+    }
+
+    var apiClient = window.ApiClient;
+    if (!apiClient) {
+      return;
+    }
+    pendingBackdropIds.add(itemId);
+
+    var userId = apiClient.getCurrentUserId();
+    var url = apiClient.getUrl('Users/' + userId + '/Items/' + itemId);
+    fetch(url, { headers: { 'X-Emby-Token': apiClient.accessToken() } })
+      .then(function (resp) { return resp.json(); })
+      .then(function (item) {
+        var imageItemId = item.Id;
+        var tag = item.BackdropImageTags && item.BackdropImageTags[0];
+        if (!tag && item.ParentBackdropItemId && item.ParentBackdropImageTags && item.ParentBackdropImageTags.length) {
+          imageItemId = item.ParentBackdropItemId;
+          tag = item.ParentBackdropImageTags[0];
+        }
+        if (!tag) {
+          return;
+        }
+
+        var imgUrl = apiClient.getScaledImageUrl(imageItemId, {
+          type: 'Backdrop',
+          tag: tag,
+          maxWidth: window.innerWidth
+        });
+
+        var freshContainer = document.querySelector('.backdropContainer');
+        if (!freshContainer || freshContainer.querySelector('.displayingBackdropImage')) {
+          return;
+        }
+
+        var img = new Image();
+        img.onload = function () {
+          var div = document.createElement('div');
+          div.className = 'backdropImage displayingBackdropImage';
+          div.style.backgroundImage = "url('" + imgUrl + "')";
+          div.setAttribute('data-url', imgUrl);
+          freshContainer.appendChild(div);
+          var bg = document.querySelector('.backgroundContainer');
+          if (bg) {
+            bg.classList.add('withBackdrop');
+          }
+        };
+        img.src = imgUrl;
+      })
+      .catch(function () {})
+      .finally(function () {
+        pendingBackdropIds.delete(itemId);
+      });
+  }
+
   function scheduleScan() {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
-    debounceTimer = setTimeout(scan, 400);
+    debounceTimer = setTimeout(function () {
+      scan();
+      ensureBackdrop();
+    }, 400);
   }
 
   function init() {
