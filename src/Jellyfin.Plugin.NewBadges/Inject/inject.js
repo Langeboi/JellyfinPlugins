@@ -724,8 +724,8 @@
   }
 
   function renderContinueSection(cwSection) {
-    cwSection.style.display = 'none';
-
+    // Caller (renderContinueIfHome) already hides cwSection and keeps
+    // re-hiding it on every tick.
     var titleEl = cwSection.querySelector('.sectionTitle, [class*="sectionTitle"]');
     var titleText = titleEl ? titleEl.textContent.trim() : 'Fortsæt afspilning';
 
@@ -765,21 +765,38 @@
       continueRendered = false;
       return;
     }
-    if (continueRendered) {
-      return;
-    }
     var homePage = getActiveHomePage();
     if (!homePage) {
       return;
     }
     var sections = homePage.querySelectorAll('.verticalSection');
+    var nativeSection = null;
     for (var i = 0; i < sections.length; i++) {
-      if (isContinueWatchingSection(sections[i])) {
-        continueRendered = true;
-        renderContinueSection(sections[i]);
-        return;
+      // Our own replacement row carries the same title text as the native
+      // one, so it has to be explicitly excluded here or it'd match too.
+      if (isContinueWatchingSection(sections[i]) && !sections[i].classList.contains('newBadges-continueSection')) {
+        nativeSection = sections[i];
+        break;
       }
     }
+    if (!nativeSection) {
+      return;
+    }
+
+    // Jellyfin periodically re-fetches and re-renders this specific row on
+    // its own (Resume state can change from other sessions/clients), which
+    // resets its inline display style - re-assert the hide on every tick
+    // rather than only once at insertion time, or the native row silently
+    // reappears alongside ours a few seconds later.
+    if (nativeSection.style.display !== 'none') {
+      nativeSection.style.display = 'none';
+    }
+
+    if (continueRendered) {
+      return;
+    }
+    continueRendered = true;
+    renderContinueSection(nativeSection);
   }
 
   function scheduleScan() {

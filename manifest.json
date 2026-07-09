@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.1.0",
+        "changelog": "Fix: the merged Continue Watching row from 1.2.0.0 could get silently overridden - Jellyfin periodically re-fetches and re-renders the native Fortsæt afspilning row on its own (Resume state can change from other sessions/clients), which reset the inline display:none style we used to hide it, making the native row reappear a few seconds after our replacement loaded. Now re-asserted on every scan tick instead of only once at insertion time.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.2.1.0/newbadges_1.2.1.0.zip",
+        "checksum": "251a25917edcc30b830cd6c2fff1a644",
+        "timestamp": "2026-07-09T13:36:36Z"
+      },
+      {
         "version": "1.2.0.0",
         "changelog": "Two changes: (1) The Trending row's cards now get the same white hover-ring border and glare-sweep effect as every other native row - they were missing the card-hoverable class and an empty cardOverlayContainer element that those effects hang off of. (2) New feature: Continue Watching (Fortsæt afspilning) and Next Up (Næste afsnit) are merged into a single row. In-progress items keep their normal progress bar; shows whose last-watched episode is now fully finished get a blue NEXT card recommending the next unwatched episode instead of just disappearing from Continue Watching once you're caught up. Sourced from Users/{id}/Items/Resume and Shows/NextUp, deduplicated by series and sorted by last-played date.",
         "targetAbi": "10.11.0.0",
