@@ -24,6 +24,7 @@ namespace Jellyfin.Plugin.NewBadges.Services
 
         public Task StartAsync(CancellationToken cancellationToken)
         {
+            _logger.LogInformation("NewBadges: StartAsync called");
             try
             {
                 RegisterTransformation();
@@ -62,7 +63,7 @@ namespace Jellyfin.Plugin.NewBadges.Services
             var payload = new JObject
             {
                 ["id"] = TransformationId,
-                ["fileNamePattern"] = "index\\.html$",
+                ["fileNamePattern"] = "index.html$",
                 ["callbackAssembly"] = typeof(TransformationPatches).Assembly.FullName,
                 ["callbackClass"] = typeof(TransformationPatches).FullName,
                 ["callbackMethod"] = nameof(TransformationPatches.IndexHtml)
