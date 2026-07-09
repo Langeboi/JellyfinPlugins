@@ -113,5 +113,24 @@
         "timestamp": "2026-07-09T06:54:07Z"
       }
     ]
+  },
+  {
+    "guid": "23b52a27-7ca8-4923-9e3b-65889d3e98e8",
+    "name": "Seerr Requests",
+    "description": "Adds a 'Tilføj Film/Serie' button next to Hjem/Favoritter on the Jellyfin home page, opening a Seerr-backed panel to search for and request new movies/shows without leaving Jellyfin. Requests are attributed to the household member's own linked Seerr account when one exists.",
+    "overview": "Search and request new movies/shows via Seerr, without leaving Jellyfin.",
+    "owner": "Langeboi",
+    "category": "General",
+    "imageUrl": "",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release. Adds a 'Tilføj Film/Serie' button to the home page tab row that opens a themed panel with search, a 'Seneste anmodninger' (recent requests) row, and an 'Udforsk' (browse/trending) grid, all backed by a Seerr instance configured in the plugin's settings page (base URL + admin API key). Requests are proxied server-side (avoids CORS entirely) and attributed to the requesting household member's own Seerr account via Seerr's Jellyfin-user lookup, when they've linked one - falls back to the shared admin account otherwise.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.0.0.0/seerrrequests_1.0.0.0.zip",
+        "checksum": "8df563eef691feed167552313158a583",
+        "timestamp": "2026-07-09T20:55:07Z"
+      }
+    ]
   }
 ]
