@@ -55,30 +55,65 @@
     }
   }
 
-  function fetchDates(ids) {
+  function fetchLatestEpisodeDate(seriesId) {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+    var url = apiClient.getUrl('Shows/' + seriesId + '/Episodes', {
+      userId: userId,
+      Fields: 'DateCreated',
+      SortBy: 'DateCreated',
+      SortOrder: 'Descending',
+      Limit: 1
+    });
+
+    return apiClient.getJSON(url).then(function (result) {
+      var items = result.Items || [];
+      return items.length > 0 ? items[0].DateCreated : null;
+    });
+  }
+
+  function fetchDates(entries) {
     var apiClient = window.ApiClient;
     if (!apiClient) {
       return Promise.reject(new Error('ApiClient not available'));
     }
 
-    var userId = apiClient.getCurrentUserId();
-    var url = apiClient.getUrl('Users/' + userId + '/Items', {
-      Ids: ids.join(','),
-      Fields: 'DateCreated'
+    // Series cards use the show's own DateCreated (when the show was first
+    // added), not when its newest episode arrived - look those up separately
+    // via the latest episode instead.
+    var directIds = entries.filter(function (e) { return e.type !== 'Series'; }).map(function (e) { return e.id; });
+    var seriesIds = entries.filter(function (e) { return e.type === 'Series'; }).map(function (e) { return e.id; });
+
+    var map = {};
+    var promises = [];
+
+    if (directIds.length > 0) {
+      var userId = apiClient.getCurrentUserId();
+      var url = apiClient.getUrl('Users/' + userId + '/Items', {
+        Ids: directIds.join(','),
+        Fields: 'DateCreated'
+      });
+      promises.push(apiClient.getJSON(url).then(function (result) {
+        (result.Items || []).forEach(function (item) {
+          map[item.Id] = item.DateCreated;
+        });
+      }));
+    }
+
+    seriesIds.forEach(function (seriesId) {
+      promises.push(
+        fetchLatestEpisodeDate(seriesId)
+          .then(function (date) { map[seriesId] = date; })
+          .catch(function () { map[seriesId] = null; })
+      );
     });
 
-    return apiClient.getJSON(url).then(function (result) {
-      var map = {};
-      (result.Items || []).forEach(function (item) {
-        map[item.Id] = item.DateCreated;
-      });
-      return map;
-    });
+    return Promise.all(promises).then(function () { return map; });
   }
 
   function scan() {
     var sections = document.querySelectorAll('.verticalSection.emby-scroller-container');
-    var idsToFetch = [];
+    var entriesToFetch = [];
     var cardsById = {};
 
     sections.forEach(function (section) {
@@ -95,30 +130,30 @@
         if (Object.prototype.hasOwnProperty.call(dateCache, id)) {
           applyBadgeIfNew(card, id);
         } else if (!pendingIds.has(id)) {
-          idsToFetch.push(id);
+          entriesToFetch.push({ id: id, type: card.getAttribute('data-type') });
           pendingIds.add(id);
         }
       });
     });
 
-    if (idsToFetch.length === 0) {
+    if (entriesToFetch.length === 0) {
       return;
     }
 
-    fetchDates(idsToFetch)
+    fetchDates(entriesToFetch)
       .then(function (dateMap) {
-        idsToFetch.forEach(function (id) {
-          pendingIds.delete(id);
-          dateCache[id] = dateMap[id] || null;
-          var card = cardsById[id];
+        entriesToFetch.forEach(function (entry) {
+          pendingIds.delete(entry.id);
+          dateCache[entry.id] = dateMap[entry.id] || null;
+          var card = cardsById[entry.id];
           if (card) {
-            applyBadgeIfNew(card, id);
+            applyBadgeIfNew(card, entry.id);
           }
         });
       })
       .catch(function () {
-        idsToFetch.forEach(function (id) {
-          pendingIds.delete(id);
+        entriesToFetch.forEach(function (entry) {
+          pendingIds.delete(entry.id);
         });
       });
   }
