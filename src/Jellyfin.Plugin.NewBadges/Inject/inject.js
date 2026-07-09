@@ -45,7 +45,18 @@
       '.countIndicator.indicator.' + EPISODE_LABEL_CLASS + '{' +
       'width:auto!important;min-width:26.1875px!important;height:20px!important;' +
       'padding:0 7px!important;border-radius:10px!important;font-size:11px!important;' +
-      'font-weight:700!important;letter-spacing:0!important;}';
+      'font-weight:700!important;letter-spacing:0!important;}' +
+      '.newBadges-rankBadge{position:absolute;top:8px;left:8px;z-index:6;' +
+      'background:rgba(20,20,20,.85);color:#ffd60a;font-size:13px;font-weight:800;' +
+      'letter-spacing:.02em;padding:3px 8px;border-radius:4px;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.5);pointer-events:none;}' +
+      // On trending cards the rank badge and NEW ribbon can both apply -
+      // wrap them in a flex row (rank first, then NEW) instead of letting
+      // them stack on top of each other at the same top-left position.
+      '.newBadges-badgeRow{position:absolute;top:8px;left:8px;z-index:6;' +
+      'display:flex;align-items:flex-start;gap:4px;}' +
+      '.newBadges-badgeRow .' + BADGE_CLASS + ',' +
+      '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}';
     document.head.appendChild(style);
   }
 
@@ -79,13 +90,16 @@
     }
   }
 
-  function applyNewRibbonIfRecent(card, id) {
-    var created = dateCache[id];
-    if (!created) {
-      return;
+  function isRecentDate(dateStr) {
+    if (!dateStr) {
+      return false;
     }
-    var ageMs = Date.now() - new Date(created).getTime();
-    if (ageMs >= 0 && ageMs < MAX_AGE_DAYS * 86400000) {
+    var ageMs = Date.now() - new Date(dateStr).getTime();
+    return ageMs >= 0 && ageMs < MAX_AGE_DAYS * 86400000;
+  }
+
+  function applyNewRibbonIfRecent(card, id) {
+    if (isRecentDate(dateCache[id])) {
       addBadge(card);
     }
   }
@@ -314,6 +328,252 @@
       });
   }
 
+  // Replace the "Next Up" home row with a "Trending" row - what other
+  // household members have actually watched recently, ranked by distinct
+  // viewer count. Sourced from the Playback Reporting plugin's own SQLite
+  // report DB via its submit_custom_query endpoint, since Jellyfin's core
+  // API has no cross-user "what's popular" concept. Episode plays are
+  // resolved up to their parent series so a show ranks as one unit
+  // regardless of which episode was watched.
+  var NEXT_UP_TITLES = ['Næste afsnit', 'Next Up'];
+  var TRENDING_WINDOW_DAYS = 30;
+  var TRENDING_MIN_ITEMS = 4;
+  var TRENDING_MAX_ITEMS = 16;
+  var trendingRendered = false;
+
+  function isNextUpSection(section) {
+    var titleEl = section.querySelector('.sectionTitle, [class*="sectionTitle"]');
+    if (!titleEl) {
+      return false;
+    }
+    var title = titleEl.textContent.trim();
+    return NEXT_UP_TITLES.indexOf(title) !== -1;
+  }
+
+  function isHomeRoute() {
+    return location.hash.indexOf('#/home') === 0;
+  }
+
+  function fetchTrendingItems() {
+    var apiClient = window.ApiClient;
+    var currentUserId = apiClient.getCurrentUserId();
+    var sql = "SELECT UserId, ItemId, ItemType FROM PlaybackActivity WHERE DateCreated >= datetime('now', '-" +
+      TRENDING_WINDOW_DAYS + " days') AND UserId != '" + currentUserId + "'";
+
+    return fetch(apiClient.getUrl('user_usage_stats/submit_custom_query'), {
+      method: 'POST',
+      headers: {
+        'X-Emby-Token': apiClient.accessToken(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ CustomQueryString: sql })
+    })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error('Playback Reporting query failed: ' + resp.status);
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        var rows = (data.results || []).map(function (r) {
+          return { userId: r[0], itemId: r[1], itemType: r[2] };
+        });
+
+        var movieRows = rows.filter(function (r) { return r.itemType === 'Movie'; });
+        var episodeRows = rows.filter(function (r) { return r.itemType === 'Episode'; });
+        var uniqueEpisodeIds = Array.from(new Set(episodeRows.map(function (r) { return r.itemId; })));
+
+        var resolveSeries = uniqueEpisodeIds.length === 0
+          ? Promise.resolve({})
+          : apiClient.getJSON(apiClient.getUrl('Users/' + currentUserId + '/Items', {
+              Ids: uniqueEpisodeIds.join(','),
+              Fields: 'SeriesId'
+            })).then(function (result) {
+              var map = {};
+              (result.Items || []).forEach(function (item) {
+                map[item.Id] = item.SeriesId;
+              });
+              return map;
+            });
+
+        return resolveSeries.then(function (episodeToSeries) {
+          var agg = {};
+          function bump(id, userId) {
+            if (!id) {
+              return;
+            }
+            if (!agg[id]) {
+              agg[id] = { users: {}, userCount: 0, playCount: 0 };
+            }
+            var entry = agg[id];
+            if (!entry.users[userId]) {
+              entry.users[userId] = true;
+              entry.userCount++;
+            }
+            entry.playCount++;
+          }
+
+          movieRows.forEach(function (r) { bump(r.itemId, r.userId); });
+          episodeRows.forEach(function (r) { bump(episodeToSeries[r.itemId], r.userId); });
+
+          var ranked = Object.keys(agg)
+            .map(function (id) {
+              return { id: id, userCount: agg[id].userCount, playCount: agg[id].playCount };
+            })
+            .sort(function (a, b) {
+              return b.userCount - a.userCount || b.playCount - a.playCount;
+            })
+            .slice(0, TRENDING_MAX_ITEMS);
+
+          if (ranked.length < TRENDING_MIN_ITEMS) {
+            return [];
+          }
+
+          var ids = ranked.map(function (r) { return r.id; });
+          return apiClient.getJSON(apiClient.getUrl('Users/' + currentUserId + '/Items', {
+            Ids: ids.join(','),
+            Fields: 'ProductionYear'
+          })).then(function (result) {
+            var itemsById = {};
+            (result.Items || []).forEach(function (item) {
+              itemsById[item.Id] = item;
+            });
+            var items = ranked
+              .map(function (r) { return itemsById[r.id]; })
+              .filter(function (item) { return !!item; });
+
+            // Reuse the same date-freshness lookup the NEW ribbon uses
+            // elsewhere (latest-episode date for series, DateCreated for
+            // movies) so a trending show can show both badges together.
+            var dateEntries = items.map(function (item) {
+              return { id: item.Id, type: item.Type };
+            });
+            return fetchDates(dateEntries).then(function (dateMap) {
+              items.forEach(function (item) {
+                dateCache[item.Id] = dateMap[item.Id] || null;
+              });
+              return items;
+            });
+          });
+        });
+      });
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function buildTrendingCardHtml(item, rank) {
+    var apiClient = window.ApiClient;
+    var bgStyle = '';
+    if (item.ImageTags && item.ImageTags.Primary) {
+      var imgUrl = apiClient.getScaledImageUrl(item.Id, {
+        type: 'Primary',
+        tag: item.ImageTags.Primary,
+        maxWidth: 300
+      });
+      bgStyle = ' style="background-image:url(&quot;' + imgUrl + '&quot;)"';
+    }
+    var name = escapeHtml(item.Name);
+
+    // Rank badge always shows; NEW ribbon joins it (rank first) when the
+    // item also qualifies as recently added.
+    var badgesHtml = '<div class="newBadges-badgeRow">' +
+      '<div class="newBadges-rankBadge">#' + rank + '</div>' +
+      (isRecentDate(dateCache[item.Id]) ? '<div class="' + BADGE_CLASS + '">NEW</div>' : '') +
+      '</div>';
+
+    return (
+      '<div class="card overflowPortraitCard" data-id="' + item.Id + '" data-type="' + item.Type + '">' +
+        '<div class="cardBox cardBox-bottompadded">' +
+          '<div class="cardScalable">' +
+            '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
+            '<a href="#/details?id=' + item.Id + '" class="cardImageContainer coveredImage cardContent itemAction"' + bgStyle + '>' +
+              badgesHtml +
+            '</a>' +
+          '</div>' +
+          '<div class="cardText cardTextCentered cardText-first"><bdi>' + name + '</bdi></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderTrendingSection(nextUpSection) {
+    nextUpSection.style.display = 'none';
+
+    var section = document.createElement('div');
+    section.className = 'verticalSection newBadges-trendingSection';
+    section.innerHTML =
+      '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+        '<h2 class="sectionTitle sectionTitle-cards">Trending</h2>' +
+      '</div>' +
+      '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+        '<div class="itemsContainer scrollSlider focuscontainer-x"></div>' +
+      '</div>';
+
+    nextUpSection.parentNode.insertBefore(section, nextUpSection.nextSibling);
+
+    fetchTrendingItems()
+      .then(function (items) {
+        if (items.length === 0) {
+          // Not enough data yet - remove our placeholder and restore Next Up.
+          section.remove();
+          nextUpSection.style.display = '';
+          return;
+        }
+        var itemsContainer = section.querySelector('.itemsContainer');
+        itemsContainer.innerHTML = items
+          .map(function (item, index) { return buildTrendingCardHtml(item, index + 1); })
+          .join('');
+      })
+      .catch(function () {
+        section.remove();
+        nextUpSection.style.display = '';
+      });
+  }
+
+  // Jellyfin keeps previously-visited pages mounted in the DOM (hidden via
+  // display:none) rather than destroying them on navigation - the item
+  // details page has its own "next episode" section that can also match
+  // isNextUpSection's title check, so an unscoped document-wide search can
+  // silently grab that hidden page's copy instead of the live home page's.
+  // Scope everything to the currently-visible .page.homePage explicitly.
+  function getActiveHomePage() {
+    var pages = document.querySelectorAll('.page.homePage');
+    for (var i = 0; i < pages.length; i++) {
+      if (getComputedStyle(pages[i]).display !== 'none') {
+        return pages[i];
+      }
+    }
+    return null;
+  }
+
+  function renderTrendingIfHome() {
+    if (!isHomeRoute()) {
+      // Reset so navigating away and back to home retries cleanly - the
+      // Next Up section is a fresh DOM element each time home re-renders.
+      trendingRendered = false;
+      return;
+    }
+    if (trendingRendered) {
+      return;
+    }
+    var homePage = getActiveHomePage();
+    if (!homePage) {
+      return;
+    }
+    var sections = homePage.querySelectorAll('.verticalSection');
+    for (var i = 0; i < sections.length; i++) {
+      if (isNextUpSection(sections[i])) {
+        trendingRendered = true;
+        renderTrendingSection(sections[i]);
+        return;
+      }
+    }
+  }
+
   function scheduleScan() {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -321,6 +581,7 @@
     debounceTimer = setTimeout(function () {
       scan();
       ensureBackdrop();
+      renderTrendingIfHome();
     }, 400);
   }
 

@@ -2,12 +2,20 @@
   {
     "guid": "b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70",
     "name": "New Badges",
-    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, and forces item-detail backdrop images to render at any window width.",
+    "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, forces item-detail backdrop images to render at any window width, and replaces the Next Up row with a Trending row ranked by other users' recent plays.",
     "overview": "Real 'added < 7 days ago' NEW badges for Recently Added rows.",
     "owner": "Langeboi",
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.1.0.0",
+        "changelog": "New feature: replaces the Next Up home row with a Trending row, showing what other household members have watched in the last 30 days, ranked by distinct viewer count then play count. Sourced from the Playback Reporting plugin's own SQLite report DB via its submit_custom_query endpoint. Episode plays are resolved to their parent series so a show ranks as one unit. Horizontally scrollable like native rows (built on the real emby-scroller custom element), with a gold #rank badge on each poster - and the red NEW ribbon appears alongside it, rank first, when that item also qualifies as recently added. Falls back to leaving Next Up untouched if fewer than 4 distinct items are trending.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.1.0.0/newbadges_1.1.0.0.zip",
+        "checksum": "10cdc33b84d832ffddf56b977c33e782",
+        "timestamp": "2026-07-10T04:00:00Z"
+      },
       {
         "version": "1.0.9.0",
         "changelog": "Fix: none of the badge features (NEW ribbon, episode-label badge) worked in Jellyfin's mobile layout mode. layoutManager.mobile is set purely from the browser's User-Agent string (not viewport width), and in mobile layout Recently Added rows render as a plain wrapping grid instead of a horizontal emby-scroller, so they never got the emby-scroller-container class our section filter required. The sectionN-exclusion heuristic itself still correctly identifies Recently Added rows on mobile - only the emby-scroller-container requirement was the blocker. Relaxed the filter to just .verticalSection plus the sectionN exclusion, which works identically on desktop and mobile.",
