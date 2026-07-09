@@ -6,6 +6,7 @@
   var MAX_AGE_DAYS = 7;
   var dateCache = {}; // itemId -> DateCreated string (or null if unknown)
   var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
+  var ongoingCache = {}; // seriesId -> true if the show's Status is "Continuing"
   var pendingIds = new Set();
   var debounceTimer = null;
 
@@ -50,7 +51,14 @@
     imgContainer.appendChild(badge);
   }
 
-  function applyEpisodeLabel(card, id) {
+  // The blue unwatched-count badge is swapped to the latest-episode label for
+  // any still-airing ("Continuing") show in a Recently Added row, regardless
+  // of whether that episode itself is within the "NEW" freshness window -
+  // this is independent of the red NEW ribbon below.
+  function applyEpisodeLabelIfOngoing(card, id) {
+    if (!ongoingCache[id]) {
+      return;
+    }
     var label = episodeLabelCache[id];
     if (!label) {
       return;
@@ -62,7 +70,7 @@
     }
   }
 
-  function applyBadgeIfNew(card, id) {
+  function applyNewRibbonIfRecent(card, id) {
     var created = dateCache[id];
     if (!created) {
       return;
@@ -70,8 +78,12 @@
     var ageMs = Date.now() - new Date(created).getTime();
     if (ageMs >= 0 && ageMs < MAX_AGE_DAYS * 86400000) {
       addBadge(card);
-      applyEpisodeLabel(card, id);
     }
+  }
+
+  function applyCard(card, id) {
+    applyNewRibbonIfRecent(card, id);
+    applyEpisodeLabelIfOngoing(card, id);
   }
 
   function fetchLatestEpisodeInfo(seriesId) {
@@ -101,6 +113,16 @@
         label = 'S' + episode.ParentIndexNumber + 'E' + episode.IndexNumber;
       }
       return { date: episode.DateCreated, label: label };
+    });
+  }
+
+  function fetchSeriesIsOngoing(seriesId) {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+    var url = apiClient.getUrl('Users/' + userId + '/Items/' + seriesId);
+
+    return apiClient.getJSON(url).then(function (series) {
+      return series.Status === 'Continuing';
     });
   }
 
@@ -143,6 +165,11 @@
           })
           .catch(function () { map[seriesId] = null; })
       );
+      promises.push(
+        fetchSeriesIsOngoing(seriesId)
+          .then(function (isOngoing) { ongoingCache[seriesId] = isOngoing; })
+          .catch(function () { ongoingCache[seriesId] = false; })
+      );
     });
 
     return Promise.all(promises).then(function () { return map; });
@@ -165,7 +192,7 @@
         cardsById[id] = card;
 
         if (Object.prototype.hasOwnProperty.call(dateCache, id)) {
-          applyBadgeIfNew(card, id);
+          applyCard(card, id);
         } else if (!pendingIds.has(id)) {
           entriesToFetch.push({ id: id, type: card.getAttribute('data-type') });
           pendingIds.add(id);
@@ -184,7 +211,7 @@
           dateCache[entry.id] = dateMap[entry.id] || null;
           var card = cardsById[entry.id];
           if (card) {
-            applyBadgeIfNew(card, entry.id);
+            applyCard(card, entry.id);
           }
         });
       })
