@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.0.9.0",
+        "changelog": "Fix: none of the badge features (NEW ribbon, episode-label badge) worked in Jellyfin's mobile layout mode. layoutManager.mobile is set purely from the browser's User-Agent string (not viewport width), and in mobile layout Recently Added rows render as a plain wrapping grid instead of a horizontal emby-scroller, so they never got the emby-scroller-container class our section filter required. The sectionN-exclusion heuristic itself still correctly identifies Recently Added rows on mobile - only the emby-scroller-container requirement was the blocker. Relaxed the filter to just .verticalSection plus the sectionN exclusion, which works identically on desktop and mobile.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.0.9.0/newbadges_1.0.9.0.zip",
+        "checksum": "9ee45ba572e816c59422b605206a2479",
+        "timestamp": "2026-07-10T01:00:00Z"
+      },
+      {
         "version": "1.0.8.0",
         "changelog": "New feature: force item-detail-page backdrop images to render at any window width. Jellyfin's own renderBackdrop() only sets the backdrop when innerWidth >= 1000px AND not in mobile layout, checked once at page load - below that it calls clearBackdrop() and never even requests the image, so no CSS override could ever fix this. This plugin now detects when the backdrop container is empty on an item details page and injects the backdrop image itself via the same ApiClient.getScaledImageUrl used natively, matching Jellyfin's own styling.",
         "targetAbi": "10.11.0.0",

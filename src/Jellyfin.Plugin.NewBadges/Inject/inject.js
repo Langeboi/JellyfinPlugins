@@ -11,8 +11,16 @@
   var pendingBackdropIds = new Set();
   var debounceTimer = null;
 
+  // Recently Added rows are the only home-page .verticalSection elements
+  // without a positional sectionN class (every other row - My Media,
+  // Continue Watching, Next Up, etc. - always gets one). On desktop this
+  // class list also includes emby-scroller-container (added by the
+  // <emby-scroller> custom element once it upgrades), but in Jellyfin's
+  // mobile layout Recently Added rows render as a plain wrapping grid
+  // instead of a horizontal scroller, so that class never appears - the
+  // sectionN exclusion alone is what's reliable across both layouts.
   function isRecentlyAddedSection(section) {
-    if (!section.classList.contains('emby-scroller-container')) {
+    if (!section.classList.contains('verticalSection')) {
       return false;
     }
     for (var i = 0; i < section.classList.length; i++) {
@@ -177,7 +185,7 @@
   }
 
   function scan() {
-    var sections = document.querySelectorAll('.verticalSection.emby-scroller-container');
+    var sections = document.querySelectorAll('.verticalSection');
     var entriesToFetch = [];
     var cardsById = {};
 
