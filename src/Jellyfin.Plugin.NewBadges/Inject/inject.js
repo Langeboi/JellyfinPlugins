@@ -56,12 +56,7 @@
       '.newBadges-badgeRow{position:absolute;top:8px;left:8px;z-index:6;' +
       'display:flex;align-items:flex-start;gap:4px;}' +
       '.newBadges-badgeRow .' + BADGE_CLASS + ',' +
-      '.newBadges-badgeRow .newBadges-rankBadge,' +
-      '.newBadges-badgeRow .newBadges-nextBadge{position:static;top:auto;left:auto;}' +
-      '.newBadges-nextBadge{position:absolute;top:8px;left:8px;z-index:6;' +
-      'background:rgba(0,122,255,.85);color:#fff;font-size:10px;font-weight:700;' +
-      'letter-spacing:.05em;padding:3px 7px;border-radius:4px;' +
-      'box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;}';
+      '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}';
     document.head.appendChild(style);
   }
 
@@ -154,7 +149,11 @@
     });
   }
 
-  function fetchDates(entries) {
+  // skipOngoingCheck: the Trending row only needs each series' latest-episode
+  // date for its NEW ribbon - the ongoing/episode-label lookup is exclusively
+  // a Recently-Added-rows feature, so skipping it there halves the number of
+  // per-series requests this makes.
+  function fetchDates(entries, skipOngoingCheck) {
     var apiClient = window.ApiClient;
     if (!apiClient) {
       return Promise.reject(new Error('ApiClient not available'));
@@ -193,11 +192,13 @@
           })
           .catch(function () { map[seriesId] = null; })
       );
-      promises.push(
-        fetchSeriesIsOngoing(seriesId)
-          .then(function (isOngoing) { ongoingCache[seriesId] = isOngoing; })
-          .catch(function () { ongoingCache[seriesId] = false; })
-      );
+      if (!skipOngoingCheck) {
+        promises.push(
+          fetchSeriesIsOngoing(seriesId)
+            .then(function (isOngoing) { ongoingCache[seriesId] = isOngoing; })
+            .catch(function () { ongoingCache[seriesId] = false; })
+        );
+      }
     });
 
     return Promise.all(promises).then(function () { return map; });
@@ -344,6 +345,9 @@
   var TRENDING_WINDOW_DAYS = 30;
   var TRENDING_MIN_ITEMS = 4;
   var TRENDING_MAX_ITEMS = 16;
+  // The 30-day trending window barely shifts minute to minute, so a longer
+  // cache is safe.
+  var TRENDING_CACHE_TTL_MS = 10 * 60 * 1000;
   var trendingRendered = false;
 
   function isNextUpSection(section) {
@@ -357,6 +361,48 @@
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
+  }
+
+  // Trending and the merged Continue Watching row both cost several
+  // sequential API round-trips (SQL aggregation, batch lookups, per-series
+  // date checks) that native rows don't pay, which made them visibly slower
+  // to appear than everything else on the home page. Cache each result in
+  // sessionStorage - stale-while-revalidate, so a home revisit (even across a
+  // full page reload, since sessionStorage outlives SPA navigation) paints
+  // instantly from the last-known data while a background refresh keeps it
+  // current for next time.
+  var CACHE_PREFIX = 'newBadges-cache-';
+
+  function getCacheEntry(key) {
+    try {
+      var raw = sessionStorage.getItem(CACHE_PREFIX + key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function setCacheEntry(key, data) {
+    try {
+      sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data: data, timestamp: Date.now() }));
+    } catch (e) {
+      // sessionStorage can be unavailable (private browsing, quota) - caching
+      // is a pure optimization, so just skip it rather than fail the fetch.
+    }
+  }
+
+  function fetchWithCache(key, ttlMs, fetchFn) {
+    var cached = getCacheEntry(key);
+    if (cached) {
+      if (Date.now() - cached.timestamp >= ttlMs) {
+        fetchFn().then(function (data) { setCacheEntry(key, data); }).catch(function () {});
+      }
+      return Promise.resolve(cached.data);
+    }
+    return fetchFn().then(function (data) {
+      setCacheEntry(key, data);
+      return data;
+    });
   }
 
   function fetchTrendingItems() {
@@ -450,12 +496,18 @@
             // Reuse the same date-freshness lookup the NEW ribbon uses
             // elsewhere (latest-episode date for series, DateCreated for
             // movies) so a trending show can show both badges together.
+            // skipOngoingCheck=true: Trending doesn't use the episode-label
+            // badge, so there's no need to pay for fetchSeriesIsOngoing too.
             var dateEntries = items.map(function (item) {
               return { id: item.Id, type: item.Type };
             });
-            return fetchDates(dateEntries).then(function (dateMap) {
+            return fetchDates(dateEntries, true).then(function (dateMap) {
               items.forEach(function (item) {
-                dateCache[item.Id] = dateMap[item.Id] || null;
+                // Stashed on the item (not just dateCache) so a cached copy
+                // of this list, restored later without re-running fetchDates,
+                // can still hydrate dateCache for the NEW ribbon check.
+                item._dateForBadge = dateMap[item.Id] || null;
+                dateCache[item.Id] = item._dateForBadge;
               });
               return items;
             });
@@ -525,7 +577,8 @@
 
     nextUpSection.parentNode.insertBefore(section, nextUpSection.nextSibling);
 
-    fetchTrendingItems()
+    var cacheKey = 'trending-' + window.ApiClient.getCurrentUserId();
+    fetchWithCache(cacheKey, TRENDING_CACHE_TTL_MS, fetchTrendingItems)
       .then(function (items) {
         if (items.length === 0) {
           // Not enough data yet - remove our placeholder and restore Next Up.
@@ -533,6 +586,13 @@
           nextUpSection.style.display = '';
           return;
         }
+        // A cache hit skips fetchTrendingItems' own fetchDates() call, so
+        // dateCache needs hydrating from the date each item carried with it.
+        items.forEach(function (item) {
+          if (item._dateForBadge !== undefined) {
+            dateCache[item.Id] = item._dateForBadge;
+          }
+        });
         var itemsContainer = section.querySelector('.itemsContainer');
         itemsContainer.innerHTML = items
           .map(function (item, index) { return buildTrendingCardHtml(item, index + 1); })
@@ -587,11 +647,14 @@
   // Merge "Fortsæt afspilning" (Continue Watching) and "Næste afsnit"
   // (Next Up) into a single row - items already in progress keep their
   // normal progress bar, and shows whose last-watched episode is now fully
-  // finished get a "NEXT" card recommending the next unwatched episode,
+  // finished get a plain recommendation card for the next unwatched episode,
   // instead of the show just vanishing from Continue Watching once it's
   // caught up.
   var CONTINUE_WATCHING_TITLES = ['Fortsæt afspilning', 'Continue Watching'];
   var CONTINUE_MAX_ITEMS = 20;
+  // Short TTL - Resume position changes as you actively watch, so this can't
+  // be cached nearly as long as Trending.
+  var CONTINUE_CACHE_TTL_MS = 60 * 1000;
   var continueRendered = false;
 
   function isContinueWatchingSection(section) {
@@ -694,14 +757,14 @@
     var line1 = escapeHtml(lines[0] || '');
     var line2 = escapeHtml(lines[1] || '');
 
-    var footerHtml;
+    // Only in-progress items get a footer (their progress bar) - "next
+    // episode" recommendations render as a plain card with no badge.
+    var footerHtml = '';
     if (item._source === 'resume') {
       var pct = (item.UserData && item.UserData.PlayedPercentage) || 0;
       footerHtml = '<div class="innerCardFooter fullInnerCardFooter innerCardFooterClear">' +
         '<div class="itemProgressBar"><div class="itemProgressBarForeground" style="width:' + pct + '%;"></div></div>' +
         '</div>';
-    } else {
-      footerHtml = '<div class="newBadges-badgeRow"><div class="newBadges-nextBadge">NEXT</div></div>';
     }
 
     // Same card-hoverable + empty cardOverlayContainer combo the Trending
@@ -741,7 +804,8 @@
 
     cwSection.parentNode.insertBefore(section, cwSection.nextSibling);
 
-    fetchMergedContinueItems()
+    var cacheKey = 'continue-' + window.ApiClient.getCurrentUserId();
+    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems)
       .then(function (items) {
         if (items.length === 0) {
           section.remove();
