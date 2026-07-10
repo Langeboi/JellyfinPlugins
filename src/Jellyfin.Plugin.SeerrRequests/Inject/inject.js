@@ -57,7 +57,15 @@
           throw new Error(err.error || ('Request failed: ' + resp.status));
         });
       }
-      return resp.json();
+      // Seerr's own DELETE (used by the Fortryd cancel) returns 204 No
+      // Content with an empty body - resp.json() throws on that (invalid
+      // JSON), which turned a genuinely successful cancel into a rejected
+      // promise and made the UI fall back to "still a real request"
+      // (Anmodet) even though it had actually been cancelled. Read as text
+      // first and only parse if there's something to parse.
+      return resp.text().then(function (text) {
+        return text ? JSON.parse(text) : {};
+      });
     });
   }
 
@@ -144,10 +152,10 @@
       // hover-ring effect on each card room to render without getting
       // clipped by this row's own scrollable bounding box - confirmed live
       // that overflow-x:auto with tight/no side padding clips a card's
-      // hover glow right where it pokes past the row's edge. Gap also
-      // brought down from 1em - cards were sitting further apart than
-      // intended.
-      '.seerrRequests-scrollRow{display:flex;gap:.6em;overflow-x:auto;overflow-y:visible;' +
+      // hover glow right where it pokes past the row's edge. Gap brought
+      // down twice now (1em -> .6em -> .3em) - still felt too spaced out
+      // even at .6em per feedback.
+      '.seerrRequests-scrollRow{display:flex;gap:.3em;overflow-x:auto;overflow-y:visible;' +
       'scroll-behavior:smooth;padding:14px 10px;scrollbar-width:none;}' +
       '.seerrRequests-scrollRow::-webkit-scrollbar{display:none;}' +
       '.seerrRequests-scrollRow > .card{flex:none;}' +
@@ -857,16 +865,56 @@
   // Hides only the "Mine medier" heading text - the row of library cards
   // underneath stays visible. (An earlier version hid the whole section by
   // mistake; the ask was specifically to drop the label, not the content.)
-  function hideMineMedier() {
+  // Finds the Mine medier section, or null.
+  function getMineMedierSection() {
     var homeTab = document.getElementById('homeTab');
     if (!homeTab) {
-      return;
+      return null;
     }
     var headings = homeTab.querySelectorAll('.sectionTitle');
     for (var i = 0; i < headings.length; i++) {
-      if (headings[i].textContent.trim() === 'Mine medier' && headings[i].style.display !== 'none') {
-        headings[i].style.display = 'none';
+      if (headings[i].textContent.trim() === 'Mine medier') {
+        return { heading: headings[i], section: headings[i].closest('.verticalSection') };
       }
+    }
+    return null;
+  }
+
+  function hideMineMedier() {
+    var found = getMineMedierSection();
+    if (found && found.heading.style.display !== 'none') {
+      found.heading.style.display = 'none';
+    }
+  }
+
+  // Hiding just the heading text removes whatever height/margin it used to
+  // contribute, which is harmless at narrower window widths (confirmed live
+  // there's no overlap there) but at wide/full-window widths Media Bar's
+  // hero (#slides-container) can be tall enough that Mine medier's row then
+  // starts while the hero is still visible underneath it - confirmed live a
+  // ~210px overlap at a ~1540px window, with the row's own poster art
+  // painting over the lower part of the hero (which is also why the fade
+  // effect looked "missing" specifically at that width - it's not gone, it's
+  // being covered). A fixed padding value can't fix both cases at once since
+  // the overlap only exists at some widths, so this measures the actual
+  // overlap every tick and only pushes the row down by exactly enough to
+  // clear it, doing nothing when there's no overlap to begin with.
+  function fixMineMedierOverlap() {
+    var found = getMineMedierSection();
+    if (!found || !found.section) {
+      return;
+    }
+    var slidesContainer = document.getElementById('slides-container');
+    if (!slidesContainer) {
+      return;
+    }
+
+    found.section.style.marginTop = '';
+    var heroBottom = slidesContainer.getBoundingClientRect().bottom;
+    var sectionTop = found.section.getBoundingClientRect().top;
+    var overlap = heroBottom - sectionTop;
+    if (overlap > 0) {
+      found.section.style.marginTop = (overlap + 16) + 'px';
     }
   }
 
@@ -876,6 +924,7 @@
     wireConfigPageIfPresent();
     wireLogoHomeLink();
     hideMineMedier();
+    fixMineMedierOverlap();
   }
 
   function init() {
@@ -897,6 +946,16 @@
     // after clicking a details link from inside our tab) - see
     // deactivateAllSeerrTabs for why this can't just be click-based.
     window.addEventListener('hashchange', deactivateAllSeerrTabs);
+
+    // Resizing the window doesn't add/remove any DOM nodes, so the
+    // MutationObserver above never fires for it - but the Mine medier/hero
+    // overlap is width-dependent (only exists at wider windows, confirmed
+    // live), so it needs its own recheck on resize.
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(fixMineMedierOverlap, 150);
+    });
   }
 
   if (document.readyState === 'loading') {
