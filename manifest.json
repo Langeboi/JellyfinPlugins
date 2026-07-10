@@ -175,6 +175,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.8.0.0",
+        "changelog": "Hover-expand card preview: hovering any browse/request card for a moment expands it into a larger preview with backdrop, rating/year/genres, a short description, a Læs mere button linking to the title's IMDb page (TMDB fallback), and the same Tilføj/status action including the Fortryd undo - desktop only, details fetched lazily via the new /SeerrRequests/media/{type}/{id} proxy and cached in-page. Language exclusion: new 'Excluded original languages' setting (comma-separated ISO 639-1 codes, prefilled with East/South/Southeast Asian languages) - browse rows, trending, and the upcoming hero hide matching titles, filtered server-side; explicit search is never filtered. Clear the field to show everything.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.8.0.0/seerrrequests_1.8.0.0.zip",
+        "checksum": "a6bc02aa938d8c5bfa255c4cc72cb4d1",
+        "timestamp": "2026-07-10T18:35:00Z"
+      },
+      {
         "version": "1.7.1.0",
         "changelog": "Mobile: touch swipe on the upcoming-releases hero, contained so Jellyfin's tab strip doesn't turn a hero swipe into a tab switch; manual slide changes stay in sync with auto-rotation and restart its timer. Genre pills collapse to one horizontally swipeable row on mobile instead of wrapping into several screen-eating rows. Search field pinned to 16px on mobile so iOS Safari stops auto-zooming on focus. Larger pagination-dot touch targets and a tighter phone-sized hero layout.",
         "targetAbi": "10.11.0.0",
