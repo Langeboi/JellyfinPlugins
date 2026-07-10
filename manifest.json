@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.5.0",
+        "changelog": "Two more feedback items, shipped before the previous 1.5.4.0 update was even installed: (1) Hides the native Mine medier (My Media) home section - confirmed live this is actually a per-user-configurable Jellyfin home section (the section0 slot), matched here by its heading text rather than that slot class so it stays correct regardless of how sections are ordered. Worth knowing this can also be turned off directly in Jellyfin's own Display preferences > Home screen sections, no plugin needed - hidden here anyway since it was asked for directly. (2) The custom scrollbar added in 1.5.3.0 for Trending/Film/Serier/Seneste anmodninger turned out not to be wanted after all - the bar itself is now hidden (scrollbar-width:none / ::-webkit-scrollbar{display:none}) while the underlying overflow-x:auto scrolling stays fully functional via mouse-wheel, trackpad, touch, or drag.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.5.5.0/seerrrequests_1.5.5.0.zip",
+        "checksum": "e5b448ac95994b0babc48c4cf6b7ca18",
+        "timestamp": "2026-07-10T11:21:59Z"
+      },
+      {
         "version": "1.5.4.0",
         "changelog": "Feedback round: (1) Removed the quality/season picker popup entirely - it never rendered reliably enough to be worth keeping, so Tilfoej now submits the request immediately at the fixed default (1080p, all seasons for TV) instead. Also removed the now-unused tv-seasons backend endpoint and Seasons request field. (2) The Behandles loading dots now bounce once per dot in quick succession near the start of a 5 second cycle, then go quiet until the next one, instead of bouncing continuously every ~1 second. (3) Confirmed live that Media Bar's own slideshow (a fixed element parented directly to body) only renders while the native Hjem tab content is actually active - it isn't broken by this plugin, it's correctly scoped to the real home tab and hides behind this one. Added a purely decorative dark-to-transparent gradient at the top of this tab instead, so it doesn't look as flat compared to Hjem's own hero backdrop. (4) The Jellyfin wordmark in the header (not a link anywhere in Jellyfin's own markup) now navigates back to Hjem when clicked, from any top-level page where it's shown - non-home pages already have Jellyfin's own native Hjem button in its place, so this only needed wiring where the static logo is what's actually visible.",
         "targetAbi": "10.11.0.0",

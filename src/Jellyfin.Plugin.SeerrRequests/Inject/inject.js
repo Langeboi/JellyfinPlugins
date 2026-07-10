@@ -121,17 +121,13 @@
       // is="emby-scroller" custom element - that element scrolls via a
       // JS-driven transform (overflow-x:visible under the hood, confirmed
       // live), so there was never an actual native scrollbar to restyle,
-      // only its own left/right chevron nav buttons. A plain scrolling div
-      // gets real mouse-wheel/trackpad/touch scrolling for free plus a
-      // styleable native scrollbar - simpler than fighting the custom
-      // element for a "modern scrollbar instead of arrows" look.
+      // only its own left/right chevron nav buttons. Scrolling itself stays
+      // real (mouse-wheel/trackpad/touch/drag all still work via native
+      // overflow-x:auto) - only the scrollbar's own chrome is hidden, per
+      // feedback that a visible bar wasn't wanted after all.
       '.seerrRequests-scrollRow{display:flex;gap:1em;overflow-x:auto;overflow-y:hidden;' +
-      'scroll-behavior:smooth;padding:.3em 0 .7em;scrollbar-width:thin;' +
-      'scrollbar-color:var(--seerr-accent) rgba(255,255,255,.08);}' +
-      '.seerrRequests-scrollRow::-webkit-scrollbar{height:6px;}' +
-      '.seerrRequests-scrollRow::-webkit-scrollbar-track{background:rgba(255,255,255,.08);border-radius:3px;}' +
-      '.seerrRequests-scrollRow::-webkit-scrollbar-thumb{background:var(--seerr-accent);border-radius:3px;}' +
-      '.seerrRequests-scrollRow::-webkit-scrollbar-thumb:hover{background:var(--seerr-accent-hover);}' +
+      'scroll-behavior:smooth;padding:.3em 0 .7em;scrollbar-width:none;}' +
+      '.seerrRequests-scrollRow::-webkit-scrollbar{display:none;}' +
       '.seerrRequests-scrollRow > .card{flex:none;}' +
       '.seerrRequests-scrollRow:empty{display:none;}' +
       // Subtle bottom scrim on every poster in this tab (Seerr does the
@@ -763,11 +759,36 @@
     });
   }
 
+  // "Mine medier" (My Media) is a native, per-user-configurable Jellyfin
+  // home section (Display preferences > Home screen sections has a slot for
+  // it, confirmed live as the section0-slot row) - hiding it here is a
+  // convenience rather than a real bug fix, since the user could equally
+  // just turn it off in their own display settings. Matched by heading text
+  // rather than the section0 class, since that class encodes slot position
+  // (which section is in which slot depends on the user's own section
+  // ordering), not a stable identity for "this is My Media" specifically.
+  function hideMineMedier() {
+    var homeTab = document.getElementById('homeTab');
+    if (!homeTab) {
+      return;
+    }
+    var headings = homeTab.querySelectorAll('.sectionTitle');
+    for (var i = 0; i < headings.length; i++) {
+      if (headings[i].textContent.trim() === 'Mine medier') {
+        var section = headings[i].closest('.verticalSection');
+        if (section && section.style.display !== 'none') {
+          section.style.display = 'none';
+        }
+      }
+    }
+  }
+
   function runChecks() {
     syncTabRowSpacing();
     injectButtonIfHome();
     wireConfigPageIfPresent();
     wireLogoHomeLink();
+    hideMineMedier();
   }
 
   function init() {
