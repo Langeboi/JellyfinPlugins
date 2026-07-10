@@ -304,9 +304,14 @@
     var overview = item.Overview ? escapeHtml(item.Overview) : '';
 
     return (
-      '<div class="heroBar-slide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '" ' +
-        'style="background-image:url(&quot;' + backdropUrl + '&quot;)">' +
-        '<div class="heroBar-gradient"></div>' +
+      '<div class="heroBar-slide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '">' +
+        // Backdrop + tint live in their own masked layer so the imagery
+        // fades into the page background at the top and bottom edges while
+        // the text/buttons (siblings, unmasked) stay fully crisp.
+        '<div class="heroBar-visual">' +
+          '<div class="heroBar-backdrop" style="background-image:url(&quot;' + backdropUrl + '&quot;)"></div>' +
+          '<div class="heroBar-gradient"></div>' +
+        '</div>' +
         '<div class="heroBar-content">' +
           '<div class="heroBar-logo">' + titleHtml + '</div>' +
           '<div class="heroBar-meta">' + metaLine(item) + '</div>' +
@@ -534,11 +539,22 @@
     style.textContent =
       // Height is viewport-relative but capped, so it stays proportionate
       // without becoming absurd on very tall/wide monitors.
+      // Transparent container: the page's real background (ElegantFin's
+      // .backdropContainer gradient, measured live: linear-gradient(0deg,
+      // rgb(28,30,34) 35%, rgb(37,39,45))) shows through wherever the
+      // masked visual layer fades out - a true blend, no color matching.
       '.heroBar-container{position:relative;width:100%;height:min(56vh,560px);' +
-      'overflow:hidden;background:#101010;margin-bottom:1em;}' +
-      '.heroBar-slide{position:absolute;inset:0;background-size:cover;' +
-      'background-position:center 20%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
+      'overflow:hidden;background:transparent;margin-bottom:1em;}' +
+      '.heroBar-slide{position:absolute;inset:0;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
       '.heroBar-slide.is-active{opacity:1;pointer-events:auto;}' +
+      // Alpha mask fades the imagery (backdrop + tint together) into the
+      // page background at the top and bottom edges; text/buttons are
+      // siblings of this layer and stay unmasked/crisp.
+      '.heroBar-visual{position:absolute;inset:0;pointer-events:none;' +
+      '-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 78%,transparent 100%);' +
+      'mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 78%,transparent 100%);}' +
+      '.heroBar-backdrop{position:absolute;inset:0;background-size:cover;' +
+      'background-position:center 20%;}' +
       // Same rgba(30,40,54,...) verified against ElegantFin's own header
       // color this session - the point of building this plugin fresh was
       // to get this right from the start instead of guessing.
