@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.0.1.0",
+        "changelog": "Fix: v1.0.0.0 could stack many duplicate heroes on the home page - the duplicate check ran synchronously but insertion happened after async data fetches, so every DOM mutation during that window started another insert; now guarded by a synchronously-set pending flag plus a re-check right before insertion. Play button now actually starts playback (remote-controls the client's own session via the Sessions PlayNow command) instead of linking to the details page, with details as fallback if the play command fails. Dynamic play button: shows Fortsæt and resumes where you left off for partially-watched movies, and for series in progress plays the half-watched episode (Resume) or the next unwatched episode (NextUp).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v1.0.1.0/herobar_1.0.1.0.zip",
+        "checksum": "7357bb473aa5b81eed981854c6f1a57c",
+        "timestamp": "2026-07-10T15:20:00Z"
+      },
+      {
         "version": "1.0.0.0",
         "changelog": "Initial release. Recently added + trending item mix (trending via the same Playback Reporting query New Badges' Trending row uses), ClearLogo image per slide with automatic text-title fallback when no logo art exists, rating/year/age-rating/genre metadata line, truncated overview, Play/Info/Favorite buttons, clickable pagination dots, and configurable slide count/rotation interval/trending toggle. Built as an in-flow first child of #homeTab (not a body-level overlay like Media Bar), so it never overlaps Mine medier/Continue Watching and needs no manual positioning fixes. Uses the verified ElegantFin header color (rgba(30,40,54,...)) for its gradient overlay so it blends into the header with no seam at any window width.",
         "targetAbi": "10.11.0.0",
