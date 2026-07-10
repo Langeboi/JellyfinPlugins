@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.0.3.0",
+        "changelog": "Fix: the 'Tilføj Film/Serie' button never actually appeared next to Hjem/Favoritter - .tabs-viewmenubar turned out to live in Jellyfin's shared app header (.skinHeader), a sibling of .page.homePage, not a descendant of it, so scoping the search to the active home page found nothing. Now searches the document directly (isHomeRoute() already prevents it from firing while some other section's tab row is showing instead). Live-verified end to end after the fix: button renders in the right spot, click doesn't trigger a tab switch, and search/discover/recent-requests all return correctly enriched data.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.0.3.0/seerrrequests_1.0.3.0.zip",
+        "checksum": "36212084fb2de720131412ab4f7cd7c2",
+        "timestamp": "2026-07-10T05:28:17Z"
+      },
+      {
         "version": "1.0.2.0",
         "changelog": "Fix: every endpoint returning Ok(new JObject{...}) was silently corrupted - ASP.NET Core's default System.Text.Json output formatter has no built-in support for Newtonsoft.Json.Linq.JObject, and since JObject also implements IEnumerable, it got serialized as an empty array instead of an object (confirmed live: {\"ok\":true,\"version\":\"3.3.0\"} came back as {\"ok\":[],\"version\":[]}). All JObject responses now go through a small helper that renders them via Newtonsoft's own ToString() as a raw ContentResult instead, the same way the Seerr proxy passthroughs already worked correctly.",
         "targetAbi": "10.11.0.0",

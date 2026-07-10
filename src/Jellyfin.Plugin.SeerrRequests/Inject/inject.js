@@ -12,18 +12,6 @@
     return location.hash.indexOf('#/home') === 0;
   }
 
-  // Jellyfin keeps previously-visited pages mounted (display:none) rather
-  // than destroying them - scope everything to the currently-visible page.
-  function getActiveHomePage() {
-    var pages = document.querySelectorAll('.page.homePage');
-    for (var i = 0; i < pages.length; i++) {
-      if (getComputedStyle(pages[i]).display !== 'none') {
-        return pages[i];
-      }
-    }
-    return null;
-  }
-
   function escapeHtml(str) {
     var div = document.createElement('div');
     div.textContent = str == null ? '' : String(str);
@@ -111,11 +99,11 @@
     if (buttonInjected) {
       return;
     }
-    var homePage = getActiveHomePage();
-    if (!homePage) {
-      return;
-    }
-    var slider = homePage.querySelector('.tabs-viewmenubar .emby-tabs-slider');
+    // .tabs-viewmenubar lives in the shared app header (.skinHeader), a
+    // sibling of .page.homePage, not a descendant of it - confirmed live,
+    // this is NOT page-scoped chrome. isHomeRoute() above is what keeps this
+    // from firing while some other section's tab row is showing instead.
+    var slider = document.querySelector('.tabs-viewmenubar .emby-tabs-slider');
     if (!slider) {
       return;
     }
