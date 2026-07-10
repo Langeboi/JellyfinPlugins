@@ -1,5 +1,24 @@
 [
   {
+    "guid": "e6e18d98-310f-4b9c-875a-5787cd570e6f",
+    "name": "Hero Bar",
+    "description": "A from-scratch, in-flow rotating featured-content hero for the Jellyfin home page, built as a lighter-weight, fully compatible replacement for the third-party Media Bar plugin. Inserted as a normal first child of the home tab content (not a body-level overlay), so it never overlaps or requires manual positioning fixes against other home rows. Mixes recently added items with a trending row, shows ClearLogo art with a text-title fallback, rating/year/genre metadata, overview, and Play/Info/Favorite buttons with clickable pagination dots.",
+    "overview": "In-flow rotating hero for the home page - a from-scratch Media Bar replacement.",
+    "owner": "Langeboi",
+    "category": "General",
+    "imageUrl": "",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release. Recently added + trending item mix (trending via the same Playback Reporting query New Badges' Trending row uses), ClearLogo image per slide with automatic text-title fallback when no logo art exists, rating/year/age-rating/genre metadata line, truncated overview, Play/Info/Favorite buttons, clickable pagination dots, and configurable slide count/rotation interval/trending toggle. Built as an in-flow first child of #homeTab (not a body-level overlay like Media Bar), so it never overlaps Mine medier/Continue Watching and needs no manual positioning fixes. Uses the verified ElegantFin header color (rgba(30,40,54,...)) for its gradient overlay so it blends into the header with no seam at any window width.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v1.0.0.0/herobar_1.0.0.0.zip",
+        "checksum": "ed2566fb94f2bd2c266d21603af309dc",
+        "timestamp": "2026-07-10T14:55:53Z"
+      }
+    ]
+  },
+  {
     "guid": "b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70",
     "name": "New Badges",
     "description": "Adds a date-accurate NEW badge to items in Recently Added home page rows (shown only for items added less than 7 days ago), shows the season/episode of a show's newest episode in place of its unwatched count for every still-airing show, forces item-detail backdrop images to render at any window width, replaces the Next Up row with a Trending row ranked by other users' recent plays, and merges Continue Watching with Next Up into one row.",

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Hero Bar</title>
+</head>
+<body>
+  <div id="HeroBarConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+      <div class="content-primary">
+        <div class="verticalSection">
+          <h2>Hero Bar</h2>
+          <p>Rotating featured-content hero at the top of the home page, built in-flow so it never overlaps or clashes with other sections.</p>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SlideCount">Number of slides</label>
+          <input id="SlideCount" name="SlideCount" type="number" is="emby-input" min="1" max="20" />
+          <div class="fieldDescription">How many items to rotate through.</div>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="RotationSeconds">Rotation interval (seconds)</label>
+          <input id="RotationSeconds" name="RotationSeconds" type="number" is="emby-input" min="3" max="60" />
+          <div class="fieldDescription">How long each slide stays up before crossfading to the next.</div>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input id="IncludeTrending" name="IncludeTrending" type="checkbox" is="emby-checkbox" />
+            <span>Include trending items</span>
+          </label>
+          <div class="fieldDescription">Mixes in items other household members have been watching recently (via Playback Reporting), alongside recently added items. Turn off to show recently added only.</div>
+        </div>
+
+        <div style="margin-top:1.5em;">
+          <button is="emby-button" type="button" id="HeroBarSaveButton" class="raised button-submit block emby-button">
+            <span>Save</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!--
+    Same reasoning as SeerrRequests' config page: no inline <script>, plain
+    type="button" elements with no surrounding <form>, all wiring lives in
+    Inject/inject.js instead (confirmed on this server that inline scripts
+    in plugin config pages don't execute).
+  -->
+</body>
+</html>
