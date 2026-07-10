@@ -69,6 +69,10 @@
     return apiFetch(path, { method: 'POST', body: body });
   }
 
+  function apiDelete(path) {
+    return apiFetch(path, { method: 'DELETE' });
+  }
+
   function injectStyle() {
     if (document.getElementById('seerrRequests-style')) {
       return;
@@ -85,7 +89,13 @@
       // it isn't flush against the very top edge - only while actually on
       // the home route (toggled by syncTabRowSpacing), since .tabs-viewmenubar
       // is shared chrome also used by non-home pages with their own tab sets.
-      '.seerrRequests-homeTabRow{margin-top:.6em;}' +
+      // .6em was barely visible at wide/full-window widths - confirmed live
+      // that .headerTabs is a CSS grid with align-items:center there (the
+      // tab row sits inline with the logo instead of on its own line below
+      // it, unlike the narrower layout), so a small margin got mostly
+      // absorbed by the centering. 1.6em gives a clearly visible shift at
+      // both a ~1540px and an ~800px window.
+      '.seerrRequests-homeTabRow{margin-top:1.6em;}' +
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
@@ -98,9 +108,14 @@
       // tab's top looking flatter than Hjem's own hero by comparison, so a
       // purely decorative dark-to-transparent band gives it a similar bit of
       // visual weight instead of starting abruptly right under the tab row.
+      // A first attempt at this used rgba(40,40,58,.5) - confirmed live via
+      // getComputedStyle that it WAS rendering, just too close in tone to
+      // the page's own dark background to actually read as a fade. Darker
+      // and a good deal more opaque at the top, still fading to nothing by
+      // the bottom of the band.
       '#' + TAB_CONTENT_ID + ' .sections::before{content:"";position:absolute;top:0;left:0;right:0;' +
-      'height:220px;background:linear-gradient(to bottom,rgba(40,40,58,.5),rgba(0,0,0,0));' +
-      'pointer-events:none;z-index:0;}' +
+      'height:260px;background:linear-gradient(to bottom,rgba(15,15,22,.95) 0%,' +
+      'rgba(15,15,22,.55) 45%,rgba(15,15,22,0) 100%);pointer-events:none;z-index:0;}' +
       '#' + TAB_CONTENT_ID + ' .sections > *{position:relative;z-index:1;}' +
       // Small indigo accent bar in front of each section title (Trending /
       // Film / Serier / Seneste anmodninger), a light Seerr-style touch on
@@ -125,8 +140,15 @@
       // real (mouse-wheel/trackpad/touch/drag all still work via native
       // overflow-x:auto) - only the scrollbar's own chrome is hidden, per
       // feedback that a visible bar wasn't wanted after all.
-      '.seerrRequests-scrollRow{display:flex;gap:1em;overflow-x:auto;overflow-y:hidden;' +
-      'scroll-behavior:smooth;padding:.3em 0 .7em;scrollbar-width:none;}' +
+      // Padding on all sides (not just top/bottom) gives the native
+      // hover-ring effect on each card room to render without getting
+      // clipped by this row's own scrollable bounding box - confirmed live
+      // that overflow-x:auto with tight/no side padding clips a card's
+      // hover glow right where it pokes past the row's edge. Gap also
+      // brought down from 1em - cards were sitting further apart than
+      // intended.
+      '.seerrRequests-scrollRow{display:flex;gap:.6em;overflow-x:auto;overflow-y:visible;' +
+      'scroll-behavior:smooth;padding:14px 10px;scrollbar-width:none;}' +
       '.seerrRequests-scrollRow::-webkit-scrollbar{display:none;}' +
       '.seerrRequests-scrollRow > .card{flex:none;}' +
       '.seerrRequests-scrollRow:empty{display:none;}' +
@@ -158,6 +180,14 @@
       '.seerrRequests-requestBtn:hover{background:var(--seerr-accent-hover);transform:scale(1.08);}' +
       '.seerrRequests-requestBtn:disabled{opacity:.6;cursor:default;}' +
       '.seerrRequests-requestBtnIcon{font-size:1.1em;line-height:1;font-weight:700;}' +
+      // Red Fortryd (undo) button shown for a few seconds right after a
+      // request is created, in the same bottom-center slot the Tilføj
+      // button and status badges share.
+      '.seerrRequests-undoBtn{background:#dc2626;color:#fff;border:none;border-radius:999px;' +
+      'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
+      'white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s,transform .15s;}' +
+      '.seerrRequests-undoBtn:hover{background:#b91c1c;transform:scale(1.08);}' +
+      '.seerrRequests-undoBtn:disabled{opacity:.6;cursor:default;}' +
       '.seerrRequests-statusBadge{display:inline-block;background:rgba(20,20,20,.85);color:#fff;' +
       'border-radius:4px;padding:3px 8px;font-weight:700;font-size:10px;letter-spacing:.05em;' +
       'box-shadow:0 2px 6px rgba(0,0,0,.4);white-space:nowrap;}' +
@@ -567,6 +597,63 @@
   // No confirmation popup - the quality/season picker was dropped per
   // feedback ("it doesn't work" / "simple as can be"), so Tilføj submits
   // immediately at the fixed default: 1080p, all seasons for TV.
+  // Shows a red "Fortryd (N)" button in place of the status badge for a few
+  // seconds right after a request is created, so a mis-click can be undone
+  // instead of leaving a real Seerr request behind. requestId comes straight
+  // from Seerr's own create-request response (ProxyPost passes it through
+  // unmodified) - if it's ever missing for some reason, the countdown still
+  // runs but Fortryd just reverts the UI without an actual cancel call,
+  // since there'd be nothing to tell Seerr to cancel.
+  var UNDO_SECONDS = 5;
+
+  function showUndoCountdown(wrapper, requestId, mediaType, mediaId, container) {
+    var seconds = UNDO_SECONDS;
+    wrapper.innerHTML = '<button type="button" class="seerrRequests-undoBtn">Fortryd (' + seconds + ')</button>';
+    var undoBtn = wrapper.querySelector('.seerrRequests-undoBtn');
+
+    var timer = setInterval(function () {
+      seconds--;
+      if (seconds <= 0) {
+        clearInterval(timer);
+        settle();
+        return;
+      }
+      undoBtn.textContent = 'Fortryd (' + seconds + ')';
+    }, 1000);
+
+    function settle() {
+      wrapper.innerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
+      loadMyRequests(container);
+    }
+
+    function revertToButton() {
+      wrapper.innerHTML = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + mediaType +
+        '" data-media-id="' + mediaId + '"><span class="seerrRequests-requestBtnIcon">+</span>Tilføj</button>';
+    }
+
+    undoBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      clearInterval(timer);
+      undoBtn.disabled = true;
+      undoBtn.textContent = 'Fortryder...';
+
+      if (!requestId) {
+        revertToButton();
+        return;
+      }
+
+      apiDelete('request/' + requestId)
+        .then(revertToButton)
+        .catch(function () {
+          // Cancel failed server-side - it's still a real request, so leave
+          // it as Anmodet rather than showing a Tilføj button that would
+          // silently create a second, duplicate request if pressed again.
+          settle();
+        });
+    });
+  }
+
   function wireRequestButtons(container) {
     container.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.seerrRequests-requestBtn') : null;
@@ -578,14 +665,14 @@
 
       var mediaType = btn.getAttribute('data-media-type');
       var mediaId = parseInt(btn.getAttribute('data-media-id'), 10);
+      var wrapper = btn.parentElement;
 
       btn.disabled = true;
       btn.textContent = 'Tilføjer...';
 
       apiPost('request', { mediaType: mediaType, mediaId: mediaId, is4k: false })
-        .then(function () {
-          btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
-          loadMyRequests(container);
+        .then(function (result) {
+          showUndoCountdown(wrapper, result && result.id, mediaType, mediaId, container);
         })
         .catch(function (err) {
           btn.disabled = false;
@@ -767,6 +854,9 @@
   // rather than the section0 class, since that class encodes slot position
   // (which section is in which slot depends on the user's own section
   // ordering), not a stable identity for "this is My Media" specifically.
+  // Hides only the "Mine medier" heading text - the row of library cards
+  // underneath stays visible. (An earlier version hid the whole section by
+  // mistake; the ask was specifically to drop the label, not the content.)
   function hideMineMedier() {
     var homeTab = document.getElementById('homeTab');
     if (!homeTab) {
@@ -774,11 +864,8 @@
     }
     var headings = homeTab.querySelectorAll('.sectionTitle');
     for (var i = 0; i < headings.length; i++) {
-      if (headings[i].textContent.trim() === 'Mine medier') {
-        var section = headings[i].closest('.verticalSection');
-        if (section && section.style.display !== 'none') {
-          section.style.display = 'none';
-        }
+      if (headings[i].textContent.trim() === 'Mine medier' && headings[i].style.display !== 'none') {
+        headings[i].style.display = 'none';
       }
     }
   }

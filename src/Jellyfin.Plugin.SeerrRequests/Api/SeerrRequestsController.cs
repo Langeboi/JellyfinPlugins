@@ -239,6 +239,37 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             return await ProxyPost("/api/v1/request", payload);
         }
 
+        // Backs the "Fortryd" (undo) button shown for a few seconds right
+        // after a request is created - lets a mis-click be reversed instead
+        // of leaving a real Seerr request behind.
+        [HttpDelete("request/{requestId:int}")]
+        public async Task<ActionResult> CancelRequest(int requestId)
+        {
+            var config = Plugin.Instance!.Configuration;
+            if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+            {
+                return Json(new JObject { ["error"] = "Seerr is not configured." }, 503);
+            }
+
+            try
+            {
+                using var request = BuildRequest(HttpMethod.Delete, $"/api/v1/request/{requestId}");
+                using var response = await HttpClient.SendAsync(request);
+                var text = await response.Content.ReadAsStringAsync();
+                return new ContentResult
+                {
+                    Content = text,
+                    ContentType = "application/json",
+                    StatusCode = (int)response.StatusCode
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SeerrRequests: cancel request {RequestId} failed", requestId);
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
+            }
+        }
+
         [HttpGet("test-connection")]
         public async Task<ActionResult> TestConnection()
         {

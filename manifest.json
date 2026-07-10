@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.6.0",
+        "changelog": "Corrections and a new feature: (1) 1.5.5.0 hid the entire Mine medier section by mistake - only the heading text is hidden now, the row of library cards underneath stays visible as intended. (2) The tab row down-shift from 1.5.4.0 was barely visible at full-window widths - confirmed live that .headerTabs is a CSS grid with the tab row centered inline with the logo there (unlike the narrower layout where it sits on its own line below), so a small margin got mostly absorbed. Increased from .6em to 1.6em, confirmed visibly correct at both a ~1540px and an ~800px window. (3) The decorative top gradient added for this tab in 1.5.4.0 turned out to be technically rendering but nearly invisible - too close in tone to the page's own background. Darker and more opaque now, actually reads as a fade. (4) Cards in Trending/Film/Serier/Seneste anmodninger were sitting further apart than intended, and hovering a card near a row's edge clipped its hover-ring glow against the row's own scrollable boundary - reduced the gap and added padding on all sides of each row so the ring has room to render. (5) New: pressing Tilfoej now shows a red Fortryd (undo) button with a live 5 second countdown before settling into the normal Anmodet state, so a mis-click can be reversed instead of leaving a real Seerr request behind. Backed by a new DELETE SeerrRequests/request/{id} endpoint proxying Seerr's own request-cancellation API.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.5.6.0/seerrrequests_1.5.6.0.zip",
+        "checksum": "5700fe77f4bbfb0a8419fe241308ee4b",
+        "timestamp": "2026-07-10T11:45:40Z"
+      },
+      {
         "version": "1.5.5.0",
         "changelog": "Two more feedback items, shipped before the previous 1.5.4.0 update was even installed: (1) Hides the native Mine medier (My Media) home section - confirmed live this is actually a per-user-configurable Jellyfin home section (the section0 slot), matched here by its heading text rather than that slot class so it stays correct regardless of how sections are ordered. Worth knowing this can also be turned off directly in Jellyfin's own Display preferences > Home screen sections, no plugin needed - hidden here anyway since it was asked for directly. (2) The custom scrollbar added in 1.5.3.0 for Trending/Film/Serier/Seneste anmodninger turned out not to be wanted after all - the bar itself is now hidden (scrollbar-width:none / ::-webkit-scrollbar{display:none}) while the underlying overflow-x:auto scrolling stays fully functional via mouse-wheel, trackpad, touch, or drag.",
         "targetAbi": "10.11.0.0",
