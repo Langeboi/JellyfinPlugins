@@ -235,13 +235,50 @@
     return { label: 'Afspil', targetId: item.Id, ticks: 0 };
   }
 
-  function buildItemPool(cfg) {
+  // The trending/recently-added pool barely changes minute to minute, so a
+  // sessionStorage cache (10 min TTL, same as New Badges' Trending row) lets
+  // the hero paint instantly when home is revisited after a reload instead
+  // of waiting on three fetch chains. Progress (resume positions / next-up)
+  // is intentionally NOT cached - it changes while you watch, and it's two
+  // cheap requests.
+  var POOL_CACHE_TTL_MS = 10 * 60 * 1000;
+
+  function slimItem(item) {
+    return {
+      Id: item.Id,
+      Name: item.Name,
+      Type: item.Type,
+      Overview: item.Overview,
+      Genres: item.Genres,
+      ProductionYear: item.ProductionYear,
+      CommunityRating: item.CommunityRating,
+      OfficialRating: item.OfficialRating,
+      BackdropImageTags: item.BackdropImageTags ? item.BackdropImageTags.slice(0, 1) : [],
+      ImageTags: item.ImageTags && item.ImageTags.Logo ? { Logo: item.ImageTags.Logo } : {},
+      UserData: item.UserData
+        ? { IsFavorite: item.UserData.IsFavorite, PlaybackPositionTicks: item.UserData.PlaybackPositionTicks }
+        : {}
+    };
+  }
+
+  function fetchPoolItems(cfg) {
+    var cacheKey = 'herobar-pool-' + window.ApiClient.getCurrentUserId() +
+      '-' + cfg.SlideCount + '-' + (cfg.IncludeTrending ? 1 : 0);
+    try {
+      var raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        var cached = JSON.parse(raw);
+        if (cached.at && (Date.now() - cached.at) < POOL_CACHE_TTL_MS && cached.items && cached.items.length) {
+          return Promise.resolve(cached.items);
+        }
+      }
+    } catch (e) { /* corrupt/unavailable storage - just fetch */ }
+
     var trendingPromise = cfg.IncludeTrending ? fetchTrendingItems(cfg.SlideCount) : Promise.resolve([]);
-    return Promise.all([trendingPromise, fetchRecentItems(cfg.SlideCount * 2), fetchProgress()])
+    return Promise.all([trendingPromise, fetchRecentItems(cfg.SlideCount * 2)])
       .then(function (results) {
         var trending = results[0].filter(hasBackdrop);
         var recent = results[1].filter(hasBackdrop);
-        var progress = results[2];
 
         var seen = {};
         var pool = [];
@@ -250,12 +287,27 @@
             return;
           }
           seen[item.Id] = true;
-          item._playAction = resolvePlayAction(item, progress);
-          pool.push(item);
+          pool.push(slimItem(item));
         }
 
         trending.forEach(add);
         recent.forEach(add);
+
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), items: pool }));
+        } catch (e) { /* quota - fine, just uncached */ }
+        return pool;
+      });
+  }
+
+  function buildItemPool(cfg) {
+    return Promise.all([fetchPoolItems(cfg), fetchProgress()])
+      .then(function (results) {
+        var pool = results[0];
+        var progress = results[1];
+        pool.forEach(function (item) {
+          item._playAction = resolvePlayAction(item, progress);
+        });
         return pool;
       });
   }
@@ -351,6 +403,10 @@
   // ---- Interactions ----
 
   function goToSlide(hero, index) {
+    // The single source of truth for which slide is showing - the rotation
+    // interval reads this too, so a manual dot-click or swipe can't desync
+    // the auto-rotation (it used to keep its own counter in a closure).
+    hero._currentIndex = index;
     var slides = hero.querySelectorAll('.heroBar-slide');
     var dots = hero.querySelectorAll('.heroBar-dot');
     slides.forEach(function (el, i) {
@@ -362,13 +418,15 @@
   }
 
   function startRotation(hero, count, seconds) {
+    hero._slideCount = count;
+    hero._rotationSeconds = seconds;
     if (rotationTimer) {
       clearInterval(rotationTimer);
+      rotationTimer = null;
     }
     if (count <= 1) {
       return;
     }
-    var current = 0;
     rotationTimer = setInterval(function () {
       // hero may have been removed from the DOM (navigated away and the
       // hidden-page instance got torn down some other way) - stop cleanly
@@ -378,16 +436,78 @@
         rotationTimer = null;
         return;
       }
-      current = (current + 1) % count;
-      goToSlide(hero, current);
+      goToSlide(hero, ((hero._currentIndex || 0) + 1) % count);
     }, seconds * 1000);
   }
 
+  // Restart the interval after a manual slide change so the next auto-flip
+  // happens a full period later, not a fraction of a second after the user
+  // just picked a slide themselves.
+  function resetRotation(hero) {
+    startRotation(hero, hero._slideCount || 0, hero._rotationSeconds || 8);
+  }
+
+  // Touch swipe: left/right changes slides. Every touch event is stopped
+  // from bubbling, because Jellyfin's own tab strip listens for horizontal
+  // swipes on the page and would otherwise switch to Favoritter when the
+  // user swipes the hero (observed live on mobile). Vertical page scrolling
+  // is unaffected - these listeners are passive and scrolling is native.
+  function attachSwipe(el, onPrev, onNext) {
+    var startX = 0;
+    var startY = 0;
+    var tracking = false;
+
+    el.addEventListener('touchstart', function (e) {
+      e.stopPropagation();
+      if (e.touches.length !== 1) {
+        tracking = false;
+        return;
+      }
+      tracking = true;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    }, { passive: true });
+
+    el.addEventListener('touchmove', function (e) {
+      e.stopPropagation();
+    }, { passive: true });
+
+    el.addEventListener('touchend', function (e) {
+      e.stopPropagation();
+      if (!tracking) {
+        return;
+      }
+      tracking = false;
+      var touch = e.changedTouches[0];
+      var dx = touch.clientX - startX;
+      var dy = touch.clientY - startY;
+      // Mostly-horizontal and far enough to be deliberate.
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0) {
+          onNext();
+        } else {
+          onPrev();
+        }
+      }
+    }, { passive: true });
+  }
+
   function wireHeroInteractions(hero) {
+    attachSwipe(hero, function () {
+      var count = hero._slideCount || 1;
+      goToSlide(hero, ((hero._currentIndex || 0) - 1 + count) % count);
+      resetRotation(hero);
+    }, function () {
+      var count = hero._slideCount || 1;
+      goToSlide(hero, ((hero._currentIndex || 0) + 1) % count);
+      resetRotation(hero);
+    });
+
     hero.addEventListener('click', function (e) {
       var dot = e.target.closest ? e.target.closest('.heroBar-dot') : null;
       if (dot) {
         goToSlide(hero, parseInt(dot.getAttribute('data-index'), 10));
+        resetRotation(hero);
         return;
       }
 
@@ -592,7 +712,25 @@
       '.heroBar-content{max-width:94%;padding:1.2em 1.4em;}' +
       '.heroBar-titleText{font-size:1.6em;}' +
       '.heroBar-overview{-webkit-line-clamp:2;}' +
-      '.heroBar-btn{padding:.5em 1em;font-size:.85em;}' +
+      // Keep buttons comfortably tappable (~40px) rather than shrinking
+      // them along with the text.
+      '.heroBar-btn{padding:.6em 1.1em;font-size:.85em;min-height:40px;}' +
+      '.heroBar-dots{bottom:.8em;right:1em;gap:.55em;}' +
+      // Bigger touch targets for the dots without growing the visual dot -
+      // padding + background-clip keeps the painted circle small.
+      '.heroBar-dot{width:16px;height:16px;padding:4px;background-clip:content-box;}' +
+      '}' +
+      // Phone-sized: shorter banner (portrait screens + landscape backdrops
+      // crop badly when tall), tighter text, no logo overflow.
+      '@media (max-width:500px){' +
+      '.heroBar-container{height:min(38vh,300px);}' +
+      '.heroBar-content{padding:.9em 1em;}' +
+      '.heroBar-logoImg{max-width:200px;max-height:64px;}' +
+      '.heroBar-titleText{font-size:1.25em;}' +
+      '.heroBar-meta{font-size:.78em;margin-bottom:.3em;}' +
+      '.heroBar-overview{font-size:.8em;-webkit-line-clamp:2;}' +
+      '.heroBar-buttons{gap:.5em;margin-top:.7em;}' +
+      '.heroBar-btn{padding:.5em .95em;font-size:.82em;}' +
       '}';
     document.head.appendChild(style);
   }

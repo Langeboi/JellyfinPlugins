@@ -300,6 +300,26 @@
       '@media (max-width:800px){' +
       '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(38vh,280px);}' +
       '.seerrRequests-uhTitle{font-size:1.2em;}' +
+      // Genre pills: one horizontally swipeable row instead of wrapping into
+      // several rows that eat half the screen on a phone.
+      '.seerrRequests-genreRow{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
+      'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
+      '.seerrRequests-genreRow::-webkit-scrollbar{display:none;}' +
+      '.seerrRequests-genrePill{flex:0 0 auto;padding:.45em 1em;}' +
+      // 16px minimum stops iOS Safari from auto-zooming the page when the
+      // search field gets focus.
+      '.seerrRequests-searchInput{font-size:16px;}' +
+      '.seerrRequests-uhDots{gap:.55em;}' +
+      '.seerrRequests-uhDot{width:15px;height:15px;padding:4px;background-clip:content-box;}' +
+      '}' +
+      // Phone-sized refinements for the upcoming hero.
+      '@media (max-width:500px){' +
+      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(32vh,230px);}' +
+      '.seerrRequests-uhContent{padding:.8em 1em;max-width:96%;}' +
+      '.seerrRequests-uhDate{font-size:.7em;margin-bottom:.4em;}' +
+      '.seerrRequests-uhTitle{font-size:1.05em;margin-bottom:.2em;}' +
+      '.seerrRequests-uhOverview{font-size:.78em;-webkit-line-clamp:2;}' +
+      '.seerrRequests-uhAction{margin-top:.6em;}' +
       '}';
     document.head.appendChild(style);
   }
@@ -608,7 +628,12 @@
       hero.innerHTML = items.map(buildUpcomingSlideHtml).join('') + dots;
       hero.classList.add('seerrRequests-uhReady');
 
+      // Shared slide index: manual jumps (dots, swipes) and the rotation
+      // interval all read/write the same counter, so they can't desync.
+      var current = 0;
+
       function goTo(index) {
+        current = index;
         hero.querySelectorAll('.seerrRequests-uhSlide').forEach(function (el, i) {
           el.classList.toggle('is-active', i === index);
         });
@@ -617,28 +642,70 @@
         });
       }
 
-      hero.addEventListener('click', function (e) {
-        var dot = e.target.closest ? e.target.closest('.seerrRequests-uhDot') : null;
-        if (dot) {
-          goTo(parseInt(dot.getAttribute('data-index'), 10));
+      // (Re)starts rotation - also called after any manual slide change so
+      // the next auto-flip is a full period away.
+      function startTimer() {
+        if (hero._uhTimer) {
+          clearInterval(hero._uhTimer);
+          hero._uhTimer = null;
         }
-      });
-
-      if (hero._uhTimer) {
-        clearInterval(hero._uhTimer);
-      }
-      if (items.length > 1) {
-        var current = 0;
+        if (items.length <= 1) {
+          return;
+        }
         hero._uhTimer = setInterval(function () {
           if (!hero.isConnected) {
             clearInterval(hero._uhTimer);
             hero._uhTimer = null;
             return;
           }
-          current = (current + 1) % items.length;
-          goTo(current);
+          goTo((current + 1) % items.length);
         }, UPCOMING_ROTATE_SECONDS * 1000);
       }
+
+      hero.addEventListener('click', function (e) {
+        var dot = e.target.closest ? e.target.closest('.seerrRequests-uhDot') : null;
+        if (dot) {
+          goTo(parseInt(dot.getAttribute('data-index'), 10));
+          startTimer();
+        }
+      });
+
+      // Touch swipe changes slides; every touch event is stopped from
+      // bubbling so Jellyfin's tab strip doesn't interpret the swipe as a
+      // tab switch (it hijacked hero swipes into a Hjem/Favoritter jump on
+      // mobile). Passive listeners - vertical scrolling stays native.
+      var touchStartX = 0;
+      var touchStartY = 0;
+      var touchTracking = false;
+      hero.addEventListener('touchstart', function (e) {
+        e.stopPropagation();
+        if (e.touches.length !== 1) {
+          touchTracking = false;
+          return;
+        }
+        touchTracking = true;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      hero.addEventListener('touchmove', function (e) {
+        e.stopPropagation();
+      }, { passive: true });
+      hero.addEventListener('touchend', function (e) {
+        e.stopPropagation();
+        if (!touchTracking) {
+          return;
+        }
+        touchTracking = false;
+        var touch = e.changedTouches[0];
+        var dx = touch.clientX - touchStartX;
+        var dy = touch.clientY - touchStartY;
+        if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+          goTo((current + (dx < 0 ? 1 : items.length - 1)) % items.length);
+          startTimer();
+        }
+      }, { passive: true });
+
+      startTimer();
     });
   }
 
