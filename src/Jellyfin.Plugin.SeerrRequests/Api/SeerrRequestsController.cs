@@ -192,6 +192,8 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             public string MediaType { get; set; } = string.Empty;
 
             public int MediaId { get; set; }
+
+            public bool Is4k { get; set; }
         }
 
         [HttpPost("request")]
@@ -214,7 +216,8 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var payload = new JObject
             {
                 ["mediaType"] = body.MediaType,
-                ["mediaId"] = body.MediaId
+                ["mediaId"] = body.MediaId,
+                ["is4k"] = body.Is4k
             };
 
             if (body.MediaType == "tv")
@@ -234,6 +237,50 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
 
             return await ProxyPost("/api/v1/request", payload);
+        }
+
+        [HttpGet("quality-options")]
+        public async Task<ActionResult> QualityOptions()
+        {
+            var config = Plugin.Instance!.Configuration;
+            if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+            {
+                return Json(new JObject { ["movie4k"] = false, ["tv4k"] = false });
+            }
+
+            var movie4k = await AnyServerIs4k("/api/v1/settings/radarr");
+            var tv4k = await AnyServerIs4k("/api/v1/settings/sonarr");
+            return Json(new JObject { ["movie4k"] = movie4k, ["tv4k"] = tv4k });
+        }
+
+        private async Task<bool> AnyServerIs4k(string path)
+        {
+            try
+            {
+                using var request = BuildRequest(HttpMethod.Get, path);
+                using var response = await HttpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return false;
+                }
+
+                var text = await response.Content.ReadAsStringAsync();
+                var servers = JArray.Parse(text);
+                foreach (var server in servers)
+                {
+                    if (server["is4k"]?.Value<bool>() == true)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SeerrRequests: failed to check 4K availability via {Path}", path);
+                return false;
+            }
         }
 
         [HttpGet("test-connection")]

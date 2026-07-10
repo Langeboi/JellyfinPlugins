@@ -2,19 +2,28 @@
   'use strict';
 
   var BUTTON_MARKER = 'data-seerr-requests-button';
-  var PAGE_CLASS = 'seerrRequests-page';
-  var PAGE_OPEN_CLASS = 'seerrRequests-pageOpen';
-  var HASH_FLAG = 'seerrRequests=1';
+  var TAB_CONTENT_ID = 'seerrRequestsTab';
   var searchDebounceTimer = null;
   var genreCache = {}; // mediaType -> [{id,name}]
-  var discoverState = { mediaType: 'all', genreId: null, page: 1, totalPages: 1 };
+  var filmGenreId = null;
+  var tvGenreId = null;
+  var qualityOptions = null; // {movie4k, tv4k} - fetched once, lazily
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
   }
 
-  function isPageOpenInHash() {
-    return location.hash.indexOf(HASH_FLAG) !== -1;
+  // Jellyfin keeps previously-visited pages mounted in the DOM (display:none,
+  // not destroyed) rather than tearing them down on navigation - always
+  // scope to the currently-visible one.
+  function getActiveHomePage() {
+    var pages = document.querySelectorAll('.page.homePage');
+    for (var i = 0; i < pages.length; i++) {
+      if (getComputedStyle(pages[i]).display !== 'none') {
+        return pages[i];
+      }
+    }
+    return null;
   }
 
   function escapeHtml(str) {
@@ -68,38 +77,20 @@
     var style = document.createElement('style');
     style.id = 'seerrRequests-style';
     style.textContent =
-      // Full-page overlay, not a floating dialog - solid-ish background
-      // (a slow, subtle animated gradient close to the app shell's own
-      // #101010) instead of a translucent dialog body stacked on a
-      // translucent backdrop, which is what made the old modal version
-      // look dim/washed out.
-      '@keyframes seerrRequests-gradientShift{' +
-      '0%{background-position:0% 50%;}50%{background-position:100% 50%;}100%{background-position:0% 50%;}}' +
-      '.' + PAGE_CLASS + '{position:fixed;inset:0;z-index:99999;' +
-      'background:linear-gradient(120deg,#0a0a0f,#12121b,#0d1420,#101010);' +
-      'background-size:300% 300%;animation:seerrRequests-gradientShift 30s ease infinite;' +
-      'overflow-y:auto;display:none;flex-direction:column;}' +
-      '.' + PAGE_CLASS + '.' + PAGE_OPEN_CLASS + '{display:flex;}' +
-      '.seerrRequests-pageHeader{display:flex;align-items:center;gap:1em;padding:1.2em 1.5em;' +
-      'flex:0 0 auto;position:sticky;top:0;background:#101010;z-index:2;' +
-      'border-bottom:1px solid rgba(255,255,255,.08);}' +
-      '.seerrRequests-backBtn{background:none;border:none;color:inherit;cursor:pointer;' +
-      'padding:.4em;display:flex;align-items:center;}' +
-      '.seerrRequests-title{margin:0;font-size:1.4em;font-weight:600;}' +
-      '.seerrRequests-pageBody{flex:1 1 auto;padding:1em 2em 3em;max-width:1400px;width:100%;' +
-      'box-sizing:border-box;margin:0 auto;}' +
-      '.seerrRequests-searchRow{margin-bottom:.5em;}' +
+      // This is now a real sibling tab (like Hjem/Favoritter), not a
+      // takeover overlay - no fixed positioning/background of its own, it
+      // just flows as normal home-page content.
+      '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;}' +
+      '.seerrRequests-searchRow{margin:1em 0 .5em;}' +
       '.seerrRequests-searchInput{width:100%;max-width:480px;}' +
-      '.seerrRequests-section{margin-top:1.5em;}' +
-      '.seerrRequests-discoverGrid,.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;}' +
-      '.seerrRequests-discoverGrid:empty,.seerrRequests-searchResults:empty{display:none;}' +
-      '.seerrRequests-discoverGrid .card,.seerrRequests-searchResults .card{width:150px;}' +
-      '.seerrRequests-loading,.seerrRequests-empty{opacity:.6;padding:1em 0;}' +
-      // Recent-requests row uses the native emby-scroller, which carries its
-      // own 23px left padding (confirmed live) - the plain discover grid
-      // has none, so without this override the two sections visibly don't
-      // line up under their shared page padding.
-      '.seerrRequests-recentSection [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
+      '.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1em;}' +
+      '.seerrRequests-searchResults:empty{display:none;}' +
+      '.seerrRequests-searchResults .card{width:150px;}' +
+      '.seerrRequests-loading,.seerrRequests-empty{opacity:.6;padding:.5em 0;}' +
+      // Recent-requests and discover rows both use the native emby-scroller,
+      // which carries its own 23px left padding (confirmed live) that would
+      // otherwise misalign them against the section title above.
+      '#' + TAB_CONTENT_ID + ' [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
       // Badges styled like New Badges' own NEW ribbon / rank badge - a small
       // top-left corner pill instead of a full-width bottom bar.
       '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
@@ -113,27 +104,28 @@
       '.seerrRequests-statusAvailable{background:rgba(46,160,67,.9);}' +
       '.seerrRequests-statusPending{background:rgba(200,140,0,.9);}' +
       '.seerrRequests-statusDeclined{background:rgba(180,40,40,.9);}' +
-      // Available items become real links - keep the card's own hover
-      // treatment, just make sure the link itself has no default styling.
       'a.card{text-decoration:none;color:inherit;display:block;}' +
-      // Category filter pills (media type) and genre pills.
-      '.seerrRequests-filterRow{display:flex;gap:.6em;flex-wrap:wrap;margin-bottom:.8em;}' +
-      '.seerrRequests-filterPill{background:rgba(255,255,255,.08);color:#fff;border:none;' +
-      'border-radius:20px;padding:.5em 1.3em;font-weight:600;font-size:.95em;cursor:pointer;}' +
-      '.seerrRequests-filterPill.seerrRequests-filterActive{background:#00a4dc;}' +
-      '.seerrRequests-genreRow{display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1em;}' +
+      // Genre filter pills, scoped per section now (Film / Serier each get
+      // their own row instead of one global type toggle).
+      '.seerrRequests-genreRow{display:flex;gap:.5em;flex-wrap:wrap;margin:.3em 0 .8em;}' +
       '.seerrRequests-genreRow:empty{display:none;}' +
       '.seerrRequests-genrePill{background:rgba(255,255,255,.05);color:rgba(255,255,255,.85);' +
       'border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:.35em .9em;' +
       'font-size:.85em;cursor:pointer;}' +
       '.seerrRequests-genrePill.seerrRequests-filterActive{background:rgba(255,255,255,.22);' +
       'border-color:transparent;}' +
-      // Load more.
-      '.seerrRequests-loadMoreRow{display:flex;justify-content:center;margin-top:1.5em;}' +
-      '.seerrRequests-loadMoreBtn{background:rgba(255,255,255,.08);color:#fff;' +
-      'border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:.6em 1.8em;' +
-      'font-weight:600;cursor:pointer;}' +
-      '.seerrRequests-loadMoreBtn:disabled{opacity:.5;cursor:default;}';
+      // Small quality-choice popup, native dialog markup (a real "small
+      // popup box", unlike the full-page takeover the browse panel itself
+      // used to be).
+      '.seerrRequests-qualityDialogBody{width:min(320px,90vw);padding:1.5em;border-radius:8px;' +
+      'text-align:center;}' +
+      '.seerrRequests-qualityDialogBody h3{margin:0 0 1em;font-size:1.1em;font-weight:600;}' +
+      '.seerrRequests-qualityOptions{display:flex;gap:.8em;justify-content:center;margin-bottom:1em;}' +
+      '.seerrRequests-qualityBtn{flex:1;background:rgba(255,255,255,.08);color:#fff;border:none;' +
+      'border-radius:6px;padding:.8em 0;font-weight:700;cursor:pointer;}' +
+      '.seerrRequests-qualityBtn:hover{background:#00a4dc;}' +
+      '.seerrRequests-qualityCancel{background:none;border:none;color:rgba(255,255,255,.6);' +
+      'cursor:pointer;font-size:.9em;}';
     document.head.appendChild(style);
   }
 
@@ -151,11 +143,19 @@
     if (!slider) {
       return;
     }
+
+    // Deliberately NOT nested inside the button-creation block below (an
+    // earlier version had it nested and the watcher silently never attached
+    // in a live test - the button existed but the attribute never got set -
+    // most likely a one-off interruption mid-call. This check is cheap
+    // enough to just retry unconditionally on every tick regardless of
+    // whether the button itself needs (re)creating.)
+    attachNativeTabWatcher(slider);
+
     // Always re-check DOM presence rather than caching an "already injected"
     // flag - confirmed live that Jellyfin rebuilds this tab row's contents
-    // on a hashchange even when the route itself (#/home) doesn't change
-    // (e.g. toggling the ?seerrRequests=1 flag on and back off), silently
-    // wiping our button out from under a stale flag that assumed otherwise.
+    // on unrelated changes, silently wiping our button out from under a
+    // stale flag that assumed otherwise.
     if (slider.querySelector('[' + BUTTON_MARKER + ']')) {
       return;
     }
@@ -171,179 +171,194 @@
     var btn = wrapper.firstElementChild;
 
     // Capture-phase + stopPropagation: this button sits inside the native
-    // tab-switcher row but isn't a real tab, so the native delegated
-    // tab-click handler must never see this click.
+    // tab-switcher row but isn't a real tab Jellyfin knows about, so the
+    // native delegated tab-click handler must never see this click - we
+    // drive the tab-content swap ourselves instead (see activateSeerrTab).
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      if (!isPageOpenInHash()) {
-        var sep = location.hash.indexOf('?') === -1 ? '?' : '&';
-        location.hash = location.hash + sep + HASH_FLAG;
-      }
+      activateSeerrTab();
     }, true);
 
     slider.appendChild(btn);
   }
 
-  // ---- Page (was a floating dialog; now a real full-page view toggled by a
-  // hash flag on the current route, e.g. #/home?seerrRequests=1, so the
-  // browser's back button and URL both behave like real navigation without
-  // fighting Jellyfin's own router - an unrecognized hash route renders
-  // Jellyfin's "Side ikke fundet" page, confirmed live, so this rides on
-  // whatever the real underlying route already is instead of inventing one) ----
+  // Jellyfin's own tab-click handler only knows about its own tabs - it
+  // does not deactivate a foreign sibling .tabContent.pageTabContent when
+  // Hjem/Favoritter is clicked (confirmed live: our content stayed visible
+  // and "active" underneath). Watch for clicks on any *other* tab button
+  // here so leaving our tab works the same way arriving does.
+  function attachNativeTabWatcher(slider) {
+    if (slider.hasAttribute('data-seerr-native-tab-watcher')) {
+      return;
+    }
+    slider.setAttribute('data-seerr-native-tab-watcher', 'true');
+    slider.addEventListener('click', function (e) {
+      var nativeBtn = e.target.closest('.emby-tab-button');
+      if (nativeBtn && !nativeBtn.hasAttribute(BUTTON_MARKER)) {
+        deactivateSeerrTab();
+      }
+    });
+  }
 
-  function getOrCreatePage() {
-    var page = document.querySelector('.' + PAGE_CLASS);
-    if (page) {
-      return page;
+  // ---- Tab content (integrated like Favoritter - a sibling
+  // .tabContent.pageTabContent inside the same persistent home page, not a
+  // separate route/page. Confirmed live: Favoritter never changes
+  // location.hash, it just toggles an is-active class between sibling
+  // #homeTab/#favoritesTab divs that Jellyfin keeps permanently mounted.) ----
+
+  function getOrCreateSeerrTab(homePage) {
+    var tab = homePage.querySelector('#' + TAB_CONTENT_ID);
+    if (tab) {
+      return tab;
     }
 
     var wrapper = document.createElement('div');
     wrapper.innerHTML =
-      '<div class="' + PAGE_CLASS + '">' +
-        '<div class="seerrRequests-pageHeader">' +
-          '<button type="button" is="emby-button" class="paper-icon-button-light seerrRequests-backBtn">' +
-            '<span class="material-icons arrow_back"></span>' +
-          '</button>' +
-          '<h1 class="seerrRequests-title">Tilføj Film/Serie</h1>' +
-        '</div>' +
-        '<div class="seerrRequests-pageBody">' +
+      '<div id="' + TAB_CONTENT_ID + '" class="tabContent pageTabContent">' +
+        '<div class="sections">' +
           '<div class="seerrRequests-searchRow">' +
             '<input type="text" is="emby-input" class="seerrRequests-searchInput" placeholder="Søg efter film eller serie..." />' +
           '</div>' +
           '<div class="seerrRequests-searchResults"></div>' +
-          '<div class="seerrRequests-section seerrRequests-recentSection">' +
-            '<h3 class="sectionTitle">Seneste anmodninger</h3>' +
+          '<div class="verticalSection seerrRequests-recentSection">' +
+            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+              '<h2 class="sectionTitle sectionTitle-cards">Seneste anmodninger</h2>' +
+            '</div>' +
             '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
               '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-recentRow"></div>' +
             '</div>' +
           '</div>' +
-          '<div class="seerrRequests-section">' +
-            '<h3 class="sectionTitle">Udforsk</h3>' +
-            '<div class="seerrRequests-filterRow">' +
-              '<button type="button" class="seerrRequests-filterPill seerrRequests-filterActive" data-filter-type="all">Alle</button>' +
-              '<button type="button" class="seerrRequests-filterPill" data-filter-type="movie">Film</button>' +
-              '<button type="button" class="seerrRequests-filterPill" data-filter-type="tv">Serier</button>' +
+          '<div class="verticalSection">' +
+            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+              '<h2 class="sectionTitle sectionTitle-cards">Trending</h2>' +
             '</div>' +
-            '<div class="seerrRequests-genreRow"></div>' +
-            '<div class="seerrRequests-discoverGrid"></div>' +
-            '<div class="seerrRequests-loadMoreRow" style="display:none;">' +
-              '<button type="button" class="seerrRequests-loadMoreBtn">Indlæs mere</button>' +
+            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-trendingRow"></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="verticalSection">' +
+            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+              '<h2 class="sectionTitle sectionTitle-cards">Film</h2>' +
+            '</div>' +
+            '<div class="seerrRequests-genreRow seerrRequests-movieGenreRow"></div>' +
+            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-movieRow"></div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="verticalSection">' +
+            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+              '<h2 class="sectionTitle sectionTitle-cards">Serier</h2>' +
+            '</div>' +
+            '<div class="seerrRequests-genreRow seerrRequests-tvGenreRow"></div>' +
+            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-tvRow"></div>' +
             '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-    var page = wrapper.firstElementChild;
-    document.body.appendChild(page);
+    var tab = wrapper.firstElementChild;
+    homePage.appendChild(tab);
+    wireRequestButtons(tab);
 
-    page.querySelector('.seerrRequests-backBtn').addEventListener('click', function () {
-      history.back();
-    });
-    wireRequestButtons(page);
-
-    var searchInput = page.querySelector('.seerrRequests-searchInput');
+    var searchInput = tab.querySelector('.seerrRequests-searchInput');
     searchInput.addEventListener('input', function () {
       var query = searchInput.value.trim();
       clearTimeout(searchDebounceTimer);
-      var resultsEl = page.querySelector('.seerrRequests-searchResults');
+      var resultsEl = tab.querySelector('.seerrRequests-searchResults');
       if (!query) {
         resultsEl.innerHTML = '';
         return;
       }
       searchDebounceTimer = setTimeout(function () {
-        performSearch(page, query);
+        performSearch(tab, query);
       }, 400);
     });
 
-    page.querySelector('.seerrRequests-filterRow').addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.seerrRequests-filterPill') : null;
-      if (!btn) {
-        return;
-      }
-      selectMediaTypeFilter(page, btn.getAttribute('data-filter-type'));
-    });
-
-    page.querySelector('.seerrRequests-genreRow').addEventListener('click', function (e) {
+    tab.querySelector('.seerrRequests-movieGenreRow').addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.seerrRequests-genrePill') : null;
       if (!btn) {
         return;
       }
-      selectGenreFilter(page, parseInt(btn.getAttribute('data-genre-id'), 10));
+      var genreId = parseInt(btn.getAttribute('data-genre-id'), 10);
+      filmGenreId = filmGenreId === genreId ? null : genreId;
+      tab.querySelectorAll('.seerrRequests-movieGenreRow .seerrRequests-genrePill').forEach(function (el) {
+        el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === filmGenreId);
+      });
+      loadRow(tab, '.seerrRequests-movieRow', 'movie', filmGenreId);
     });
 
-    page.querySelector('.seerrRequests-loadMoreBtn').addEventListener('click', function () {
-      discoverState.page += 1;
-      loadDiscover(page, true);
+    tab.querySelector('.seerrRequests-tvGenreRow').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.seerrRequests-genrePill') : null;
+      if (!btn) {
+        return;
+      }
+      var genreId = parseInt(btn.getAttribute('data-genre-id'), 10);
+      tvGenreId = tvGenreId === genreId ? null : genreId;
+      tab.querySelectorAll('.seerrRequests-tvGenreRow .seerrRequests-genrePill').forEach(function (el) {
+        el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === tvGenreId);
+      });
+      loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
     });
 
-    return page;
+    renderGenreRow(tab.querySelector('.seerrRequests-movieGenreRow'), 'movie', filmGenreId);
+    renderGenreRow(tab.querySelector('.seerrRequests-tvGenreRow'), 'tv', tvGenreId);
+
+    return tab;
   }
 
-  function resetDiscoverFilters(page) {
-    discoverState = { mediaType: 'all', genreId: null, page: 1, totalPages: 1 };
-    page.querySelectorAll('.seerrRequests-filterPill').forEach(function (el) {
-      el.classList.toggle('seerrRequests-filterActive', el.getAttribute('data-filter-type') === 'all');
-    });
-    page.querySelector('.seerrRequests-genreRow').innerHTML = '';
-  }
-
-  function showPage() {
-    var page = getOrCreatePage();
-    page.classList.add(PAGE_OPEN_CLASS);
-    document.body.style.overflow = 'hidden';
-    resetDiscoverFilters(page);
-    loadMyRequests(page);
-    loadDiscover(page, false);
-  }
-
-  function hidePage() {
-    var page = document.querySelector('.' + PAGE_CLASS);
-    if (page) {
-      page.classList.remove(PAGE_OPEN_CLASS);
-    }
-    document.body.style.overflow = '';
-  }
-
-  function syncPageWithHash() {
-    if (isPageOpenInHash()) {
-      showPage();
-    } else {
-      hidePage();
-    }
-  }
-
-  // ---- Category filters ----
-
-  function selectMediaTypeFilter(page, mediaType) {
-    discoverState.mediaType = mediaType;
-    discoverState.genreId = null;
-    discoverState.page = 1;
-    page.querySelectorAll('.seerrRequests-filterPill').forEach(function (el) {
-      el.classList.toggle('seerrRequests-filterActive', el.getAttribute('data-filter-type') === mediaType);
-    });
-    renderGenreRow(page, mediaType);
-    loadDiscover(page, false);
-  }
-
-  function selectGenreFilter(page, genreId) {
-    discoverState.genreId = discoverState.genreId === genreId ? null : genreId;
-    discoverState.page = 1;
-    page.querySelectorAll('.seerrRequests-genrePill').forEach(function (el) {
-      el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === discoverState.genreId);
-    });
-    loadDiscover(page, false);
-  }
-
-  function renderGenreRow(page, mediaType) {
-    var row = page.querySelector('.seerrRequests-genreRow');
-    if (mediaType === 'all') {
-      row.innerHTML = '';
+  function activateSeerrTab() {
+    var homePage = getActiveHomePage();
+    if (!homePage) {
       return;
     }
+
+    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
+      el.classList.remove('is-active');
+    });
+    document.querySelectorAll('.emby-tab-button.emby-tab-button-active').forEach(function (el) {
+      if (!el.hasAttribute(BUTTON_MARKER)) {
+        el.classList.remove('emby-tab-button-active');
+      }
+    });
+
+    var tab = getOrCreateSeerrTab(homePage);
+    tab.classList.add('is-active');
+    var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
+    if (ourBtn) {
+      ourBtn.classList.add('emby-tab-button-active');
+    }
+
+    loadMyRequests(tab);
+    loadRow(tab, '.seerrRequests-trendingRow', 'all', null);
+    loadRow(tab, '.seerrRequests-movieRow', 'movie', filmGenreId);
+    loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
+  }
+
+  function deactivateSeerrTab() {
+    var homePage = getActiveHomePage();
+    if (!homePage) {
+      return;
+    }
+    var tab = homePage.querySelector('#' + TAB_CONTENT_ID);
+    if (tab) {
+      tab.classList.remove('is-active');
+    }
+    var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
+    if (ourBtn) {
+      ourBtn.classList.remove('emby-tab-button-active');
+    }
+  }
+
+  // ---- Genre filters (scoped per section now - Film and Serier each have
+  // their own row instead of one global media-type toggle) ----
+
+  function renderGenreRow(row, mediaType, activeGenreId) {
     if (genreCache[mediaType]) {
       row.innerHTML = genreCache[mediaType].map(function (g) {
-        return '<button type="button" class="seerrRequests-genrePill" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
+        var active = g.id === activeGenreId ? ' seerrRequests-filterActive' : '';
+        return '<button type="button" class="seerrRequests-genrePill' + active + '" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
       }).join('');
       return;
     }
@@ -447,6 +462,65 @@
     );
   }
 
+  // ---- Quality (1080p / 4K) prompt ----
+
+  function ensureQualityOptionsLoaded() {
+    if (qualityOptions) {
+      return Promise.resolve(qualityOptions);
+    }
+    return apiGet('quality-options')
+      .then(function (data) {
+        qualityOptions = data;
+        return qualityOptions;
+      })
+      .catch(function () {
+        qualityOptions = { movie4k: false, tv4k: false };
+        return qualityOptions;
+      });
+  }
+
+  // Resolves to true (4K), false (1080p/default), or null (cancelled). Only
+  // actually shows the popup when this Seerr instance has a 4K-flagged
+  // Radarr/Sonarr server for that media type - no point asking a question
+  // with only one real answer.
+  function promptQuality(mediaType) {
+    return ensureQualityOptionsLoaded().then(function (options) {
+      var has4k = mediaType === 'movie' ? options.movie4k : options.tv4k;
+      if (!has4k) {
+        return false;
+      }
+
+      return new Promise(function (resolve) {
+        var wrapper = document.createElement('div');
+        wrapper.innerHTML =
+          '<div class="dialogContainer seerrRequests-qualityDialog">' +
+            '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
+            '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-qualityDialogBody" data-lockscroll="true" data-removeonclose="true">' +
+              '<h3>Vælg kvalitet</h3>' +
+              '<div class="seerrRequests-qualityOptions">' +
+                '<button type="button" class="seerrRequests-qualityBtn" data-quality="0">1080p</button>' +
+                '<button type="button" class="seerrRequests-qualityBtn" data-quality="1">4K</button>' +
+              '</div>' +
+              '<button type="button" class="seerrRequests-qualityCancel">Annuller</button>' +
+            '</div>' +
+          '</div>';
+        var dialog = wrapper.firstElementChild;
+        document.body.appendChild(dialog);
+
+        function close(result) {
+          dialog.remove();
+          resolve(result);
+        }
+
+        dialog.querySelector('.dialogBackdrop').addEventListener('click', function () { close(null); });
+        dialog.querySelector('.seerrRequests-qualityCancel').addEventListener('click', function () { close(null); });
+        dialog.querySelectorAll('[data-quality]').forEach(function (btn) {
+          btn.addEventListener('click', function () { close(btn.getAttribute('data-quality') === '1'); });
+        });
+      });
+    });
+  }
+
   function wireRequestButtons(container) {
     container.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.seerrRequests-requestBtn') : null;
@@ -458,19 +532,26 @@
 
       var mediaType = btn.getAttribute('data-media-type');
       var mediaId = parseInt(btn.getAttribute('data-media-id'), 10);
-      btn.disabled = true;
-      btn.textContent = 'Anmoder...';
 
-      apiPost('request', { mediaType: mediaType, mediaId: mediaId })
-        .then(function () {
-          btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
-          loadMyRequests(container);
-        })
-        .catch(function (err) {
-          btn.disabled = false;
-          btn.textContent = 'Anmod';
-          alert('Kunne ikke anmode: ' + err.message);
-        });
+      promptQuality(mediaType).then(function (is4k) {
+        if (is4k === null) {
+          return; // cancelled
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Anmoder...';
+
+        apiPost('request', { mediaType: mediaType, mediaId: mediaId, is4k: is4k })
+          .then(function () {
+            btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
+            loadMyRequests(container);
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = 'Anmod';
+            alert('Kunne ikke anmode: ' + err.message);
+          });
+      });
     });
   }
 
@@ -490,21 +571,13 @@
       });
   }
 
-  function loadDiscover(container, append) {
-    var grid = container.querySelector('.seerrRequests-discoverGrid');
-    var loadMoreRow = container.querySelector('.seerrRequests-loadMoreRow');
-    var loadMoreBtn = container.querySelector('.seerrRequests-loadMoreBtn');
+  function loadRow(container, rowSelector, mediaType, genreId) {
+    var row = container.querySelector(rowSelector);
+    row.innerHTML = '<div class="seerrRequests-loading">Indlæser...</div>';
 
-    if (!append) {
-      grid.innerHTML = '<div class="seerrRequests-loading">Indlæser...</div>';
-    } else {
-      loadMoreBtn.disabled = true;
-      loadMoreBtn.textContent = 'Indlæser...';
-    }
-
-    var params = 'mediaType=' + encodeURIComponent(discoverState.mediaType) + '&page=' + discoverState.page;
-    if (discoverState.genreId) {
-      params += '&genreId=' + discoverState.genreId;
+    var params = 'mediaType=' + encodeURIComponent(mediaType) + '&page=1';
+    if (genreId) {
+      params += '&genreId=' + genreId;
     }
 
     apiGet('discover?' + params)
@@ -512,27 +585,12 @@
         var results = (data.results || []).filter(function (r) {
           return r.mediaType === 'movie' || r.mediaType === 'tv';
         });
-        discoverState.totalPages = data.totalPages || 1;
-        var html = results.map(buildMediaCardHtml).join('');
-
-        if (append) {
-          grid.insertAdjacentHTML('beforeend', html);
-        } else {
-          grid.innerHTML = html || '<div class="seerrRequests-empty">Intet at vise.</div>';
-        }
-
-        var hasMore = discoverState.page < discoverState.totalPages;
-        loadMoreRow.style.display = hasMore ? '' : 'none';
-        loadMoreBtn.disabled = false;
-        loadMoreBtn.textContent = 'Indlæs mere';
+        row.innerHTML = results.length
+          ? results.map(buildMediaCardHtml).join('')
+          : '<div class="seerrRequests-empty">Intet at vise.</div>';
       })
       .catch(function () {
-        if (!append) {
-          grid.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente indhold.</div>';
-        }
-        loadMoreRow.style.display = 'none';
-        loadMoreBtn.disabled = false;
-        loadMoreBtn.textContent = 'Indlæs mere';
+        row.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente indhold.</div>';
       });
   }
 
@@ -614,8 +672,8 @@
 
   // Button injection and config-page wiring are both a single cheap
   // querySelector + idempotency check - running them straight off every
-  // MutationObserver tick (instead of behind a 400ms debounce meant for
-  // heavier work) is what makes the button appear as fast as the native
+  // MutationObserver tick (instead of behind a debounce meant for heavier
+  // work) is what makes the button appear as fast as the native
   // Hjem/Favoritter tabs next to it, instead of visibly lagging in after.
   function runChecks() {
     injectButtonIfHome();
@@ -625,7 +683,6 @@
   function init() {
     injectStyle();
     runChecks();
-    syncPageWithHash();
 
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
@@ -637,7 +694,6 @@
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener('hashchange', syncPageWithHash);
   }
 
   if (document.readyState === 'loading') {

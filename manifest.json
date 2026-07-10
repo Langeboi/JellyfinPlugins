@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.3.0.0",
+        "changelog": "Major redesign based on feedback: (1) No longer a separate full-page takeover - integrated as a real home-page tab exactly like Favoritter. Confirmed live that Favoritter never changes the URL, it just toggles an is-active class between sibling .tabContent.pageTabContent divs that Jellyfin keeps permanently mounted inside the home page - the browse panel now works the same way, so you never leave the home page at all. Also found and fixed that clicking a native tab (Hjem/Favoritter) doesn't automatically hide a foreign sibling tab-content div, so a click watcher on the tab row now handles that side explicitly. (2) Split the old single filterable 'Udforsk' grid into three separate always-visible horizontally-scrollable rows - Trending, Film, and Serier - matching the native home page's own row style, each with its own contextual genre filter pills instead of one global type toggle. (3) Requesting now prompts for 1080p vs 4K via a small popup dialog, but only when this Seerr instance actually has a 4K-flagged Radarr/Sonarr server configured (checked via a new /quality-options endpoint) - no point asking a question with only one real answer.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.3.0.0/seerrrequests_1.3.0.0.zip",
+        "checksum": "b398f39182df8b6be498183c9e2371df",
+        "timestamp": "2026-07-10T07:36:38Z"
+      },
+      {
         "version": "1.2.0.0",
         "changelog": "Feature round based on feedback: (1) Subtle slow animated gradient on the page background instead of a flat fill. (2) Fixed 'Seneste anmodninger' not lining up with 'Udforsk' - the native emby-scroller used for the recent-requests row carries its own 23px left padding that the plain discover grid doesn't, now overridden. (3) Items marked Tilgængelig now link straight to their Jellyfin details page - Seerr's own MediaInfo already tracks the linked jellyfinMediaId once something becomes available, no extra lookup needed. (4) Anmod button and status badges restyled as small top-left corner pill badges matching New Badges' own NEW ribbon/rank badge look, instead of a full-width bottom bar. (5) Udforsk now supports Load more pagination using Seerr's page/totalPages fields. (6) Added an Alle/Film/Serier filter row plus contextual genre pills (fetched from Seerr's /genres/movie and /genres/tv) to filter the Udforsk suggestions.",
         "targetAbi": "10.11.0.0",
