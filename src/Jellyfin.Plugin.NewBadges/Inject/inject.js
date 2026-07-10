@@ -63,7 +63,31 @@
       // background-image on .pageTitle, confirmed live.
       '.pageTitleWithDefaultLogo{background-image:url("/NewBadges/langehub_logo.png")!important;' +
       'background-size:contain;background-position:left center;background-repeat:no-repeat;' +
-      'width:9.5em;}';
+      'width:9.5em;}' +
+      // Movies library redesign: filter pills, alphabetical grid, load-more.
+      '.newBadges-moviesHome{padding-top:1em;}' +
+      '.newBadges-moviesPills{display:flex;gap:.5em;flex-wrap:wrap;margin:.3em 0 .6em;}' +
+      '.newBadges-moviesPills:empty{display:none;}' +
+      '.newBadges-pill{background:rgba(255,255,255,.05);color:rgba(255,255,255,.85);' +
+      'border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:.35em .9em;' +
+      'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
+      '.newBadges-pill:hover{border-color:rgba(140,130,255,.9);}' +
+      '.newBadges-pill.newBadges-pillActive{background:rgba(140,130,255,.9);' +
+      'border-color:rgba(140,130,255,.9);color:#fff;}' +
+      '.newBadges-pillDivider{width:1px;align-self:stretch;background:rgba(255,255,255,.15);margin:0 .3em;}' +
+      '.newBadges-moviesGrid{margin-top:.5em;}' +
+      '.newBadges-moviesLoading{opacity:.7;padding:1.5em;text-align:center;width:100%;}' +
+      '.newBadges-moviesMoreWrap{display:flex;justify-content:center;padding:1em 0 2em;}' +
+      '.newBadges-moviesMore{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);' +
+      'border-radius:999px;padding:.6em 2.2em;font-weight:700;font-size:.9em;cursor:pointer;' +
+      'transition:background .15s,transform .15s;}' +
+      '.newBadges-moviesMore:hover{background:rgba(255,255,255,.16);transform:scale(1.04);}' +
+      '@media (max-width:800px){' +
+      '.newBadges-moviesPills{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
+      'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
+      '.newBadges-moviesPills::-webkit-scrollbar{display:none;}' +
+      '.newBadges-pill{flex:0 0 auto;padding:.45em 1em;}' +
+      '}';
     document.head.appendChild(style);
   }
 
@@ -915,6 +939,397 @@
     renderContinueSection(nativeSection);
   }
 
+  // ---- Movies library redesign ----
+  // Replaces the Film tab's flat alphabetical wall (plus alpha picker and
+  // native sort/filter chrome) on every movies-type library with a curated
+  // layout: a recommendations row, three rows of random picks, a favorites
+  // row that only appears when there are favorites, and then the full
+  // alphabetical catalog behind quick genre/watched/decade pill filters
+  // with load-more paging.
+
+  var MOVIES_LIB_ATTR = 'data-newbadges-movies-lib';
+  var MOVIES_PENDING_ATTR = 'data-newbadges-movies-pending';
+  var MOVIES_PAGE_SIZE = 48;
+  var RECS_CACHE_TTL_MS = 10 * 60 * 1000;
+
+  function getTopParentIdFromHash() {
+    var m = location.hash.match(/[?&]topParentId=([a-f0-9-]+)/i);
+    return m ? m[1] : null;
+  }
+
+  function getActiveLibraryPage() {
+    var pages = document.querySelectorAll('.page.libraryPage');
+    for (var i = 0; i < pages.length; i++) {
+      if (getComputedStyle(pages[i]).display !== 'none') {
+        return pages[i];
+      }
+    }
+    return null;
+  }
+
+  function buildMovieCardHtml(item) {
+    var apiClient = window.ApiClient;
+    var bgStyle = '';
+    if (item.ImageTags && item.ImageTags.Primary) {
+      var imgUrl = apiClient.getScaledImageUrl(item.Id, {
+        type: 'Primary',
+        tag: item.ImageTags.Primary,
+        maxWidth: 300
+      });
+      bgStyle = ' style="background-image:url(&quot;' + imgUrl + '&quot;)"';
+    }
+    return (
+      '<div class="card overflowPortraitCard card-hoverable" data-id="' + item.Id + '" data-type="Movie">' +
+        '<div class="cardBox cardBox-bottompadded">' +
+          '<div class="cardScalable">' +
+            '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
+            '<a href="#/details?id=' + item.Id + '" class="cardImageContainer coveredImage cardContent itemAction"' + bgStyle + '></a>' +
+            '<div class="cardOverlayContainer itemAction"></div>' +
+          '</div>' +
+          '<div class="cardText cardTextCentered cardText-first"><bdi>' + escapeHtml(item.Name) + '</bdi></div>' +
+          (item.ProductionYear
+            ? '<div class="cardText cardTextCentered cardText-secondary">' + item.ProductionYear + '</div>'
+            : '') +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function moviesScrollRowHtml(rowClass) {
+    return (
+      '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+        '<div class="itemsContainer scrollSlider focuscontainer-x ' + rowClass + '"></div>' +
+      '</div>'
+    );
+  }
+
+  function fetchLibraryMovies(libId, extraParams) {
+    var apiClient = window.ApiClient;
+    var params = {
+      ParentId: libId,
+      IncludeItemTypes: 'Movie',
+      Recursive: true,
+      Fields: 'PrimaryImageAspectRatio,ProductionYear'
+    };
+    for (var k in extraParams) {
+      params[k] = extraParams[k];
+    }
+    return apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', params));
+  }
+
+  // Recommendations: Similar-to lookups seeded by the user's most recently
+  // touched movies in this library (half-watched ones first, then fully
+  // watched). Jellyfin's own Movies/Recommendations endpoint returns [] on
+  // this server, so this builds the row client-side. Falls back to the
+  // highest-rated unwatched titles when there's no watch history (or not
+  // enough similar results) so the row is never uselessly empty.
+  function fetchMovieRecommendations(libId) {
+    var cacheKey = 'newBadges-movierecs-' + window.ApiClient.getCurrentUserId() + '-' + libId;
+    try {
+      var raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        var cached = JSON.parse(raw);
+        if (cached.at && (Date.now() - cached.at) < RECS_CACHE_TTL_MS) {
+          return Promise.resolve(cached.items);
+        }
+      }
+    } catch (e) { /* fetch fresh */ }
+
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+
+    var seedsPromise = Promise.all([
+      fetchLibraryMovies(libId, { Filters: 'IsResumable', SortBy: 'DatePlayed', SortOrder: 'Descending', Limit: 3 }),
+      fetchLibraryMovies(libId, { Filters: 'IsPlayed', SortBy: 'DatePlayed', SortOrder: 'Descending', Limit: 3 })
+    ]).then(function (results) {
+      var seeds = (results[0].Items || []).concat(results[1].Items || []);
+      var seen = {};
+      return seeds.filter(function (s) {
+        if (seen[s.Id]) { return false; }
+        seen[s.Id] = true;
+        return true;
+      }).slice(0, 4);
+    });
+
+    return seedsPromise.then(function (seeds) {
+      var seedIds = {};
+      seeds.forEach(function (s) { seedIds[s.Id] = true; });
+
+      var similarPromises = seeds.map(function (seed) {
+        return apiClient.getJSON(apiClient.getUrl('Items/' + seed.Id + '/Similar', {
+          userId: userId,
+          limit: 10,
+          fields: 'PrimaryImageAspectRatio,ProductionYear'
+        })).then(function (r) { return r.Items || []; }).catch(function () { return []; });
+      });
+
+      return Promise.all(similarPromises).then(function (lists) {
+        var merged = [];
+        var seen = {};
+        // Interleave the lists so one seed doesn't dominate the row.
+        for (var i = 0; i < 10; i++) {
+          lists.forEach(function (list) {
+            var item = list[i];
+            if (item && !seen[item.Id] && !seedIds[item.Id] && !(item.UserData && item.UserData.Played)) {
+              seen[item.Id] = true;
+              merged.push(item);
+            }
+          });
+        }
+        merged = merged.slice(0, 16);
+
+        var fill = merged.length >= 6
+          ? Promise.resolve([])
+          : fetchLibraryMovies(libId, {
+              Filters: 'IsUnplayed',
+              SortBy: 'CommunityRating',
+              SortOrder: 'Descending',
+              Limit: 16
+            }).then(function (r) { return r.Items || []; }).catch(function () { return []; });
+
+        return fill.then(function (fillItems) {
+          fillItems.forEach(function (item) {
+            if (merged.length < 16 && !seen[item.Id] && !seedIds[item.Id]) {
+              seen[item.Id] = true;
+              merged.push(item);
+            }
+          });
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), items: merged }));
+          } catch (e) { /* quota - fine */ }
+          return merged;
+        });
+      });
+    });
+  }
+
+  function moviesFilterState(container) {
+    if (!container._filterState) {
+      container._filterState = { genreId: null, watched: null, decade: null, startIndex: 0 };
+    }
+    return container._filterState;
+  }
+
+  function loadMoviesGrid(container, libId, append) {
+    var state = moviesFilterState(container);
+    var grid = container.querySelector('.newBadges-moviesGrid');
+    var moreBtn = container.querySelector('.newBadges-moviesMore');
+    if (!append) {
+      state.startIndex = 0;
+      grid.innerHTML = '<div class="newBadges-moviesLoading">Indlæser...</div>';
+    }
+
+    var params = {
+      SortBy: 'SortName',
+      SortOrder: 'Ascending',
+      StartIndex: state.startIndex,
+      Limit: MOVIES_PAGE_SIZE
+    };
+    if (state.genreId) {
+      params.GenreIds = state.genreId;
+    }
+    if (state.watched === 'played') {
+      params.Filters = 'IsPlayed';
+    } else if (state.watched === 'unplayed') {
+      params.Filters = 'IsUnplayed';
+    }
+    if (state.decade) {
+      params.MinPremiereDate = state.decade + '-01-01T00:00:00Z';
+      params.MaxPremiereDate = (state.decade + 9) + '-12-31T23:59:59Z';
+    }
+
+    fetchLibraryMovies(libId, params)
+      .then(function (result) {
+        var items = result.Items || [];
+        var html = items.map(buildMovieCardHtml).join('');
+        if (append) {
+          grid.insertAdjacentHTML('beforeend', html);
+        } else {
+          grid.innerHTML = html || '<div class="newBadges-moviesLoading">Ingen film matcher filtrene.</div>';
+        }
+        state.startIndex += items.length;
+        moreBtn.style.display = state.startIndex < (result.TotalRecordCount || 0) ? '' : 'none';
+      })
+      .catch(function () {
+        if (!append) {
+          grid.innerHTML = '<div class="newBadges-moviesLoading">Kunne ikke hente film.</div>';
+        }
+      });
+  }
+
+  function renderMoviesPills(container, libId) {
+    var apiClient = window.ApiClient;
+    var genreRow = container.querySelector('.newBadges-moviesGenreRow');
+    apiClient.getJSON(apiClient.getUrl('Genres', {
+      ParentId: libId,
+      IncludeItemTypes: 'Movie',
+      SortBy: 'SortName'
+    })).then(function (result) {
+      genreRow.innerHTML = (result.Items || []).map(function (g) {
+        return '<button type="button" class="newBadges-pill" data-filter="genre" data-value="' + g.Id + '">' +
+          escapeHtml(g.Name) + '</button>';
+      }).join('');
+    }).catch(function () {
+      genreRow.innerHTML = '';
+    });
+
+    var decadeRow = container.querySelector('.newBadges-moviesDecadeRow');
+    var currentDecade = Math.floor(new Date().getFullYear() / 10) * 10;
+    var decadeHtml = '';
+    for (var d = currentDecade; d >= 1960; d -= 10) {
+      decadeHtml += '<button type="button" class="newBadges-pill" data-filter="decade" data-value="' + d + '">' +
+        (d + "'erne") + '</button>';
+    }
+    decadeRow.innerHTML =
+      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="unplayed">Usete</button>' +
+      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="played">Sete</button>' +
+      '<span class="newBadges-pillDivider"></span>' + decadeHtml;
+  }
+
+  function wireMoviesInteractions(container, libId) {
+    container.addEventListener('click', function (e) {
+      var pill = e.target.closest ? e.target.closest('.newBadges-pill') : null;
+      if (pill) {
+        var state = moviesFilterState(container);
+        var filter = pill.getAttribute('data-filter');
+        var value = pill.getAttribute('data-value');
+        var stateKey = filter === 'genre' ? 'genreId' : filter;
+        var newValue = String(state[stateKey]) === value ? null : (filter === 'decade' ? parseInt(value, 10) : value);
+        state[stateKey] = newValue;
+        // one active pill per filter group
+        container.querySelectorAll('.newBadges-pill[data-filter="' + filter + '"]').forEach(function (el) {
+          el.classList.toggle('newBadges-pillActive', newValue !== null && el.getAttribute('data-value') === String(newValue));
+        });
+        loadMoviesGrid(container, libId, false);
+        return;
+      }
+
+      var moreBtn = e.target.closest ? e.target.closest('.newBadges-moviesMore') : null;
+      if (moreBtn) {
+        loadMoviesGrid(container, libId, true);
+      }
+    });
+  }
+
+  function buildMoviesRedesign(tab, libId) {
+    var container = document.createElement('div');
+    container.className = 'newBadges-moviesHome';
+    container.innerHTML =
+      '<div class="verticalSection newBadges-moviesRecsSection" style="display:none">' +
+        '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+          '<h2 class="sectionTitle sectionTitle-cards">Anbefalet til dig</h2>' +
+        '</div>' + moviesScrollRowHtml('newBadges-moviesRecsRow') +
+      '</div>' +
+      '<div class="verticalSection newBadges-moviesRandomSection" style="display:none">' +
+        '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+          '<h2 class="sectionTitle sectionTitle-cards">Tilfældige film</h2>' +
+        '</div>' +
+        moviesScrollRowHtml('newBadges-moviesRandomRow0') +
+        moviesScrollRowHtml('newBadges-moviesRandomRow1') +
+        moviesScrollRowHtml('newBadges-moviesRandomRow2') +
+      '</div>' +
+      '<div class="verticalSection newBadges-moviesFavsSection" style="display:none">' +
+        '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+          '<h2 class="sectionTitle sectionTitle-cards">Favoritter</h2>' +
+        '</div>' + moviesScrollRowHtml('newBadges-moviesFavsRow') +
+      '</div>' +
+      '<div class="verticalSection">' +
+        '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
+          '<h2 class="sectionTitle sectionTitle-cards">Alle film</h2>' +
+        '</div>' +
+        '<div class="newBadges-moviesPills newBadges-moviesGenreRow padded-left padded-right"></div>' +
+        '<div class="newBadges-moviesPills newBadges-moviesDecadeRow padded-left padded-right"></div>' +
+        '<div class="itemsContainer vertical-wrap padded-left padded-right newBadges-moviesGrid"></div>' +
+        '<div class="newBadges-moviesMoreWrap">' +
+          '<button type="button" class="newBadges-moviesMore" style="display:none">Vis flere</button>' +
+        '</div>' +
+      '</div>';
+
+    tab.insertBefore(container, tab.firstChild);
+    wireMoviesInteractions(container, libId);
+    renderMoviesPills(container, libId);
+    loadMoviesGrid(container, libId, false);
+
+    fetchMovieRecommendations(libId).then(function (items) {
+      if (items.length) {
+        container.querySelector('.newBadges-moviesRecsRow').innerHTML = items.map(buildMovieCardHtml).join('');
+        container.querySelector('.newBadges-moviesRecsSection').style.display = '';
+      }
+    }).catch(function () { /* row stays hidden */ });
+
+    fetchLibraryMovies(libId, { SortBy: 'Random', Limit: 36 }).then(function (result) {
+      var items = result.Items || [];
+      if (!items.length) {
+        return;
+      }
+      var rows = [items.slice(0, 12), items.slice(12, 24), items.slice(24, 36)];
+      rows.forEach(function (rowItems, i) {
+        var row = container.querySelector('.newBadges-moviesRandomRow' + i);
+        row.innerHTML = rowItems.map(buildMovieCardHtml).join('');
+        // hide empty leftover scrollers in small libraries
+        row.closest('[is="emby-scroller"]').style.display = rowItems.length ? '' : 'none';
+      });
+      container.querySelector('.newBadges-moviesRandomSection').style.display = '';
+    }).catch(function () { /* section stays hidden */ });
+
+    fetchLibraryMovies(libId, { Filters: 'IsFavorite', SortBy: 'SortName', Limit: 20 }).then(function (result) {
+      var items = result.Items || [];
+      if (items.length) {
+        container.querySelector('.newBadges-moviesFavsRow').innerHTML = items.map(buildMovieCardHtml).join('');
+        container.querySelector('.newBadges-moviesFavsSection').style.display = '';
+      }
+    }).catch(function () { /* row stays hidden */ });
+  }
+
+  function hideNativeMoviesChildren(tab) {
+    Array.prototype.forEach.call(tab.children, function (child) {
+      if (!child.classList.contains('newBadges-moviesHome') && child.style.display !== 'none') {
+        child.style.display = 'none';
+      }
+    });
+  }
+
+  function renderMoviesRedesignIfPresent() {
+    if (location.hash.indexOf('#/movies') !== 0) {
+      return;
+    }
+    var libId = getTopParentIdFromHash();
+    if (!libId) {
+      return;
+    }
+    var page = getActiveLibraryPage();
+    if (!page) {
+      return;
+    }
+    var tab = page.querySelector('#moviesTab');
+    if (!tab) {
+      return;
+    }
+
+    var existing = tab.querySelector('.newBadges-moviesHome');
+    if (existing && tab.getAttribute(MOVIES_LIB_ATTR) === libId) {
+      // Jellyfin re-renders its native children on its own schedule - keep
+      // them hidden on every tick, same pattern as the home-page rows.
+      hideNativeMoviesChildren(tab);
+      return;
+    }
+    if (tab.hasAttribute(MOVIES_PENDING_ATTR)) {
+      return;
+    }
+    // Page instance reused for a different library: tear down and rebuild.
+    if (existing) {
+      existing.remove();
+    }
+    tab.setAttribute(MOVIES_PENDING_ATTR, 'true');
+    tab.setAttribute(MOVIES_LIB_ATTR, libId);
+    try {
+      hideNativeMoviesChildren(tab);
+      buildMoviesRedesign(tab, libId);
+    } finally {
+      tab.removeAttribute(MOVIES_PENDING_ATTR);
+    }
+  }
+
   function scheduleScan() {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
@@ -924,6 +1339,7 @@
       ensureBackdrop();
       renderTrendingIfHome();
       renderContinueIfHome();
+      renderMoviesRedesignIfPresent();
     }, 400);
   }
 

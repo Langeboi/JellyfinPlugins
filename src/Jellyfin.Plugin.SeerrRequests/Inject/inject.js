@@ -1365,58 +1365,20 @@
   // underneath stays visible. (An earlier version hid the whole section by
   // mistake; the ask was specifically to drop the label, not the content.)
   // Finds the Mine medier section, or null.
-  function getMineMedierSection() {
-    var homeTab = document.getElementById('homeTab');
-    if (!homeTab) {
-      return null;
-    }
-    var headings = homeTab.querySelectorAll('.sectionTitle');
-    for (var i = 0; i < headings.length; i++) {
-      if (headings[i].textContent.trim() === 'Mine medier') {
-        return { heading: headings[i], section: headings[i].closest('.verticalSection') };
-      }
-    }
-    return null;
-  }
-
+  // Hide the "Mine medier" heading text (the section itself stays). Sweeps
+  // EVERY mounted home page instance: Jellyfin keeps previously-visited
+  // pages in the DOM with duplicate #homeTab ids, and the original
+  // getElementById('homeTab') version grabbed whichever instance came first
+  // in document order - often a hidden stale one - so the visible page's
+  // heading escaped the hide (regression observed live). Hiding in hidden
+  // instances too is harmless and means they're already correct if Jellyfin
+  // shows them again.
   function hideMineMedier() {
-    var found = getMineMedierSection();
-    if (found && found.heading.style.display !== 'none') {
-      found.heading.style.display = 'none';
-    }
-  }
-
-  // Hiding just the heading text removes whatever height/margin it used to
-  // contribute, which is harmless at narrower window widths (confirmed live
-  // there's no overlap there) but at wide/full-window widths Media Bar's
-  // hero (#slides-container) can be tall enough that Mine medier's row then
-  // starts while the hero is still visible underneath it - confirmed live a
-  // ~210px overlap at a ~1540px window, with the row's own poster art
-  // painting over the lower part of the hero (which is also why the fade
-  // effect looked "missing" specifically at that width - it's not gone, it's
-  // being covered). A fixed padding value can't fix both cases at once since
-  // the overlap only exists at some widths, so this measures the actual
-  // overlap every tick and only pushes the row down by exactly enough to
-  // clear it, doing nothing when there's no overlap to begin with.
-  function fixMineMedierOverlap() {
-    var found = getMineMedierSection();
-    if (!found || !found.section) {
-      return;
-    }
-    var slidesContainer = document.getElementById('slides-container');
-    if (!slidesContainer) {
-      return;
-    }
-
-    found.section.style.marginTop = '';
-    var heroBottom = slidesContainer.getBoundingClientRect().bottom;
-    var sectionTop = found.section.getBoundingClientRect().top;
-    var overlap = heroBottom - sectionTop;
-    if (overlap > 0) {
-      // Small buffer, not a big gap - per feedback the original +16px left
-      // more empty space than wanted once the overlap itself was fixed.
-      found.section.style.marginTop = (overlap + 4) + 'px';
-    }
+    document.querySelectorAll('.page.homePage .sectionTitle').forEach(function (heading) {
+      if (heading.textContent.trim() === 'Mine medier' && heading.style.display !== 'none') {
+        heading.style.display = 'none';
+      }
+    });
   }
 
   function runChecks() {
@@ -1425,7 +1387,6 @@
     wireConfigPageIfPresent();
     wireLogoHomeLink();
     hideMineMedier();
-    fixMineMedierOverlap();
   }
 
   function init() {
@@ -1447,16 +1408,9 @@
     // after clicking a details link from inside our tab) - see
     // deactivateAllSeerrTabs for why this can't just be click-based.
     window.addEventListener('hashchange', deactivateAllSeerrTabs);
-
-    // Resizing the window doesn't add/remove any DOM nodes, so the
-    // MutationObserver above never fires for it - but the Mine medier/hero
-    // overlap is width-dependent (only exists at wider windows, confirmed
-    // live), so it needs its own recheck on resize.
-    var resizeTimer = null;
-    window.addEventListener('resize', function () {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(fixMineMedierOverlap, 150);
-    });
+    // (The old width-dependent Mine medier/Media Bar overlap fix and its
+    // resize listener are gone: Hero Bar replaced Media Bar with an in-flow
+    // hero, so there is no overlap to measure anymore.)
   }
 
   if (document.readyState === 'loading') {
