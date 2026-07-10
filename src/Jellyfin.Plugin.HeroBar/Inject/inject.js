@@ -179,12 +179,69 @@
     return !!(item.BackdropImageTags && item.BackdropImageTags.length);
   }
 
+  // In-progress state for the dynamic play button: partially-watched movies
+  // and episodes come from the Resume endpoint (with their exact resume
+  // position), series the user is mid-way through (whole episodes done, next
+  // one untouched) come from NextUp. Both queries live-validated against the
+  // real server before this was written.
+  function fetchProgress() {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+
+    var resumePromise = apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/Resume', {
+      Limit: 40,
+      MediaTypes: 'Video',
+      Fields: 'SeriesId'
+    })).catch(function () { return {}; });
+
+    var nextUpPromise = apiClient.getJSON(apiClient.getUrl('Shows/NextUp', {
+      userId: userId,
+      Limit: 30,
+      Fields: 'SeriesId'
+    })).catch(function () { return {}; });
+
+    return Promise.all([resumePromise, nextUpPromise]).then(function (results) {
+      var progress = { movies: {}, series: {} };
+      (results[0].Items || []).forEach(function (item) {
+        var ticks = item.UserData ? item.UserData.PlaybackPositionTicks : 0;
+        if (item.Type === 'Movie') {
+          progress.movies[item.Id] = ticks;
+        } else if (item.Type === 'Episode' && item.SeriesId) {
+          progress.series[item.SeriesId] = { episodeId: item.Id, ticks: ticks };
+        }
+      });
+      (results[1].Items || []).forEach(function (item) {
+        // A half-watched episode (Resume) wins over NextUp for the same series.
+        if (item.SeriesId && !progress.series[item.SeriesId]) {
+          progress.series[item.SeriesId] = { episodeId: item.Id, ticks: 0 };
+        }
+      });
+      return progress;
+    });
+  }
+
+  // Decides what a slide's play button does: label (Afspil/Fortsæt), which
+  // item actually gets played, and where to resume from.
+  function resolvePlayAction(item, progress) {
+    if (item.Type === 'Movie') {
+      var ticks = progress.movies[item.Id] ||
+        (item.UserData && item.UserData.PlaybackPositionTicks) || 0;
+      return { label: ticks > 0 ? 'Fortsæt' : 'Afspil', targetId: item.Id, ticks: ticks };
+    }
+    var seriesProgress = progress.series[item.Id];
+    if (seriesProgress) {
+      return { label: 'Fortsæt', targetId: seriesProgress.episodeId, ticks: seriesProgress.ticks };
+    }
+    return { label: 'Afspil', targetId: item.Id, ticks: 0 };
+  }
+
   function buildItemPool(cfg) {
     var trendingPromise = cfg.IncludeTrending ? fetchTrendingItems(cfg.SlideCount) : Promise.resolve([]);
-    return Promise.all([trendingPromise, fetchRecentItems(cfg.SlideCount * 2)])
+    return Promise.all([trendingPromise, fetchRecentItems(cfg.SlideCount * 2), fetchProgress()])
       .then(function (results) {
         var trending = results[0].filter(hasBackdrop);
         var recent = results[1].filter(hasBackdrop);
+        var progress = results[2];
 
         var seen = {};
         var pool = [];
@@ -193,6 +250,7 @@
             return;
           }
           seen[item.Id] = true;
+          item._playAction = resolvePlayAction(item, progress);
           pool.push(item);
         }
 
@@ -227,6 +285,7 @@
 
   function buildSlideHtml(item, index) {
     var apiClient = window.ApiClient;
+    var play = item._playAction || { label: 'Afspil', targetId: item.Id, ticks: 0 };
     var backdropUrl = apiClient.getScaledImageUrl(item.Id, {
       type: 'Backdrop',
       tag: item.BackdropImageTags[0],
@@ -253,8 +312,11 @@
           '<div class="heroBar-meta">' + metaLine(item) + '</div>' +
           '<div class="heroBar-overview">' + overview + '</div>' +
           '<div class="heroBar-buttons">' +
-            '<a href="#/details?id=' + escapeHtml(item.Id) + '" class="heroBar-btn heroBar-btn-play">' +
-              '<span class="material-icons play_arrow" aria-hidden="true"></span> Afspil</a>' +
+            '<button type="button" class="heroBar-btn heroBar-btn-play" ' +
+              'data-item-id="' + escapeHtml(item.Id) + '" ' +
+              'data-play-id="' + escapeHtml(play.targetId) + '" ' +
+              'data-play-ticks="' + play.ticks + '">' +
+              '<span class="material-icons play_arrow" aria-hidden="true"></span> ' + play.label + '</button>' +
             '<a href="#/details?id=' + escapeHtml(item.Id) + '" class="heroBar-btn heroBar-btn-info">' +
               '<span class="material-icons info" aria-hidden="true"></span> Info</a>' +
             '<button type="button" class="heroBar-btn heroBar-btn-fav" data-item-id="' + escapeHtml(item.Id) + '" ' +
@@ -324,6 +386,14 @@
         return;
       }
 
+      var playBtn = e.target.closest ? e.target.closest('.heroBar-btn-play') : null;
+      if (playBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        playItem(playBtn);
+        return;
+      }
+
       var favBtn = e.target.closest ? e.target.closest('.heroBar-btn-fav') : null;
       if (favBtn) {
         e.preventDefault();
@@ -331,6 +401,45 @@
         toggleFavorite(favBtn);
       }
     });
+  }
+
+  // Starts real playback by remote-controlling our own session (the web
+  // client is itself a controllable session and processes PlayNow commands
+  // sent to it) - validated live before shipping: the server resolves a
+  // series id to the right episode on its own, and startPositionTicks
+  // resumes mid-item. Falls back to the details page if anything fails.
+  function playItem(btn) {
+    var apiClient = window.ApiClient;
+    var playId = btn.getAttribute('data-play-id');
+    var ticks = parseInt(btn.getAttribute('data-play-ticks'), 10) || 0;
+    var detailsId = btn.getAttribute('data-item-id');
+
+    btn.disabled = true;
+    apiClient.getJSON(apiClient.getUrl('Sessions', { deviceId: apiClient.deviceId() }))
+      .then(function (sessions) {
+        if (!sessions || !sessions.length) {
+          throw new Error('own session not found');
+        }
+        var params = { playCommand: 'PlayNow', itemIds: playId };
+        if (ticks > 0) {
+          params.startPositionTicks = ticks;
+        }
+        return fetch(apiClient.getUrl('Sessions/' + sessions[0].Id + '/Playing', params), {
+          method: 'POST',
+          headers: { 'X-Emby-Token': apiClient.accessToken() }
+        });
+      })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error('PlayNow failed: ' + resp.status);
+        }
+      })
+      .catch(function () {
+        location.hash = '#/details?id=' + detailsId;
+      })
+      .finally(function () {
+        btn.disabled = false;
+      });
   }
 
   function toggleFavorite(btn) {
@@ -368,6 +477,15 @@
   // no resize listener, no width-dependent bugs. This is deliberately
   // different from how Media Bar does it, after a full session of fighting
   // exactly that class of bug trying to coexist with it from the outside.
+  // The v1.0.0.0 bug: this check-then-insert is async (config + item fetches
+  // happen between the existence check and the actual insertBefore), and the
+  // MutationObserver fires runChecks on every DOM addition during that window
+  // - each pass saw "no hero yet" and started its own insert, stacking one
+  // hero per mutation. The pending attribute below is set SYNCHRONOUSLY so
+  // re-entrant calls bail immediately, and existence is re-checked right
+  // before the insert as a second line of defense.
+  var PENDING_ATTR = 'data-herobar-pending';
+
   function insertHeroBar() {
     if (!isHomeRoute()) {
       return;
@@ -377,23 +495,32 @@
       return;
     }
     var homeTab = homePage.querySelector('#homeTab');
-    if (!homeTab || homeTab.querySelector('#' + HERO_ID)) {
+    if (!homeTab || homeTab.querySelector('#' + HERO_ID) || homeTab.hasAttribute(PENDING_ATTR)) {
       return;
     }
+    homeTab.setAttribute(PENDING_ATTR, 'true');
 
-    loadConfig().then(function (cfg) {
-      return buildItemPool(cfg).then(function (items) {
-        if (!items.length) {
-          return;
-        }
-        var wrapper = document.createElement('div');
-        wrapper.innerHTML = buildHeroHtml(items);
-        var hero = wrapper.firstElementChild;
-        homeTab.insertBefore(hero, homeTab.firstChild);
-        wireHeroInteractions(hero);
-        startRotation(hero, items.length, cfg.RotationSeconds);
+    loadConfig()
+      .then(function (cfg) {
+        return buildItemPool(cfg).then(function (items) {
+          if (!items.length || homeTab.querySelector('#' + HERO_ID)) {
+            return;
+          }
+          var wrapper = document.createElement('div');
+          wrapper.innerHTML = buildHeroHtml(items);
+          var hero = wrapper.firstElementChild;
+          homeTab.insertBefore(hero, homeTab.firstChild);
+          wireHeroInteractions(hero);
+          startRotation(hero, items.length, cfg.RotationSeconds);
+        });
+      })
+      .catch(function () {
+        // Swallow so the finally-style cleanup below always runs; a failed
+        // fetch just means we try again on the next scan cycle.
+      })
+      .then(function () {
+        homeTab.removeAttribute(PENDING_ATTR);
       });
-    });
   }
 
   // ---- Styling ----
