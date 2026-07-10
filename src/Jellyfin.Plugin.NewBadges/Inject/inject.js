@@ -56,7 +56,14 @@
       '.newBadges-badgeRow{position:absolute;top:8px;left:8px;z-index:6;' +
       'display:flex;align-items:flex-start;gap:4px;}' +
       '.newBadges-badgeRow .' + BADGE_CLASS + ',' +
-      '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}';
+      '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}' +
+      // Custom server logo (Langehub) replacing the default Jellyfin banner
+      // in the header. The image is served from this plugin's own embedded
+      // resources - no external hosting involved. The header logo lives as a
+      // background-image on .pageTitle, confirmed live.
+      '.pageTitleWithDefaultLogo{background-image:url("/NewBadges/langehub_logo.png")!important;' +
+      'background-size:contain;background-position:left center;background-repeat:no-repeat;' +
+      'width:9.5em;}';
     document.head.appendChild(style);
   }
 

@@ -20,6 +20,13 @@ namespace Jellyfin.Plugin.NewBadges.Controllers
                 return NotFound();
             }
 
+            // Binary assets (the custom server logo) must NOT go through
+            // StreamReader - text decoding corrupts them.
+            if (file.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
+            {
+                return File(stream, "image/png");
+            }
+
             using var reader = new StreamReader(stream);
             string content = reader.ReadToEnd();
 
