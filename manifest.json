@@ -52,6 +52,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.0.0",
+        "changelog": "Custom Langehub server logo in the header, replacing the default Jellyfin banner. The original export had the transparency checkerboard baked into the pixels (no alpha channel, 2172x724 / 774KB) - cleaned up with an edge-connected flood fill, cropped, and downscaled to 670x120 / 57KB with real transparency. Served from the plugin's own embedded resources (controller gained a binary path for PNGs), so no external image hosting is involved.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.4.0.0/newbadges_1.4.0.0.zip",
+        "checksum": "69ac40f6a89f905316dab77124795b28",
+        "timestamp": "2026-07-10T20:45:00Z"
+      },
+      {
         "version": "1.3.1.0",
         "changelog": "Two fixes and an optimization: (1) Trending and the merged Continue Watching row could duplicate after navigating around - the rendered-state flags reset when leaving home while Jellyfin kept the home DOM (and the inserted rows) mounted, so returning inserted a second copy; duplicate-detection is now DOM-based and can't drift out of sync. (2) The season/episode badge on Recently Added rows silently failed for shows also appearing in Trending (e.g. Silo showing its episode count instead of S3E2) - Trending's fetch pre-filled the date cache, making the badge scan skip the ongoing-status lookup the swap depends on; a series now only counts as cached once its ongoing status is known. (3) Ongoing-status lookups are one batched request per scan pass instead of one per show.",
         "targetAbi": "10.11.0.0",
