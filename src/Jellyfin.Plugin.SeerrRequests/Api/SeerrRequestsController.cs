@@ -194,6 +194,8 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             public int MediaId { get; set; }
 
             public bool Is4k { get; set; }
+
+            public int[]? Seasons { get; set; }
         }
 
         [HttpPost("request")]
@@ -222,7 +224,9 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
             if (body.MediaType == "tv")
             {
-                payload["seasons"] = "all";
+                payload["seasons"] = body.Seasons != null && body.Seasons.Length > 0
+                    ? (JToken)new JArray(body.Seasons)
+                    : "all";
             }
 
             if (seerrUserId != null)
@@ -239,47 +243,68 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             return await ProxyPost("/api/v1/request", payload);
         }
 
-        [HttpGet("quality-options")]
-        public async Task<ActionResult> QualityOptions()
+        [HttpGet("tv-seasons/{tmdbId:int}")]
+        public async Task<ActionResult> TvSeasons(int tmdbId)
         {
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
             {
-                return Json(new JObject { ["movie4k"] = false, ["tv4k"] = false });
+                return Json(new JObject { ["seasons"] = new JArray() });
             }
 
-            var movie4k = await AnyServerIs4k("/api/v1/settings/radarr");
-            var tv4k = await AnyServerIs4k("/api/v1/settings/sonarr");
-            return Json(new JObject { ["movie4k"] = movie4k, ["tv4k"] = tv4k });
-        }
-
-        private async Task<bool> AnyServerIs4k(string path)
-        {
             try
             {
-                using var request = BuildRequest(HttpMethod.Get, path);
+                using var request = BuildRequest(HttpMethod.Get, $"/api/v1/tv/{tmdbId}");
                 using var response = await HttpClient.SendAsync(request);
+                var text = await response.Content.ReadAsStringAsync();
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    return false;
+                    return new ContentResult { Content = text, ContentType = "application/json", StatusCode = (int)response.StatusCode };
                 }
 
-                var text = await response.Content.ReadAsStringAsync();
-                var servers = JArray.Parse(text);
-                foreach (var server in servers)
+                var json = JObject.Parse(text);
+                var seasons = json["seasons"] as JArray ?? new JArray();
+                var mediaSeasons = json["mediaInfo"]?["seasons"] as JArray;
+                var result = new JArray();
+
+                foreach (var season in seasons)
                 {
-                    if (server["is4k"]?.Value<bool>() == true)
+                    var seasonNumber = season["seasonNumber"]?.Value<int>() ?? 0;
+                    if (seasonNumber == 0)
                     {
-                        return true;
+                        // "Specials" - Seerr's own request modal excludes these too.
+                        continue;
                     }
+
+                    int? status = null;
+                    if (mediaSeasons != null)
+                    {
+                        foreach (var ms in mediaSeasons)
+                        {
+                            if (ms["seasonNumber"]?.Value<int>() == seasonNumber)
+                            {
+                                status = ms["status"]?.Value<int>();
+                                break;
+                            }
+                        }
+                    }
+
+                    result.Add(new JObject
+                    {
+                        ["seasonNumber"] = seasonNumber,
+                        ["name"] = season["name"]?.ToString(),
+                        ["episodeCount"] = season["episodeCount"]?.Value<int?>(),
+                        ["status"] = status
+                    });
                 }
 
-                return false;
+                return Json(new JObject { ["seasons"] = result });
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "SeerrRequests: failed to check 4K availability via {Path}", path);
-                return false;
+                _logger.LogWarning(ex, "SeerrRequests: failed to fetch seasons for tv/{TmdbId}", tmdbId);
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
             }
         }
 

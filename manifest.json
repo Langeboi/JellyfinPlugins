@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.0.0",
+        "changelog": "Feedback round: (1) The Anmod button is now a rounded indigo pill centered at the bottom of the poster, matching Seerr's own request-button placement/color, instead of the New-Badges-style top-left corner pill (status badges like Tilgængelig/Anmodet stay top-left). (2) Removed the auto-detected 4K-capability check from 1.3.0.0 - it correctly found that this Seerr instance's single Radarr/Sonarr server reports is4k:false and so was silently always skipping the prompt, but the user confirmed that one server actually handles both 1080p and 4K, so the quality popup is now always shown on every request instead of gating on a server flag that doesn't reflect real capability here. (3) TV requests now open a proper season picker first (fetched via a new /tv-seasons/{tmdbId} endpoint, mirroring Seerr's own request modal) with per-season checkboxes, a Vælg alle toggle, and already-available/requested seasons shown disabled - only the checked seasons are sent instead of always requesting seasons:\"all\".",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.4.0.0/seerrrequests_1.4.0.0.zip",
+        "checksum": "9cb0f3577db751a3b09188edca3d9f9e",
+        "timestamp": "2026-07-10T08:05:54Z"
+      },
+      {
         "version": "1.3.0.0",
         "changelog": "Major redesign based on feedback: (1) No longer a separate full-page takeover - integrated as a real home-page tab exactly like Favoritter. Confirmed live that Favoritter never changes the URL, it just toggles an is-active class between sibling .tabContent.pageTabContent divs that Jellyfin keeps permanently mounted inside the home page - the browse panel now works the same way, so you never leave the home page at all. Also found and fixed that clicking a native tab (Hjem/Favoritter) doesn't automatically hide a foreign sibling tab-content div, so a click watcher on the tab row now handles that side explicitly. (2) Split the old single filterable 'Udforsk' grid into three separate always-visible horizontally-scrollable rows - Trending, Film, and Serier - matching the native home page's own row style, each with its own contextual genre filter pills instead of one global type toggle. (3) Requesting now prompts for 1080p vs 4K via a small popup dialog, but only when this Seerr instance actually has a 4K-flagged Radarr/Sonarr server configured (checked via a new /quality-options endpoint) - no point asking a question with only one real answer.",
         "targetAbi": "10.11.0.0",

@@ -7,7 +7,6 @@
   var genreCache = {}; // mediaType -> [{id,name}]
   var filmGenreId = null;
   var tvGenreId = null;
-  var qualityOptions = null; // {movie4k, tv4k} - fetched once, lazily
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
@@ -30,6 +29,13 @@
     var div = document.createElement('div');
     div.textContent = str == null ? '' : String(str);
     return div.innerHTML;
+  }
+
+  // escapeHtml alone is not attribute-safe - textContent->innerHTML
+  // serialization doesn't escape quote characters, so a title containing "
+  // would otherwise break out of a data-title="..." attribute.
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
   }
 
   function tmdbImageUrl(posterPath, width) {
@@ -94,10 +100,18 @@
       // Badges styled like New Badges' own NEW ribbon / rank badge - a small
       // top-left corner pill instead of a full-width bottom bar.
       '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
-      '.seerrRequests-requestBtn{background:rgba(0,122,255,.9);color:#fff;border:none;' +
-      'border-radius:4px;padding:3px 8px;font-weight:700;font-size:10px;letter-spacing:.05em;' +
-      'cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4);}' +
+      // The actual "Anmod" request button lives bottom-center of the poster
+      // instead, matching Seerr's own request button placement/style
+      // (rounded indigo pill) rather than the New-Badges-style corner pill
+      // used for status badges above.
+      '.seerrRequests-cardActionBottom{top:auto;left:50%;bottom:8px;transform:translateX(-50%);}' +
+      '.seerrRequests-requestBtn{background:#6366f1;color:#fff;border:none;border-radius:999px;' +
+      'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
+      'display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;' +
+      'box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s;}' +
+      '.seerrRequests-requestBtn:hover{background:#4f46e5;}' +
       '.seerrRequests-requestBtn:disabled{opacity:.6;cursor:default;}' +
+      '.seerrRequests-requestBtnIcon{font-size:1.1em;line-height:1;font-weight:700;}' +
       '.seerrRequests-statusBadge{display:inline-block;background:rgba(20,20,20,.85);color:#fff;' +
       'border-radius:4px;padding:3px 8px;font-weight:700;font-size:10px;letter-spacing:.05em;' +
       'box-shadow:0 2px 6px rgba(0,0,0,.4);white-space:nowrap;}' +
@@ -114,16 +128,26 @@
       'font-size:.85em;cursor:pointer;}' +
       '.seerrRequests-genrePill.seerrRequests-filterActive{background:rgba(255,255,255,.22);' +
       'border-color:transparent;}' +
-      // Small quality-choice popup, native dialog markup (a real "small
-      // popup box", unlike the full-page takeover the browse panel itself
-      // used to be).
-      '.seerrRequests-qualityDialogBody{width:min(320px,90vw);padding:1.5em;border-radius:8px;' +
+      // Small request popup, native dialog markup - quality choice for
+      // movies, plus a season picker for TV shows, mirroring Seerr's own
+      // request modal instead of always silently requesting all seasons.
+      '.seerrRequests-requestDialogBody{width:min(360px,90vw);padding:1.5em;border-radius:8px;' +
       'text-align:center;}' +
-      '.seerrRequests-qualityDialogBody h3{margin:0 0 1em;font-size:1.1em;font-weight:600;}' +
+      '.seerrRequests-requestDialogBody h3{margin:0 0 1em;font-size:1.1em;font-weight:600;}' +
+      '.seerrRequests-seasonHeader{display:flex;justify-content:space-between;align-items:center;' +
+      'font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
+      '.seerrRequests-seasonHeader label{display:flex;align-items:center;gap:.35em;cursor:pointer;}' +
+      '.seerrRequests-seasonList{max-height:180px;overflow-y:auto;margin-bottom:1em;text-align:left;' +
+      'border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.2em .7em;}' +
+      '.seerrRequests-seasonItem{display:flex;align-items:center;gap:.6em;padding:.35em 0;font-size:.9em;' +
+      'cursor:pointer;}' +
+      '.seerrRequests-seasonItem input{margin:0;}' +
+      '.seerrRequests-seasonDisabled{opacity:.5;cursor:default;}' +
+      '.seerrRequests-qualityLabel{font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
       '.seerrRequests-qualityOptions{display:flex;gap:.8em;justify-content:center;margin-bottom:1em;}' +
       '.seerrRequests-qualityBtn{flex:1;background:rgba(255,255,255,.08);color:#fff;border:none;' +
       'border-radius:6px;padding:.8em 0;font-weight:700;cursor:pointer;}' +
-      '.seerrRequests-qualityBtn:hover{background:#00a4dc;}' +
+      '.seerrRequests-qualityBtn:hover{background:#6366f1;}' +
       '.seerrRequests-qualityCancel{background:none;border:none;color:rgba(255,255,255,.6);' +
       'cursor:pointer;font-size:.9em;}';
     document.head.appendChild(style);
@@ -389,16 +413,19 @@
     var jellyfinMediaId = mediaInfo.jellyfinMediaId || null;
 
     var actionHtml;
+    var actionClass = 'seerrRequests-cardAction';
     if (mediaStatus === 5) {
       actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">Tilgængelig</div>';
     } else if (mediaStatus === 2 || mediaStatus === 3 || mediaStatus === 4) {
       actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
     } else {
+      actionClass = 'seerrRequests-cardAction seerrRequests-cardActionBottom';
       actionHtml = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
-        '" data-media-id="' + item.id + '">Anmod</button>';
+        '" data-media-id="' + item.id + '" data-title="' + escapeAttr(title) + '">' +
+        '<span class="seerrRequests-requestBtnIcon">+</span>Anmod</button>';
     }
 
-    return buildCardHtml(title, bgStyle, actionHtml, mediaStatus === 5 ? jellyfinMediaId : null);
+    return buildCardHtml(title, bgStyle, actionHtml, actionClass, mediaStatus === 5 ? jellyfinMediaId : null);
   }
 
   function statusLabelForRequest(req) {
@@ -435,7 +462,7 @@
     var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
     var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' +
       escapeHtml(statusLabelForRequest(req)) + '</div>';
-    return buildCardHtml(req.title, bgStyle, actionHtml, req.mediaStatus === 5 ? req.jellyfinMediaId : null);
+    return buildCardHtml(req.title, bgStyle, actionHtml, 'seerrRequests-cardAction', req.mediaStatus === 5 ? req.jellyfinMediaId : null);
   }
 
   // Shared by both card types - available items (mediaStatus 5, with a
@@ -443,7 +470,7 @@
   // Jellyfin details page instead of a static card, since Seerr's own
   // MediaInfo already tracks that id once something becomes available -
   // no separate Jellyfin-side lookup needed.
-  function buildCardHtml(title, bgStyle, actionHtml, jellyfinMediaId) {
+  function buildCardHtml(title, bgStyle, actionHtml, actionClass, jellyfinMediaId) {
     var tag = jellyfinMediaId ? 'a' : 'div';
     var hrefAttr = jellyfinMediaId ? ' href="#/details?id=' + escapeHtml(jellyfinMediaId) + '"' : '';
     return (
@@ -452,7 +479,7 @@
           '<div class="cardScalable">' +
             '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
             '<div class="cardImageContainer coveredImage cardContent"' + bgStyle + '>' +
-              '<div class="seerrRequests-cardAction">' + actionHtml + '</div>' +
+              '<div class="' + actionClass + '">' + actionHtml + '</div>' +
             '</div>' +
             '<div class="cardOverlayContainer itemAction"></div>' +
           '</div>' +
@@ -462,62 +489,86 @@
     );
   }
 
-  // ---- Quality (1080p / 4K) prompt ----
+  // ---- Request dialog (quality choice for every request, plus a season
+  // picker for TV shows) - mirrors Seerr's own request modal. Always shown,
+  // not gated behind an auto-detected 4K-server capability check: this
+  // instance's single Radarr/Sonarr server handles both 1080p and 4K, so
+  // Seerr's own is4k flag is simply always a real, meaningful choice here. ----
 
-  function ensureQualityOptionsLoaded() {
-    if (qualityOptions) {
-      return Promise.resolve(qualityOptions);
-    }
-    return apiGet('quality-options')
-      .then(function (data) {
-        qualityOptions = data;
-        return qualityOptions;
-      })
-      .catch(function () {
-        qualityOptions = { movie4k: false, tv4k: false };
-        return qualityOptions;
-      });
-  }
+  function openRequestDialog(mediaType, mediaId, title) {
+    var isTv = mediaType === 'tv';
+    return new Promise(function (resolve) {
+      var wrapper = document.createElement('div');
+      wrapper.innerHTML =
+        '<div class="dialogContainer seerrRequests-requestDialog">' +
+          '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
+          '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-requestDialogBody" data-lockscroll="true" data-removeonclose="true">' +
+            '<h3>Anmod om ' + escapeHtml(title || '') + '</h3>' +
+            (isTv
+              ? '<div class="seerrRequests-seasonHeader"><span>Sæsoner</span>' +
+                '<label><input type="checkbox" class="seerrRequests-selectAllSeasons" checked /> Vælg alle</label></div>' +
+                '<div class="seerrRequests-seasonList"><div class="seerrRequests-loading">Indlæser sæsoner...</div></div>'
+              : '') +
+            '<div class="seerrRequests-qualityLabel">Kvalitet</div>' +
+            '<div class="seerrRequests-qualityOptions">' +
+              '<button type="button" class="seerrRequests-qualityBtn" data-quality="0">1080p</button>' +
+              '<button type="button" class="seerrRequests-qualityBtn" data-quality="1">4K</button>' +
+            '</div>' +
+            '<button type="button" class="seerrRequests-qualityCancel">Annuller</button>' +
+          '</div>' +
+        '</div>';
+      var dialog = wrapper.firstElementChild;
+      document.body.appendChild(dialog);
 
-  // Resolves to true (4K), false (1080p/default), or null (cancelled). Only
-  // actually shows the popup when this Seerr instance has a 4K-flagged
-  // Radarr/Sonarr server for that media type - no point asking a question
-  // with only one real answer.
-  function promptQuality(mediaType) {
-    return ensureQualityOptionsLoaded().then(function (options) {
-      var has4k = mediaType === 'movie' ? options.movie4k : options.tv4k;
-      if (!has4k) {
-        return false;
+      function close(result) {
+        dialog.remove();
+        resolve(result);
       }
 
-      return new Promise(function (resolve) {
-        var wrapper = document.createElement('div');
-        wrapper.innerHTML =
-          '<div class="dialogContainer seerrRequests-qualityDialog">' +
-            '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
-            '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-qualityDialogBody" data-lockscroll="true" data-removeonclose="true">' +
-              '<h3>Vælg kvalitet</h3>' +
-              '<div class="seerrRequests-qualityOptions">' +
-                '<button type="button" class="seerrRequests-qualityBtn" data-quality="0">1080p</button>' +
-                '<button type="button" class="seerrRequests-qualityBtn" data-quality="1">4K</button>' +
-              '</div>' +
-              '<button type="button" class="seerrRequests-qualityCancel">Annuller</button>' +
-            '</div>' +
-          '</div>';
-        var dialog = wrapper.firstElementChild;
-        document.body.appendChild(dialog);
-
-        function close(result) {
-          dialog.remove();
-          resolve(result);
-        }
-
-        dialog.querySelector('.dialogBackdrop').addEventListener('click', function () { close(null); });
-        dialog.querySelector('.seerrRequests-qualityCancel').addEventListener('click', function () { close(null); });
-        dialog.querySelectorAll('[data-quality]').forEach(function (btn) {
-          btn.addEventListener('click', function () { close(btn.getAttribute('data-quality') === '1'); });
+      dialog.querySelector('.dialogBackdrop').addEventListener('click', function () { close(null); });
+      dialog.querySelector('.seerrRequests-qualityCancel').addEventListener('click', function () { close(null); });
+      dialog.querySelectorAll('[data-quality]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var seasons = null;
+          if (isTv) {
+            seasons = Array.prototype.slice
+              .call(dialog.querySelectorAll('.seerrRequests-seasonList input[type="checkbox"]:checked:not(:disabled)'))
+              .map(function (cb) { return parseInt(cb.value, 10); });
+          }
+          close({ is4k: btn.getAttribute('data-quality') === '1', seasons: seasons });
         });
       });
+
+      if (!isTv) {
+        return;
+      }
+
+      var listEl = dialog.querySelector('.seerrRequests-seasonList');
+      apiGet('tv-seasons/' + mediaId)
+        .then(function (data) {
+          var seasons = data.seasons || [];
+          if (!seasons.length) {
+            listEl.innerHTML = '<div class="seerrRequests-empty">Ingen sæsoner fundet.</div>';
+            return;
+          }
+          listEl.innerHTML = seasons.map(function (s) {
+            var already = s.status === 5 || s.status === 2 || s.status === 3 || s.status === 4;
+            var suffix = s.status === 5 ? ' – Tilgængelig' : (already ? ' – Anmodet' : '');
+            return '<label class="seerrRequests-seasonItem' + (already ? ' seerrRequests-seasonDisabled' : '') + '">' +
+              '<input type="checkbox" value="' + s.seasonNumber + '"' + (already ? ' disabled' : ' checked') + ' />' +
+              escapeHtml(s.name || ('Sæson ' + s.seasonNumber)) + suffix +
+              '</label>';
+          }).join('');
+
+          dialog.querySelector('.seerrRequests-selectAllSeasons').addEventListener('change', function (e) {
+            listEl.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) {
+              cb.checked = e.target.checked;
+            });
+          });
+        })
+        .catch(function () {
+          listEl.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente sæsoner.</div>';
+        });
     });
   }
 
@@ -532,16 +583,22 @@
 
       var mediaType = btn.getAttribute('data-media-type');
       var mediaId = parseInt(btn.getAttribute('data-media-id'), 10);
+      var title = btn.getAttribute('data-title') || '';
 
-      promptQuality(mediaType).then(function (is4k) {
-        if (is4k === null) {
+      openRequestDialog(mediaType, mediaId, title).then(function (choice) {
+        if (!choice) {
           return; // cancelled
         }
 
         btn.disabled = true;
         btn.textContent = 'Anmoder...';
 
-        apiPost('request', { mediaType: mediaType, mediaId: mediaId, is4k: is4k })
+        var payload = { mediaType: mediaType, mediaId: mediaId, is4k: choice.is4k };
+        if (choice.seasons) {
+          payload.seasons = choice.seasons;
+        }
+
+        apiPost('request', payload)
           .then(function () {
             btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
             loadMyRequests(container);
