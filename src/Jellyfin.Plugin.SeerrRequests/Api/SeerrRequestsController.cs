@@ -194,8 +194,6 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             public int MediaId { get; set; }
 
             public bool Is4k { get; set; }
-
-            public int[]? Seasons { get; set; }
         }
 
         [HttpPost("request")]
@@ -224,9 +222,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
             if (body.MediaType == "tv")
             {
-                payload["seasons"] = body.Seasons != null && body.Seasons.Length > 0
-                    ? (JToken)new JArray(body.Seasons)
-                    : "all";
+                payload["seasons"] = "all";
             }
 
             if (seerrUserId != null)
@@ -241,71 +237,6 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
 
             return await ProxyPost("/api/v1/request", payload);
-        }
-
-        [HttpGet("tv-seasons/{tmdbId:int}")]
-        public async Task<ActionResult> TvSeasons(int tmdbId)
-        {
-            var config = Plugin.Instance!.Configuration;
-            if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
-            {
-                return Json(new JObject { ["seasons"] = new JArray() });
-            }
-
-            try
-            {
-                using var request = BuildRequest(HttpMethod.Get, $"/api/v1/tv/{tmdbId}");
-                using var response = await HttpClient.SendAsync(request);
-                var text = await response.Content.ReadAsStringAsync();
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return new ContentResult { Content = text, ContentType = "application/json", StatusCode = (int)response.StatusCode };
-                }
-
-                var json = JObject.Parse(text);
-                var seasons = json["seasons"] as JArray ?? new JArray();
-                var mediaSeasons = json["mediaInfo"]?["seasons"] as JArray;
-                var result = new JArray();
-
-                foreach (var season in seasons)
-                {
-                    var seasonNumber = season["seasonNumber"]?.Value<int>() ?? 0;
-                    if (seasonNumber == 0)
-                    {
-                        // "Specials" - Seerr's own request modal excludes these too.
-                        continue;
-                    }
-
-                    int? status = null;
-                    if (mediaSeasons != null)
-                    {
-                        foreach (var ms in mediaSeasons)
-                        {
-                            if (ms["seasonNumber"]?.Value<int>() == seasonNumber)
-                            {
-                                status = ms["status"]?.Value<int>();
-                                break;
-                            }
-                        }
-                    }
-
-                    result.Add(new JObject
-                    {
-                        ["seasonNumber"] = seasonNumber,
-                        ["name"] = season["name"]?.ToString(),
-                        ["episodeCount"] = season["episodeCount"]?.Value<int?>(),
-                        ["status"] = status
-                    });
-                }
-
-                return Json(new JObject { ["seasons"] = result });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "SeerrRequests: failed to fetch seasons for tv/{TmdbId}", tmdbId);
-                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
-            }
         }
 
         [HttpGet("test-connection")]

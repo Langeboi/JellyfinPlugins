@@ -31,13 +31,6 @@
     return div.innerHTML;
   }
 
-  // escapeHtml alone is not attribute-safe - textContent->innerHTML
-  // serialization doesn't escape quote characters, so a title containing "
-  // would otherwise break out of a data-title="..." attribute.
-  function escapeAttr(str) {
-    return escapeHtml(str).replace(/"/g, '&quot;');
-  }
-
   function tmdbImageUrl(posterPath, width) {
     if (!posterPath) {
       return null;
@@ -96,7 +89,19 @@
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
-      '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;}' +
+      '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;' +
+      'position:relative;}' +
+      // Media Bar's own slideshow (#slides-container, a fixed child of
+      // <body>) only renders while the native #homeTab content is active -
+      // confirmed live it isn't broken by anything here, it's just scoped to
+      // the real home tab and correctly hides behind ours. That leaves this
+      // tab's top looking flatter than Hjem's own hero by comparison, so a
+      // purely decorative dark-to-transparent band gives it a similar bit of
+      // visual weight instead of starting abruptly right under the tab row.
+      '#' + TAB_CONTENT_ID + ' .sections::before{content:"";position:absolute;top:0;left:0;right:0;' +
+      'height:220px;background:linear-gradient(to bottom,rgba(40,40,58,.5),rgba(0,0,0,0));' +
+      'pointer-events:none;z-index:0;}' +
+      '#' + TAB_CONTENT_ID + ' .sections > *{position:relative;z-index:1;}' +
       // Small indigo accent bar in front of each section title (Trending /
       // Film / Serier / Seneste anmodninger), a light Seerr-style touch on
       // top of the native sectionTitle-cards look rather than replacing it.
@@ -164,14 +169,16 @@
       '.seerrRequests-statusPending{background:rgba(200,140,0,.9);}' +
       '.seerrRequests-statusDeclined{background:rgba(180,40,40,.9);}' +
       // Three sequentially-bouncing dots after "Behandles" (processing), a
-      // small loading-style cue instead of a static label.
+      // slow loading-style pulse rather than a static label - one quick
+      // bounce per dot near the start of a 5s cycle, then idle until the
+      // next one, instead of continuously bouncing.
       '.seerrRequests-dots{display:inline-flex;gap:2px;margin-left:.35em;vertical-align:middle;}' +
       '.seerrRequests-dots span{width:3px;height:3px;border-radius:50%;background:currentColor;' +
-      'display:inline-block;animation:seerrRequests-dotBounce 1.1s infinite ease-in-out both;}' +
-      '.seerrRequests-dots span:nth-child(2){animation-delay:.15s;}' +
-      '.seerrRequests-dots span:nth-child(3){animation-delay:.3s;}' +
-      '@keyframes seerrRequests-dotBounce{0%,60%,100%{transform:translateY(0);opacity:.5;}' +
-      '30%{transform:translateY(-3px);opacity:1;}}' +
+      'display:inline-block;animation:seerrRequests-dotBounce 5s infinite ease-in-out both;}' +
+      '.seerrRequests-dots span:nth-child(2){animation-delay:.4s;}' +
+      '.seerrRequests-dots span:nth-child(3){animation-delay:.8s;}' +
+      '@keyframes seerrRequests-dotBounce{0%,12%,100%{transform:translateY(0);opacity:.5;}' +
+      '6%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
       // Genre filter pills, scoped per section now (Film / Serier each get
       // their own row instead of one global type toggle).
@@ -182,60 +189,7 @@
       'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
       '.seerrRequests-genrePill:hover{border-color:var(--seerr-accent);}' +
       '.seerrRequests-genrePill.seerrRequests-filterActive{background:var(--seerr-accent);' +
-      'border-color:var(--seerr-accent);color:#fff;}' +
-      // Small request popup, native dialog markup - quality choice for
-      // movies, plus a season picker for TV shows, mirroring Seerr's own
-      // request modal instead of always silently requesting all seasons.
-      // The theme's own .dialog styling (translucent, ~90% opacity) is what
-      // made this look washed-out/dim - confirmed live the native/theme
-      // background is only rgba(34,37,42,.9), stacked on a translucent
-      // backdrop underneath it. Forced fully opaque here instead, since a
-      // small popup like this needs to read clearly regardless of what the
-      // rest of the theme does with bigger dialogs. Sized with vw-relative
-      // width (not native dialog-fixedSize, which is meant for much bigger
-      // content) so it stays a small popup at any window size down to phone
-      // width instead of stretching to fill most of a half-sized window.
-      // Centered explicitly with fixed positioning + a translate offset
-      // instead of relying on .dialogContainer's flex centering to do it -
-      // confirmed live that this popup can end up pinned to top:0/left:0
-      // regardless of the flex container around it, so this takes full
-      // manual control instead of trusting that mechanism.
-      '.seerrRequests-requestDialogBody{position:fixed!important;top:50%!important;left:50%!important;' +
-      'transform:translate(-50%,-50%)!important;margin:0!important;' +
-      'width:min(420px,92vw)!important;max-width:420px!important;max-height:88vh;overflow-y:auto;' +
-      'box-sizing:border-box;padding:1.6em 1.6em 1.3em;border-radius:14px!important;' +
-      'background:var(--seerr-card-bg)!important;border:1px solid rgba(99,102,241,.35);' +
-      'box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;}' +
-      '.seerrRequests-requestDialog .dialogBackdrop{opacity:.75!important;}' +
-      '.seerrRequests-requestDialogBody h3{margin:0 0 1.1em;font-size:1.1em;font-weight:700;' +
-      'padding-bottom:.6em;border-bottom:1px solid rgba(255,255,255,.08);}' +
-      '.seerrRequests-seasonHeader{display:flex;justify-content:space-between;align-items:center;' +
-      'font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
-      '.seerrRequests-seasonHeader label{display:flex;align-items:center;gap:.35em;cursor:pointer;}' +
-      '.seerrRequests-seasonList{max-height:180px;overflow-y:auto;margin-bottom:1em;text-align:left;' +
-      'border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.2em .7em;}' +
-      '.seerrRequests-seasonItem{display:flex;align-items:center;gap:.6em;padding:.35em 0;font-size:.9em;' +
-      'cursor:pointer;}' +
-      '.seerrRequests-seasonItem input,.seerrRequests-seasonHeader input{margin:0;accent-color:var(--seerr-accent);' +
-      'width:15px;height:15px;}' +
-      '.seerrRequests-seasonDisabled{opacity:.5;cursor:default;}' +
-      '.seerrRequests-qualityLabel{font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
-      '.seerrRequests-qualityOptions{display:flex;gap:.8em;justify-content:center;margin-bottom:.4em;}' +
-      '.seerrRequests-qualityBtn{flex:1;background:rgba(255,255,255,.06);color:#fff;' +
-      'border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.75em 0;font-weight:700;' +
-      'cursor:pointer;transition:background .15s,border-color .15s;}' +
-      '.seerrRequests-qualityBtn:hover{background:var(--seerr-accent);border-color:var(--seerr-accent);}' +
-      '.seerrRequests-qualityCancel{display:block;width:100%;margin-top:.9em;padding-top:.7em;' +
-      'background:none;border:none;border-top:1px solid rgba(255,255,255,.08);' +
-      'color:rgba(255,255,255,.55);cursor:pointer;font-size:.9em;}' +
-      '.seerrRequests-qualityCancel:hover{color:#fff;}' +
-      // Tighter popup on phone-width screens - same layout, less padding,
-      // shorter season list so it doesn't dominate the whole viewport.
-      '@media (max-width:480px){' +
-      '.seerrRequests-requestDialogBody{width:94vw!important;padding:1.25em 1.1em 1em;}' +
-      '.seerrRequests-seasonList{max-height:130px;}' +
-      '.seerrRequests-qualityBtn{padding:.65em 0;font-size:.9em;}' +
-      '}';
+      'border-color:var(--seerr-accent);color:#fff;}';
     document.head.appendChild(style);
   }
 
@@ -533,19 +487,17 @@
     var jellyfinMediaId = mediaInfo.jellyfinMediaId || null;
 
     var actionHtml;
-    var actionClass = 'seerrRequests-cardAction';
     if (mediaStatus === 5) {
       actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">Tilføjet ✓</div>';
     } else if (mediaStatus === 2 || mediaStatus === 3 || mediaStatus === 4) {
       actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
     } else {
-      actionClass = 'seerrRequests-cardAction seerrRequests-cardActionBottom';
       actionHtml = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
-        '" data-media-id="' + item.id + '" data-title="' + escapeAttr(title) + '">' +
+        '" data-media-id="' + item.id + '">' +
         '<span class="seerrRequests-requestBtnIcon">+</span>Tilføj</button>';
     }
 
-    return buildCardHtml(title, bgStyle, actionHtml, actionClass, mediaStatus === 5 ? jellyfinMediaId : null);
+    return buildCardHtml(title, bgStyle, actionHtml, 'seerrRequests-cardAction', mediaStatus === 5 ? jellyfinMediaId : null);
   }
 
   function statusLabelForRequest(req) {
@@ -616,130 +568,9 @@
     );
   }
 
-  // ---- Request dialog (quality choice for every request, plus a season
-  // picker for TV shows) - mirrors Seerr's own request modal. Always shown,
-  // not gated behind an auto-detected 4K-server capability check: this
-  // instance's single Radarr/Sonarr server handles both 1080p and 4K, so
-  // Seerr's own is4k flag is simply always a real, meaningful choice here. ----
-
-  function openRequestDialog(mediaType, mediaId, title) {
-    var isTv = mediaType === 'tv';
-    return new Promise(function (resolve) {
-      var wrapper = document.createElement('div');
-      wrapper.innerHTML =
-        '<div class="dialogContainer seerrRequests-requestDialog">' +
-          '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
-          '<div class="dialog focuscontainer smoothScrollY centeredDialog opened seerrRequests-requestDialogBody" data-lockscroll="true" data-removeonclose="true">' +
-            '<h3>Tilføj ' + escapeHtml(title || '') + '</h3>' +
-            (isTv
-              ? '<div class="seerrRequests-seasonHeader"><span>Sæsoner</span>' +
-                '<label><input type="checkbox" class="seerrRequests-selectAllSeasons" checked /> Vælg alle</label></div>' +
-                '<div class="seerrRequests-seasonList"><div class="seerrRequests-loading">Indlæser sæsoner...</div></div>'
-              : '') +
-            '<div class="seerrRequests-qualityLabel">Kvalitet</div>' +
-            '<div class="seerrRequests-qualityOptions">' +
-              '<button type="button" class="seerrRequests-qualityBtn" data-quality="0">1080p</button>' +
-              '<button type="button" class="seerrRequests-qualityBtn" data-quality="1">4K</button>' +
-            '</div>' +
-            '<button type="button" class="seerrRequests-qualityCancel">Annuller</button>' +
-          '</div>' +
-        '</div>';
-      var dialog = wrapper.firstElementChild;
-      document.body.appendChild(dialog);
-
-      // Jellyfin's own core JS auto-attaches a Web Animations API entrance
-      // animation (opacity 0->1, scale .96->1, 180ms) to any element
-      // matching the native dialog class pattern, independent of whether it
-      // was opened through Jellyfin's own dialogHelper - confirmed live via
-      // dialog.getAnimations() that this animation can get stuck forever at
-      // its 0%-progress frame (opacity:0) instead of ever completing,
-      // leaving the whole popup invisible. This, not the background color,
-      // was the real cause of the "washed out"/"dim" popup - our opaque
-      // background was already correct, it just never got a chance to
-      // render because the element sat at opacity:0. Cancelling the
-      // animation reverts the element to its normal CSS-resolved opacity:1
-      // instantly (confirmed live).
-      //
-      // A first attempt retried on a fixed schedule (rAF + 50ms + 200ms) but
-      // that still left the dialog stuck live - confirmed via getAnimations()
-      // that Jellyfin's MutationObserver can attach the animation well after
-      // 200ms (observed as late as ~1s under some conditions), so a few
-      // fixed-delay retries aren't a wide enough net. Polling instead: cheap
-      // (a getAnimations() call every 120ms), bounded (stops after ~4s), and
-      // catches the animation reliably whenever it actually lands.
-      function killStuckEntranceAnimation() {
-        if (!dialog.getAnimations) {
-          return false;
-        }
-        var anims = dialog.getAnimations();
-        if (anims.length) {
-          anims.forEach(function (a) { a.cancel(); });
-        }
-        return anims.length > 0;
-      }
-      killStuckEntranceAnimation();
-      var animationKillTicks = 0;
-      var animationKillTimer = setInterval(function () {
-        killStuckEntranceAnimation();
-        animationKillTicks++;
-        if (animationKillTicks > 32) {
-          clearInterval(animationKillTimer);
-        }
-      }, 120);
-
-      function close(result) {
-        clearInterval(animationKillTimer);
-        dialog.remove();
-        resolve(result);
-      }
-
-      dialog.querySelector('.dialogBackdrop').addEventListener('click', function () { close(null); });
-      dialog.querySelector('.seerrRequests-qualityCancel').addEventListener('click', function () { close(null); });
-      dialog.querySelectorAll('[data-quality]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          var seasons = null;
-          if (isTv) {
-            seasons = Array.prototype.slice
-              .call(dialog.querySelectorAll('.seerrRequests-seasonList input[type="checkbox"]:checked:not(:disabled)'))
-              .map(function (cb) { return parseInt(cb.value, 10); });
-          }
-          close({ is4k: btn.getAttribute('data-quality') === '1', seasons: seasons });
-        });
-      });
-
-      if (!isTv) {
-        return;
-      }
-
-      var listEl = dialog.querySelector('.seerrRequests-seasonList');
-      apiGet('tv-seasons/' + mediaId)
-        .then(function (data) {
-          var seasons = data.seasons || [];
-          if (!seasons.length) {
-            listEl.innerHTML = '<div class="seerrRequests-empty">Ingen sæsoner fundet.</div>';
-            return;
-          }
-          listEl.innerHTML = seasons.map(function (s) {
-            var already = s.status === 5 || s.status === 2 || s.status === 3 || s.status === 4;
-            var suffix = s.status === 5 ? ' – Tilgængelig' : (already ? ' – Anmodet' : '');
-            return '<label class="seerrRequests-seasonItem' + (already ? ' seerrRequests-seasonDisabled' : '') + '">' +
-              '<input type="checkbox" value="' + s.seasonNumber + '"' + (already ? ' disabled' : ' checked') + ' />' +
-              escapeHtml(s.name || ('Sæson ' + s.seasonNumber)) + suffix +
-              '</label>';
-          }).join('');
-
-          dialog.querySelector('.seerrRequests-selectAllSeasons').addEventListener('change', function (e) {
-            listEl.querySelectorAll('input[type="checkbox"]:not(:disabled)').forEach(function (cb) {
-              cb.checked = e.target.checked;
-            });
-          });
-        })
-        .catch(function () {
-          listEl.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente sæsoner.</div>';
-        });
-    });
-  }
-
+  // No confirmation popup - the quality/season picker was dropped per
+  // feedback ("it doesn't work" / "simple as can be"), so Tilføj submits
+  // immediately at the fixed default: 1080p, all seasons for TV.
   function wireRequestButtons(container) {
     container.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.seerrRequests-requestBtn') : null;
@@ -751,32 +582,20 @@
 
       var mediaType = btn.getAttribute('data-media-type');
       var mediaId = parseInt(btn.getAttribute('data-media-id'), 10);
-      var title = btn.getAttribute('data-title') || '';
 
-      openRequestDialog(mediaType, mediaId, title).then(function (choice) {
-        if (!choice) {
-          return; // cancelled
-        }
+      btn.disabled = true;
+      btn.textContent = 'Tilføjer...';
 
-        btn.disabled = true;
-        btn.textContent = 'Tilføjer...';
-
-        var payload = { mediaType: mediaType, mediaId: mediaId, is4k: choice.is4k };
-        if (choice.seasons) {
-          payload.seasons = choice.seasons;
-        }
-
-        apiPost('request', payload)
-          .then(function () {
-            btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
-            loadMyRequests(container);
-          })
-          .catch(function (err) {
-            btn.disabled = false;
-            btn.textContent = 'Tilføj';
-            alert('Kunne ikke tilføje: ' + err.message);
-          });
-      });
+      apiPost('request', { mediaType: mediaType, mediaId: mediaId, is4k: false })
+        .then(function () {
+          btn.outerHTML = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
+          loadMyRequests(container);
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Tilføj';
+          alert('Kunne ikke tilføje: ' + err.message);
+        });
     });
   }
 
@@ -911,10 +730,44 @@
     }
   }
 
+  // The header's Jellyfin wordmark (h3.pageTitleWithLogo, in .headerLeft) is
+  // plain static chrome by default - not a link/button anywhere in Jellyfin's
+  // own markup. Wired here (rather than a real feature request scoped to
+  // this plugin) since there's no other natural place to add it; a marker
+  // attribute keeps this idempotent across scan ticks.
+  var LOGO_WIRED_ATTR = 'data-seerr-logo-wired';
+
+  function wireLogoHomeLink() {
+    var logo = document.querySelector('.headerLeft .pageTitleWithLogo');
+    if (!logo || logo.hasAttribute(LOGO_WIRED_ATTR)) {
+      return;
+    }
+    logo.setAttribute(LOGO_WIRED_ATTR, 'true');
+    logo.style.cursor = 'pointer';
+    logo.addEventListener('click', function () {
+      // Just setting location.hash = '#/home' is a no-op when the hash is
+      // already #/home (e.g. while on this plugin's own tab, or Favoritter -
+      // both are same-page tabs of #/home, not separate routes), so it would
+      // silently fail to actually switch anything back. Clicking the real
+      // Hjem tab button instead reuses Jellyfin's own native tab-switch
+      // logic, which is what correctly deactivates this plugin's tab too.
+      var hjemBtn = Array.prototype.find.call(
+        document.querySelectorAll('.tabs-viewmenubar .emby-tab-button'),
+        function (b) { return b.textContent.trim() === 'Hjem'; }
+      );
+      if (hjemBtn) {
+        hjemBtn.click();
+      } else {
+        location.hash = '#/home';
+      }
+    });
+  }
+
   function runChecks() {
     syncTabRowSpacing();
     injectButtonIfHome();
     wireConfigPageIfPresent();
+    wireLogoHomeLink();
   }
 
   function init() {
