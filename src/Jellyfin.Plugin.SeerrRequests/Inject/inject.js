@@ -2,14 +2,18 @@
   'use strict';
 
   var BUTTON_MARKER = 'data-seerr-requests-button';
-  var DIALOG_CLASS = 'seerrRequests-dialog';
+  var PAGE_CLASS = 'seerrRequests-page';
+  var PAGE_OPEN_CLASS = 'seerrRequests-pageOpen';
+  var HASH_FLAG = 'seerrRequests=1';
   var buttonInjected = false;
-  var debounceTimer = null;
   var searchDebounceTimer = null;
-  var escKeyHandler = null;
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
+  }
+
+  function isPageOpenInHash() {
+    return location.hash.indexOf(HASH_FLAG) !== -1;
   }
 
   function escapeHtml(str) {
@@ -63,15 +67,23 @@
     var style = document.createElement('style');
     style.id = 'seerrRequests-style';
     style.textContent =
-      '.seerrRequests-dialogBody{width:min(900px,92vw);max-height:85vh;display:flex;flex-direction:column;' +
-      'padding:0;border-radius:8px;overflow:hidden;}' +
-      '.seerrRequests-header{display:flex;align-items:center;justify-content:space-between;' +
-      'padding:1.2em 1.5em;border-bottom:1px solid rgba(255,255,255,.1);flex:0 0 auto;}' +
-      '.seerrRequests-title{margin:0;font-size:1.3em;}' +
-      '.seerrRequests-closeBtn{background:none;border:none;color:inherit;cursor:pointer;padding:.4em;}' +
-      '.seerrRequests-body{overflow-y:auto;padding:1em 1.5em 1.5em;}' +
+      // Full-page overlay, not a floating dialog - solid background (matches
+      // the app shell's own #101010) instead of a translucent dialog body
+      // stacked on a translucent backdrop, which is what made the old
+      // modal version look dim/washed out.
+      '.' + PAGE_CLASS + '{position:fixed;inset:0;z-index:99999;background:#101010;' +
+      'overflow-y:auto;display:none;flex-direction:column;}' +
+      '.' + PAGE_CLASS + '.' + PAGE_OPEN_CLASS + '{display:flex;}' +
+      '.seerrRequests-pageHeader{display:flex;align-items:center;gap:1em;padding:1.2em 1.5em;' +
+      'flex:0 0 auto;position:sticky;top:0;background:#101010;z-index:2;' +
+      'border-bottom:1px solid rgba(255,255,255,.08);}' +
+      '.seerrRequests-backBtn{background:none;border:none;color:inherit;cursor:pointer;' +
+      'padding:.4em;display:flex;align-items:center;}' +
+      '.seerrRequests-title{margin:0;font-size:1.4em;font-weight:600;}' +
+      '.seerrRequests-pageBody{flex:1 1 auto;padding:1em 2em 3em;max-width:1400px;width:100%;' +
+      'box-sizing:border-box;margin:0 auto;}' +
       '.seerrRequests-searchRow{margin-bottom:.5em;}' +
-      '.seerrRequests-searchInput{width:100%;}' +
+      '.seerrRequests-searchInput{width:100%;max-width:480px;}' +
       '.seerrRequests-section{margin-top:1.5em;}' +
       '.seerrRequests-discoverGrid,.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;}' +
       '.seerrRequests-discoverGrid:empty,.seerrRequests-searchResults:empty{display:none;}' +
@@ -128,91 +140,103 @@
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      openModal();
+      if (!isPageOpenInHash()) {
+        var sep = location.hash.indexOf('?') === -1 ? '?' : '&';
+        location.hash = location.hash + sep + HASH_FLAG;
+      }
     }, true);
 
     slider.appendChild(btn);
     buttonInjected = true;
   }
 
-  // ---- Modal ----
+  // ---- Page (was a floating dialog; now a real full-page view toggled by a
+  // hash flag on the current route, e.g. #/home?seerrRequests=1, so the
+  // browser's back button and URL both behave like real navigation without
+  // fighting Jellyfin's own router - an unrecognized hash route renders
+  // Jellyfin's "Side ikke fundet" page, confirmed live, so this rides on
+  // whatever the real underlying route already is instead of inventing one) ----
 
-  function closeModal() {
-    var container = document.querySelector('.dialogContainer.' + DIALOG_CLASS);
-    if (container) {
-      container.remove();
-    }
-    if (escKeyHandler) {
-      document.removeEventListener('keydown', escKeyHandler);
-      escKeyHandler = null;
-    }
-  }
-
-  function openModal() {
-    if (document.querySelector('.dialogContainer.' + DIALOG_CLASS)) {
-      return;
+  function getOrCreatePage() {
+    var page = document.querySelector('.' + PAGE_CLASS);
+    if (page) {
+      return page;
     }
 
     var wrapper = document.createElement('div');
     wrapper.innerHTML =
-      '<div class="dialogContainer ' + DIALOG_CLASS + '">' +
-        '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
-        '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-dialogBody" data-lockscroll="true" data-removeonclose="true">' +
-          '<div class="seerrRequests-header">' +
-            '<h2 class="seerrRequests-title">Tilføj Film/Serie</h2>' +
-            '<button type="button" is="emby-button" class="paper-icon-button-light seerrRequests-closeBtn">' +
-              '<span class="material-icons close"></span>' +
-            '</button>' +
+      '<div class="' + PAGE_CLASS + '">' +
+        '<div class="seerrRequests-pageHeader">' +
+          '<button type="button" is="emby-button" class="paper-icon-button-light seerrRequests-backBtn">' +
+            '<span class="material-icons arrow_back"></span>' +
+          '</button>' +
+          '<h1 class="seerrRequests-title">Tilføj Film/Serie</h1>' +
+        '</div>' +
+        '<div class="seerrRequests-pageBody">' +
+          '<div class="seerrRequests-searchRow">' +
+            '<input type="text" is="emby-input" class="seerrRequests-searchInput" placeholder="Søg efter film eller serie..." />' +
           '</div>' +
-          '<div class="seerrRequests-body">' +
-            '<div class="seerrRequests-searchRow">' +
-              '<input type="text" is="emby-input" class="seerrRequests-searchInput" placeholder="Søg efter film eller serie..." />' +
+          '<div class="seerrRequests-searchResults"></div>' +
+          '<div class="seerrRequests-section seerrRequests-recentSection">' +
+            '<h3 class="sectionTitle">Seneste anmodninger</h3>' +
+            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
+              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-recentRow"></div>' +
             '</div>' +
-            '<div class="seerrRequests-searchResults"></div>' +
-            '<div class="seerrRequests-section seerrRequests-recentSection">' +
-              '<h3 class="sectionTitle">Seneste anmodninger</h3>' +
-              '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
-                '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-recentRow"></div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="seerrRequests-section">' +
-              '<h3 class="sectionTitle">Udforsk</h3>' +
-              '<div class="seerrRequests-discoverGrid"></div>' +
-            '</div>' +
+          '</div>' +
+          '<div class="seerrRequests-section">' +
+            '<h3 class="sectionTitle">Udforsk</h3>' +
+            '<div class="seerrRequests-discoverGrid"></div>' +
           '</div>' +
         '</div>' +
       '</div>';
 
-    var container = wrapper.firstElementChild;
-    document.body.appendChild(container);
+    var page = wrapper.firstElementChild;
+    document.body.appendChild(page);
 
-    container.querySelector('.dialogBackdrop').addEventListener('click', closeModal);
-    container.querySelector('.seerrRequests-closeBtn').addEventListener('click', closeModal);
-    wireRequestButtons(container);
+    page.querySelector('.seerrRequests-backBtn').addEventListener('click', function () {
+      history.back();
+    });
+    wireRequestButtons(page);
 
-    escKeyHandler = function (e) {
-      if (e.key === 'Escape') {
-        closeModal();
-      }
-    };
-    document.addEventListener('keydown', escKeyHandler);
-
-    var searchInput = container.querySelector('.seerrRequests-searchInput');
+    var searchInput = page.querySelector('.seerrRequests-searchInput');
     searchInput.addEventListener('input', function () {
       var query = searchInput.value.trim();
       clearTimeout(searchDebounceTimer);
-      var resultsEl = container.querySelector('.seerrRequests-searchResults');
+      var resultsEl = page.querySelector('.seerrRequests-searchResults');
       if (!query) {
         resultsEl.innerHTML = '';
         return;
       }
       searchDebounceTimer = setTimeout(function () {
-        performSearch(container, query);
+        performSearch(page, query);
       }, 400);
     });
 
-    loadMyRequests(container);
-    loadDiscover(container);
+    return page;
+  }
+
+  function showPage() {
+    var page = getOrCreatePage();
+    page.classList.add(PAGE_OPEN_CLASS);
+    document.body.style.overflow = 'hidden';
+    loadMyRequests(page);
+    loadDiscover(page);
+  }
+
+  function hidePage() {
+    var page = document.querySelector('.' + PAGE_CLASS);
+    if (page) {
+      page.classList.remove(PAGE_OPEN_CLASS);
+    }
+    document.body.style.overflow = '';
+  }
+
+  function syncPageWithHash() {
+    if (isPageOpenInHash()) {
+      showPage();
+    } else {
+      hidePage();
+    }
   }
 
   // ---- Cards ----
@@ -444,30 +468,32 @@
 
   // ---- Scan cycle ----
 
-  function scheduleScan() {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
-    debounceTimer = setTimeout(function () {
-      injectButtonIfHome();
-      wireConfigPageIfPresent();
-    }, 400);
+  // Button injection and config-page wiring are both a single cheap
+  // querySelector + idempotency check - running them straight off every
+  // MutationObserver tick (instead of behind a 400ms debounce meant for
+  // heavier work) is what makes the button appear as fast as the native
+  // Hjem/Favoritter tabs next to it, instead of visibly lagging in after.
+  function runChecks() {
+    injectButtonIfHome();
+    wireConfigPageIfPresent();
   }
 
   function init() {
     injectStyle();
-    scheduleScan();
+    runChecks();
+    syncPageWithHash();
 
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
         if (mutations[i].addedNodes.length > 0) {
-          scheduleScan();
+          runChecks();
           return;
         }
       }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('hashchange', syncPageWithHash);
   }
 
   if (document.readyState === 'loading') {
