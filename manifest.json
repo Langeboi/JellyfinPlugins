@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.0.0",
+        "changelog": "Feature round based on feedback: (1) Subtle slow animated gradient on the page background instead of a flat fill. (2) Fixed 'Seneste anmodninger' not lining up with 'Udforsk' - the native emby-scroller used for the recent-requests row carries its own 23px left padding that the plain discover grid doesn't, now overridden. (3) Items marked Tilgængelig now link straight to their Jellyfin details page - Seerr's own MediaInfo already tracks the linked jellyfinMediaId once something becomes available, no extra lookup needed. (4) Anmod button and status badges restyled as small top-left corner pill badges matching New Badges' own NEW ribbon/rank badge look, instead of a full-width bottom bar. (5) Udforsk now supports Load more pagination using Seerr's page/totalPages fields. (6) Added an Alle/Film/Serier filter row plus contextual genre pills (fetched from Seerr's /genres/movie and /genres/tv) to filter the Udforsk suggestions.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.2.0.0/seerrrequests_1.2.0.0.zip",
+        "checksum": "4fca38321b53c95753e245fcf6fefb14",
+        "timestamp": "2026-07-10T07:02:46Z"
+      },
+      {
         "version": "1.1.1.0",
         "changelog": "Fix: the 'Tilføj Film/Serie' button could vanish permanently after opening the full page and going back. Button injection cached an 'already injected' flag and skipped re-checking once true, but Jellyfin rebuilds the Hjem/Favoritter tab row's contents on any hashchange - including toggling the ?seerrRequests=1 flag on and back off - even though the underlying route (#/home) never changes, silently wiping the button out from under the stale flag. Removed the flag entirely; the DOM presence check itself is cheap enough to just always run.",
         "targetAbi": "10.11.0.0",

@@ -6,6 +6,8 @@
   var PAGE_OPEN_CLASS = 'seerrRequests-pageOpen';
   var HASH_FLAG = 'seerrRequests=1';
   var searchDebounceTimer = null;
+  var genreCache = {}; // mediaType -> [{id,name}]
+  var discoverState = { mediaType: 'all', genreId: null, page: 1, totalPages: 1 };
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
@@ -66,11 +68,16 @@
     var style = document.createElement('style');
     style.id = 'seerrRequests-style';
     style.textContent =
-      // Full-page overlay, not a floating dialog - solid background (matches
-      // the app shell's own #101010) instead of a translucent dialog body
-      // stacked on a translucent backdrop, which is what made the old
-      // modal version look dim/washed out.
-      '.' + PAGE_CLASS + '{position:fixed;inset:0;z-index:99999;background:#101010;' +
+      // Full-page overlay, not a floating dialog - solid-ish background
+      // (a slow, subtle animated gradient close to the app shell's own
+      // #101010) instead of a translucent dialog body stacked on a
+      // translucent backdrop, which is what made the old modal version
+      // look dim/washed out.
+      '@keyframes seerrRequests-gradientShift{' +
+      '0%{background-position:0% 50%;}50%{background-position:100% 50%;}100%{background-position:0% 50%;}}' +
+      '.' + PAGE_CLASS + '{position:fixed;inset:0;z-index:99999;' +
+      'background:linear-gradient(120deg,#0a0a0f,#12121b,#0d1420,#101010);' +
+      'background-size:300% 300%;animation:seerrRequests-gradientShift 30s ease infinite;' +
       'overflow-y:auto;display:none;flex-direction:column;}' +
       '.' + PAGE_CLASS + '.' + PAGE_OPEN_CLASS + '{display:flex;}' +
       '.seerrRequests-pageHeader{display:flex;align-items:center;gap:1em;padding:1.2em 1.5em;' +
@@ -88,15 +95,45 @@
       '.seerrRequests-discoverGrid:empty,.seerrRequests-searchResults:empty{display:none;}' +
       '.seerrRequests-discoverGrid .card,.seerrRequests-searchResults .card{width:150px;}' +
       '.seerrRequests-loading,.seerrRequests-empty{opacity:.6;padding:1em 0;}' +
-      '.seerrRequests-cardAction{position:absolute;bottom:8px;left:8px;right:8px;z-index:6;}' +
-      '.seerrRequests-requestBtn{width:100%;background:rgba(0,164,220,.9);color:#fff;border:none;' +
-      'border-radius:4px;padding:6px 0;font-weight:700;font-size:12px;cursor:pointer;}' +
+      // Recent-requests row uses the native emby-scroller, which carries its
+      // own 23px left padding (confirmed live) - the plain discover grid
+      // has none, so without this override the two sections visibly don't
+      // line up under their shared page padding.
+      '.seerrRequests-recentSection [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
+      // Badges styled like New Badges' own NEW ribbon / rank badge - a small
+      // top-left corner pill instead of a full-width bottom bar.
+      '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
+      '.seerrRequests-requestBtn{background:rgba(0,122,255,.9);color:#fff;border:none;' +
+      'border-radius:4px;padding:3px 8px;font-weight:700;font-size:10px;letter-spacing:.05em;' +
+      'cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.4);}' +
       '.seerrRequests-requestBtn:disabled{opacity:.6;cursor:default;}' +
-      '.seerrRequests-statusBadge{width:100%;text-align:center;background:rgba(20,20,20,.85);color:#fff;' +
-      'border-radius:4px;padding:6px 4px;font-weight:700;font-size:11px;box-sizing:border-box;}' +
-      '.seerrRequests-statusAvailable{background:rgba(46,160,67,.85);}' +
-      '.seerrRequests-statusPending{background:rgba(200,140,0,.85);}' +
-      '.seerrRequests-statusDeclined{background:rgba(180,40,40,.85);}';
+      '.seerrRequests-statusBadge{display:inline-block;background:rgba(20,20,20,.85);color:#fff;' +
+      'border-radius:4px;padding:3px 8px;font-weight:700;font-size:10px;letter-spacing:.05em;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.4);white-space:nowrap;}' +
+      '.seerrRequests-statusAvailable{background:rgba(46,160,67,.9);}' +
+      '.seerrRequests-statusPending{background:rgba(200,140,0,.9);}' +
+      '.seerrRequests-statusDeclined{background:rgba(180,40,40,.9);}' +
+      // Available items become real links - keep the card's own hover
+      // treatment, just make sure the link itself has no default styling.
+      'a.card{text-decoration:none;color:inherit;display:block;}' +
+      // Category filter pills (media type) and genre pills.
+      '.seerrRequests-filterRow{display:flex;gap:.6em;flex-wrap:wrap;margin-bottom:.8em;}' +
+      '.seerrRequests-filterPill{background:rgba(255,255,255,.08);color:#fff;border:none;' +
+      'border-radius:20px;padding:.5em 1.3em;font-weight:600;font-size:.95em;cursor:pointer;}' +
+      '.seerrRequests-filterPill.seerrRequests-filterActive{background:#00a4dc;}' +
+      '.seerrRequests-genreRow{display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1em;}' +
+      '.seerrRequests-genreRow:empty{display:none;}' +
+      '.seerrRequests-genrePill{background:rgba(255,255,255,.05);color:rgba(255,255,255,.85);' +
+      'border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:.35em .9em;' +
+      'font-size:.85em;cursor:pointer;}' +
+      '.seerrRequests-genrePill.seerrRequests-filterActive{background:rgba(255,255,255,.22);' +
+      'border-color:transparent;}' +
+      // Load more.
+      '.seerrRequests-loadMoreRow{display:flex;justify-content:center;margin-top:1.5em;}' +
+      '.seerrRequests-loadMoreBtn{background:rgba(255,255,255,.08);color:#fff;' +
+      'border:1px solid rgba(255,255,255,.2);border-radius:20px;padding:.6em 1.8em;' +
+      'font-weight:600;cursor:pointer;}' +
+      '.seerrRequests-loadMoreBtn:disabled{opacity:.5;cursor:default;}';
     document.head.appendChild(style);
   }
 
@@ -183,7 +220,16 @@
           '</div>' +
           '<div class="seerrRequests-section">' +
             '<h3 class="sectionTitle">Udforsk</h3>' +
+            '<div class="seerrRequests-filterRow">' +
+              '<button type="button" class="seerrRequests-filterPill seerrRequests-filterActive" data-filter-type="all">Alle</button>' +
+              '<button type="button" class="seerrRequests-filterPill" data-filter-type="movie">Film</button>' +
+              '<button type="button" class="seerrRequests-filterPill" data-filter-type="tv">Serier</button>' +
+            '</div>' +
+            '<div class="seerrRequests-genreRow"></div>' +
             '<div class="seerrRequests-discoverGrid"></div>' +
+            '<div class="seerrRequests-loadMoreRow" style="display:none;">' +
+              '<button type="button" class="seerrRequests-loadMoreBtn">Indlæs mere</button>' +
+            '</div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -210,15 +256,45 @@
       }, 400);
     });
 
+    page.querySelector('.seerrRequests-filterRow').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.seerrRequests-filterPill') : null;
+      if (!btn) {
+        return;
+      }
+      selectMediaTypeFilter(page, btn.getAttribute('data-filter-type'));
+    });
+
+    page.querySelector('.seerrRequests-genreRow').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.seerrRequests-genrePill') : null;
+      if (!btn) {
+        return;
+      }
+      selectGenreFilter(page, parseInt(btn.getAttribute('data-genre-id'), 10));
+    });
+
+    page.querySelector('.seerrRequests-loadMoreBtn').addEventListener('click', function () {
+      discoverState.page += 1;
+      loadDiscover(page, true);
+    });
+
     return page;
+  }
+
+  function resetDiscoverFilters(page) {
+    discoverState = { mediaType: 'all', genreId: null, page: 1, totalPages: 1 };
+    page.querySelectorAll('.seerrRequests-filterPill').forEach(function (el) {
+      el.classList.toggle('seerrRequests-filterActive', el.getAttribute('data-filter-type') === 'all');
+    });
+    page.querySelector('.seerrRequests-genreRow').innerHTML = '';
   }
 
   function showPage() {
     var page = getOrCreatePage();
     page.classList.add(PAGE_OPEN_CLASS);
     document.body.style.overflow = 'hidden';
+    resetDiscoverFilters(page);
     loadMyRequests(page);
-    loadDiscover(page);
+    loadDiscover(page, false);
   }
 
   function hidePage() {
@@ -237,6 +313,52 @@
     }
   }
 
+  // ---- Category filters ----
+
+  function selectMediaTypeFilter(page, mediaType) {
+    discoverState.mediaType = mediaType;
+    discoverState.genreId = null;
+    discoverState.page = 1;
+    page.querySelectorAll('.seerrRequests-filterPill').forEach(function (el) {
+      el.classList.toggle('seerrRequests-filterActive', el.getAttribute('data-filter-type') === mediaType);
+    });
+    renderGenreRow(page, mediaType);
+    loadDiscover(page, false);
+  }
+
+  function selectGenreFilter(page, genreId) {
+    discoverState.genreId = discoverState.genreId === genreId ? null : genreId;
+    discoverState.page = 1;
+    page.querySelectorAll('.seerrRequests-genrePill').forEach(function (el) {
+      el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === discoverState.genreId);
+    });
+    loadDiscover(page, false);
+  }
+
+  function renderGenreRow(page, mediaType) {
+    var row = page.querySelector('.seerrRequests-genreRow');
+    if (mediaType === 'all') {
+      row.innerHTML = '';
+      return;
+    }
+    if (genreCache[mediaType]) {
+      row.innerHTML = genreCache[mediaType].map(function (g) {
+        return '<button type="button" class="seerrRequests-genrePill" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
+      }).join('');
+      return;
+    }
+    apiGet('genres/' + mediaType)
+      .then(function (genres) {
+        genreCache[mediaType] = genres;
+        row.innerHTML = genres.map(function (g) {
+          return '<button type="button" class="seerrRequests-genrePill" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
+        }).join('');
+      })
+      .catch(function () {
+        row.innerHTML = '';
+      });
+  }
+
   // ---- Cards ----
 
   function mediaTitle(item) {
@@ -247,7 +369,9 @@
     var title = mediaTitle(item);
     var posterUrl = tmdbImageUrl(item.posterPath, 300);
     var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
-    var mediaStatus = item.mediaInfo ? item.mediaInfo.status : null;
+    var mediaInfo = item.mediaInfo || {};
+    var mediaStatus = mediaInfo.status || null;
+    var jellyfinMediaId = mediaInfo.jellyfinMediaId || null;
 
     var actionHtml;
     if (mediaStatus === 5) {
@@ -259,23 +383,7 @@
         '" data-media-id="' + item.id + '">Anmod</button>';
     }
 
-    // No <a href> wrapper here deliberately - these are TMDB search/discover
-    // results that may not exist in the Jellyfin library yet, so there's no
-    // #/details route to link to.
-    return (
-      '<div class="card overflowPortraitCard card-hoverable">' +
-        '<div class="cardBox cardBox-bottompadded">' +
-          '<div class="cardScalable">' +
-            '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
-            '<div class="cardImageContainer coveredImage cardContent"' + bgStyle + '>' +
-              '<div class="seerrRequests-cardAction">' + actionHtml + '</div>' +
-            '</div>' +
-            '<div class="cardOverlayContainer itemAction"></div>' +
-          '</div>' +
-          '<div class="cardText cardTextCentered cardText-first"><bdi>' + escapeHtml(title) + '</bdi></div>' +
-        '</div>' +
-      '</div>'
-    );
+    return buildCardHtml(title, bgStyle, actionHtml, mediaStatus === 5 ? jellyfinMediaId : null);
   }
 
   function statusLabelForRequest(req) {
@@ -310,23 +418,32 @@
   function buildRecentRequestCardHtml(req) {
     var posterUrl = tmdbImageUrl(req.posterPath, 300);
     var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
+    var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' +
+      escapeHtml(statusLabelForRequest(req)) + '</div>';
+    return buildCardHtml(req.title, bgStyle, actionHtml, req.mediaStatus === 5 ? req.jellyfinMediaId : null);
+  }
+
+  // Shared by both card types - available items (mediaStatus 5, with a
+  // resolved jellyfinMediaId) become a real link into the item's own
+  // Jellyfin details page instead of a static card, since Seerr's own
+  // MediaInfo already tracks that id once something becomes available -
+  // no separate Jellyfin-side lookup needed.
+  function buildCardHtml(title, bgStyle, actionHtml, jellyfinMediaId) {
+    var tag = jellyfinMediaId ? 'a' : 'div';
+    var hrefAttr = jellyfinMediaId ? ' href="#/details?id=' + escapeHtml(jellyfinMediaId) + '"' : '';
     return (
-      '<div class="card overflowPortraitCard card-hoverable">' +
+      '<' + tag + ' class="card overflowPortraitCard card-hoverable"' + hrefAttr + '>' +
         '<div class="cardBox cardBox-bottompadded">' +
           '<div class="cardScalable">' +
             '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
             '<div class="cardImageContainer coveredImage cardContent"' + bgStyle + '>' +
-              '<div class="seerrRequests-cardAction">' +
-                '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' +
-                  escapeHtml(statusLabelForRequest(req)) +
-                '</div>' +
-              '</div>' +
+              '<div class="seerrRequests-cardAction">' + actionHtml + '</div>' +
             '</div>' +
             '<div class="cardOverlayContainer itemAction"></div>' +
           '</div>' +
-          '<div class="cardText cardTextCentered cardText-first"><bdi>' + escapeHtml(req.title) + '</bdi></div>' +
+          '<div class="cardText cardTextCentered cardText-first"><bdi>' + escapeHtml(title) + '</bdi></div>' +
         '</div>' +
-      '</div>'
+      '</' + tag + '>'
     );
   }
 
@@ -373,20 +490,49 @@
       });
   }
 
-  function loadDiscover(container) {
+  function loadDiscover(container, append) {
     var grid = container.querySelector('.seerrRequests-discoverGrid');
-    grid.innerHTML = '<div class="seerrRequests-loading">Indlæser...</div>';
-    apiGet('discover')
+    var loadMoreRow = container.querySelector('.seerrRequests-loadMoreRow');
+    var loadMoreBtn = container.querySelector('.seerrRequests-loadMoreBtn');
+
+    if (!append) {
+      grid.innerHTML = '<div class="seerrRequests-loading">Indlæser...</div>';
+    } else {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Indlæser...';
+    }
+
+    var params = 'mediaType=' + encodeURIComponent(discoverState.mediaType) + '&page=' + discoverState.page;
+    if (discoverState.genreId) {
+      params += '&genreId=' + discoverState.genreId;
+    }
+
+    apiGet('discover?' + params)
       .then(function (data) {
         var results = (data.results || []).filter(function (r) {
           return r.mediaType === 'movie' || r.mediaType === 'tv';
         });
-        grid.innerHTML = results.length
-          ? results.map(buildMediaCardHtml).join('')
-          : '<div class="seerrRequests-empty">Intet at vise.</div>';
+        discoverState.totalPages = data.totalPages || 1;
+        var html = results.map(buildMediaCardHtml).join('');
+
+        if (append) {
+          grid.insertAdjacentHTML('beforeend', html);
+        } else {
+          grid.innerHTML = html || '<div class="seerrRequests-empty">Intet at vise.</div>';
+        }
+
+        var hasMore = discoverState.page < discoverState.totalPages;
+        loadMoreRow.style.display = hasMore ? '' : 'none';
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Indlæs mere';
       })
       .catch(function () {
-        grid.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente indhold.</div>';
+        if (!append) {
+          grid.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente indhold.</div>';
+        }
+        loadMoreRow.style.display = 'none';
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Indlæs mere';
       });
   }
 

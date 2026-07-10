@@ -44,9 +44,34 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         }
 
         [HttpGet("discover")]
-        public async Task<ActionResult> Discover([FromQuery] int page = 1)
+        public async Task<ActionResult> Discover([FromQuery] string mediaType = "all", [FromQuery] int? genreId = null, [FromQuery] int page = 1)
         {
+            // Seerr's discover paths aren't symmetrically pluralized:
+            // /discover/movies vs /discover/tv (not "tvs").
+            string? typeSegment = mediaType == "movie" ? "movies" : mediaType == "tv" ? "tv" : null;
+
+            if (typeSegment != null && genreId != null)
+            {
+                return await ProxyGet($"/api/v1/discover/{typeSegment}/genre/{genreId}?page={page}");
+            }
+
+            if (typeSegment != null)
+            {
+                return await ProxyGet($"/api/v1/discover/{typeSegment}?page={page}");
+            }
+
             return await ProxyGet($"/api/v1/discover/trending?mediaType=all&page={page}");
+        }
+
+        [HttpGet("genres/{mediaType}")]
+        public async Task<ActionResult> Genres(string mediaType)
+        {
+            if (mediaType != "movie" && mediaType != "tv")
+            {
+                return BadRequest();
+            }
+
+            return await ProxyGet($"/api/v1/genres/{mediaType}");
         }
 
         [HttpGet("my-requests")]
@@ -110,7 +135,8 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                         ["mediaType"] = mediaType,
                         ["mediaId"] = tmdbId.Value,
                         ["title"] = details.Value.Title,
-                        ["posterPath"] = details.Value.PosterPath
+                        ["posterPath"] = details.Value.PosterPath,
+                        ["jellyfinMediaId"] = details.Value.JellyfinMediaId
                     });
                 }
 
@@ -123,9 +149,9 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
         }
 
-        private static readonly ConcurrentDictionary<string, (string Title, string? PosterPath)> MediaDetailsCache = new();
+        private static readonly ConcurrentDictionary<string, (string Title, string? PosterPath, string? JellyfinMediaId)> MediaDetailsCache = new();
 
-        private async Task<(string Title, string? PosterPath)?> ResolveMediaDetails(string mediaType, int tmdbId)
+        private async Task<(string Title, string? PosterPath, string? JellyfinMediaId)?> ResolveMediaDetails(string mediaType, int tmdbId)
         {
             var cacheKey = mediaType + ":" + tmdbId;
             if (MediaDetailsCache.TryGetValue(cacheKey, out var cached))
@@ -150,7 +176,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return null;
                 }
 
-                var result = (title, json["posterPath"]?.ToString());
+                var result = (title, json["posterPath"]?.ToString(), json["mediaInfo"]?["jellyfinMediaId"]?.ToString());
                 MediaDetailsCache[cacheKey] = result;
                 return result;
             }
