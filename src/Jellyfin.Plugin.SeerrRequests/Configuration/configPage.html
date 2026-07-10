@@ -24,6 +24,12 @@
           <div class="fieldDescription">An admin-level API key from Seerr. Stored server-side only, never sent to the browser.</div>
         </div>
 
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SeerrExcludedLanguages">Excluded original languages</label>
+          <input id="SeerrExcludedLanguages" name="SeerrExcludedLanguages" type="text" is="emby-input" placeholder="ja,ko,zh,hi,..." />
+          <div class="fieldDescription">Comma-separated ISO 639-1 language codes. Browse rows, trending, and the upcoming hero hide titles whose original language is in this list. Search is never filtered. Leave empty to show everything.</div>
+        </div>
+
         <div id="SeerrRequestsTestResult" style="margin-top:1em;"></div>
 
         <div style="margin-top:1.5em;">

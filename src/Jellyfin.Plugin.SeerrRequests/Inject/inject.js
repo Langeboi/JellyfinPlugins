@@ -312,6 +312,27 @@
       '.seerrRequests-uhDots{gap:.55em;}' +
       '.seerrRequests-uhDot{width:15px;height:15px;padding:4px;background-clip:content-box;}' +
       '}' +
+      // Hover-expand preview popover (desktop only - shown via matchMedia
+      // hover check, so these styles never apply on touch devices).
+      '.seerrRequests-hoverPop{position:fixed;z-index:1000;background:#1a1e26;border-radius:14px;' +
+      'box-shadow:0 14px 44px rgba(0,0,0,.75);overflow:hidden;opacity:0;transform:scale(.96);' +
+      'transition:opacity .18s ease,transform .18s ease;pointer-events:none;' +
+      'border:1px solid rgba(255,255,255,.08);}' +
+      '.seerrRequests-hoverPop.is-open{opacity:1;transform:scale(1);pointer-events:auto;}' +
+      '.seerrRequests-hoverPopBackdrop{height:165px;background-size:cover;background-position:center 25%;position:relative;}' +
+      '.seerrRequests-hoverPopBackdrop::after{content:"";position:absolute;inset:0;' +
+      'background:linear-gradient(to top,#1a1e26 0%,rgba(26,30,38,0) 60%);}' +
+      '.seerrRequests-hoverPopBody{padding:.9em 1.1em 1.1em;}' +
+      '.seerrRequests-hoverPopTitle{font-size:1.15em;font-weight:800;margin:0 0 .25em;}' +
+      '.seerrRequests-hoverPopMeta{opacity:.75;font-size:.8em;margin-bottom:.5em;font-weight:600;}' +
+      '.seerrRequests-hoverPopOverview{opacity:.85;font-size:.85em;line-height:1.45;' +
+      'display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.9em;}' +
+      '.seerrRequests-hoverPopButtons{display:flex;gap:.6em;align-items:center;}' +
+      '.seerrRequests-hoverPopImdb{display:inline-flex;align-items:center;background:#f5c518;color:#111;' +
+      'font-weight:800;border-radius:999px;padding:.45em 1.1em;font-size:.85em;text-decoration:none;' +
+      'transition:background .15s,transform .15s;}' +
+      '.seerrRequests-hoverPopImdb:hover{background:#ffd54a;transform:scale(1.05);}' +
+      '.seerrRequests-hoverPopAction .seerrRequests-statusBadge{font-size:12px;padding:5px 12px;}' +
       // Phone-sized refinements for the upcoming hero.
       '@media (max-width:500px){' +
       '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(32vh,230px);}' +
@@ -449,6 +470,7 @@
     var tab = wrapper.firstElementChild;
     homePage.appendChild(tab);
     wireRequestButtons(tab);
+    wireHoverPreview(tab);
 
     var searchInput = tab.querySelector('.seerrRequests-searchInput');
     searchInput.addEventListener('input', function () {
@@ -814,7 +836,8 @@
         '<span class="seerrRequests-requestBtnIcon">+</span>Tilføj</button>';
     }
 
-    return buildCardHtml(title, bgStyle, actionHtml, 'seerrRequests-cardAction', mediaStatus === 5 ? jellyfinMediaId : null);
+    return buildCardHtml(title, bgStyle, actionHtml, 'seerrRequests-cardAction', mediaStatus === 5 ? jellyfinMediaId : null,
+      ' data-media-type="' + item.mediaType + '" data-media-id="' + item.id + '"');
   }
 
   function statusLabelForRequest(req) {
@@ -858,7 +881,8 @@
       label += LOADING_DOTS_HTML;
     }
     var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' + label + '</div>';
-    return buildCardHtml(req.title, bgStyle, actionHtml, 'seerrRequests-cardAction', req.mediaStatus === 5 ? req.jellyfinMediaId : null);
+    return buildCardHtml(req.title, bgStyle, actionHtml, 'seerrRequests-cardAction', req.mediaStatus === 5 ? req.jellyfinMediaId : null,
+      ' data-media-type="' + req.mediaType + '" data-media-id="' + req.mediaId + '"');
   }
 
   // Shared by both card types - available items (mediaStatus 5, with a
@@ -866,11 +890,11 @@
   // Jellyfin details page instead of a static card, since Seerr's own
   // MediaInfo already tracks that id once something becomes available -
   // no separate Jellyfin-side lookup needed.
-  function buildCardHtml(title, bgStyle, actionHtml, actionClass, jellyfinMediaId) {
+  function buildCardHtml(title, bgStyle, actionHtml, actionClass, jellyfinMediaId, extraAttrs) {
     var tag = jellyfinMediaId ? 'a' : 'div';
     var hrefAttr = jellyfinMediaId ? ' href="#/details?id=' + escapeHtml(jellyfinMediaId) + '"' : '';
     return (
-      '<' + tag + ' class="card overflowPortraitCard card-hoverable"' + hrefAttr + '>' +
+      '<' + tag + ' class="card overflowPortraitCard card-hoverable"' + hrefAttr + (extraAttrs || '') + '>' +
         '<div class="cardBox cardBox-bottompadded">' +
           '<div class="cardScalable">' +
             '<div class="cardPadder cardPadder-overflowPortrait"></div>' +
@@ -945,6 +969,186 @@
     });
   }
 
+  // ---- Hover-expand preview popover ----
+  // Hovering any browse/request card for a moment expands it into a larger
+  // preview with the overview and a "Læs mere" IMDb link. Desktop only
+  // (matchMedia hover check) - touch devices never see it.
+
+  var HOVER_DELAY_MS = 700;
+  var POPOVER_WIDTH = 360;
+  var hoverTimer = null;
+  var hoverHideTimer = null;
+  var hoverCard = null;
+  var popoverEl = null;
+  var detailsCache = {}; // 'movie:123' -> Seerr details JSON
+
+  function fetchMediaDetails(mediaType, mediaId) {
+    var key = mediaType + ':' + mediaId;
+    if (detailsCache[key]) {
+      return Promise.resolve(detailsCache[key]);
+    }
+    return apiGet('media/' + mediaType + '/' + mediaId).then(function (details) {
+      detailsCache[key] = details;
+      return details;
+    });
+  }
+
+  function ensurePopover() {
+    if (popoverEl) {
+      return popoverEl;
+    }
+    popoverEl = document.createElement('div');
+    popoverEl.className = 'seerrRequests-hoverPop';
+    // Appended to body (never inside a transformed ancestor, so
+    // position:fixed stays viewport-relative). Request buttons inside get
+    // their own delegation; loadMyRequests no-ops for this container.
+    document.body.appendChild(popoverEl);
+    wireRequestButtons(popoverEl);
+    popoverEl.addEventListener('mouseenter', function () {
+      clearTimeout(hoverHideTimer);
+    });
+    popoverEl.addEventListener('mouseleave', function () {
+      scheduleHidePreview();
+    });
+    // A fixed-position popover doesn't follow its card when the page or a
+    // row scrolls - hide immediately instead of drifting apart. Capture
+    // phase catches the emby-scroller rows' own scroll events too.
+    window.addEventListener('scroll', function () {
+      if (popoverEl.classList.contains('is-open')) {
+        hidePreview();
+      }
+    }, true);
+    window.addEventListener('hashchange', hidePreview);
+    return popoverEl;
+  }
+
+  function scheduleHidePreview() {
+    clearTimeout(hoverHideTimer);
+    hoverHideTimer = setTimeout(hidePreview, 250);
+  }
+
+  function hidePreview() {
+    if (popoverEl) {
+      popoverEl.classList.remove('is-open');
+    }
+    hoverCard = null;
+  }
+
+  function positionPopover(card) {
+    var rect = card.getBoundingClientRect();
+    var width = Math.min(POPOVER_WIDTH, window.innerWidth - 16);
+    var left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, 8), window.innerWidth - width - 8);
+    var top = Math.min(Math.max(rect.top - 30, 8), Math.max(window.innerHeight - 430, 8));
+    popoverEl.style.width = width + 'px';
+    popoverEl.style.left = left + 'px';
+    popoverEl.style.top = top + 'px';
+  }
+
+  function buildPreviewHtml(mediaType, mediaId, details) {
+    var title = (mediaType === 'movie' ? details.title : details.name) || '';
+    var dateStr = details.releaseDate || details.firstAirDate || '';
+    var year = dateStr ? dateStr.slice(0, 4) : '';
+    var metaParts = [];
+    if (details.voteAverage) {
+      metaParts.push('★ ' + Number(details.voteAverage).toFixed(1));
+    }
+    if (year) {
+      metaParts.push(year);
+    }
+    if (details.genres && details.genres.length) {
+      metaParts.push(details.genres.slice(0, 3).map(function (g) { return g.name; }).join(', '));
+    }
+    var backdropUrl = tmdbImageUrl(details.backdropPath, 780) || tmdbImageUrl(details.posterPath, 500);
+    var imdbId = details.imdbId || (details.externalIds && details.externalIds.imdbId);
+    var learnMoreUrl = imdbId
+      ? 'https://www.imdb.com/title/' + imdbId + '/'
+      : 'https://www.themoviedb.org/' + mediaType + '/' + mediaId;
+
+    var mediaInfo = details.mediaInfo || {};
+    var actionHtml = upcomingActionHtml({ mediaType: mediaType, id: mediaId, mediaInfo: mediaInfo });
+
+    return (
+      '<div class="seerrRequests-hoverPopBackdrop"' +
+        (backdropUrl ? ' style="background-image:url(&quot;' + backdropUrl + '&quot;)"' : '') + '></div>' +
+      '<div class="seerrRequests-hoverPopBody">' +
+        '<h3 class="seerrRequests-hoverPopTitle">' + escapeHtml(title) + '</h3>' +
+        '<div class="seerrRequests-hoverPopMeta">' + metaParts.map(escapeHtml).join(' &nbsp;•&nbsp; ') + '</div>' +
+        '<div class="seerrRequests-hoverPopOverview">' + escapeHtml(details.overview || 'Ingen beskrivelse tilgængelig.') + '</div>' +
+        '<div class="seerrRequests-hoverPopButtons">' +
+          '<a class="seerrRequests-hoverPopImdb" href="' + escapeHtml(learnMoreUrl) + '" target="_blank" rel="noopener noreferrer">Læs mere</a>' +
+          '<span class="seerrRequests-hoverPopAction">' + actionHtml + '</span>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function showPreview(card) {
+    var mediaType = card.getAttribute('data-media-type');
+    var mediaId = card.getAttribute('data-media-id');
+    if (!mediaType || !mediaId) {
+      return;
+    }
+    var key = mediaType + ':' + mediaId;
+    ensurePopover();
+    positionPopover(card);
+    popoverEl.setAttribute('data-key', key);
+    popoverEl.innerHTML =
+      '<div class="seerrRequests-hoverPopBody"><div class="seerrRequests-loading">Henter...</div></div>';
+    popoverEl.classList.add('is-open');
+
+    fetchMediaDetails(mediaType, mediaId)
+      .then(function (details) {
+        // The user may have moved to another card while this was in flight.
+        if (popoverEl.getAttribute('data-key') !== key || !popoverEl.classList.contains('is-open')) {
+          return;
+        }
+        popoverEl.innerHTML = buildPreviewHtml(mediaType, mediaId, details);
+      })
+      .catch(function () {
+        if (popoverEl.getAttribute('data-key') === key) {
+          hidePreview();
+        }
+      });
+  }
+
+  function wireHoverPreview(tab) {
+    tab.addEventListener('mouseover', function (e) {
+      if (!window.matchMedia('(hover: hover)').matches) {
+        return;
+      }
+      var card = e.target.closest ? e.target.closest('.card[data-media-type]') : null;
+      if (!card) {
+        return;
+      }
+      if (card === hoverCard) {
+        clearTimeout(hoverHideTimer);
+        return;
+      }
+      hoverCard = card;
+      clearTimeout(hoverTimer);
+      clearTimeout(hoverHideTimer);
+      hoverTimer = setTimeout(function () {
+        if (hoverCard === card) {
+          showPreview(card);
+        }
+      }, HOVER_DELAY_MS);
+    });
+
+    tab.addEventListener('mouseout', function (e) {
+      var card = e.target.closest ? e.target.closest('.card[data-media-type]') : null;
+      if (!card || card !== hoverCard) {
+        return;
+      }
+      var to = e.relatedTarget;
+      if (to && (card.contains(to) || (popoverEl && popoverEl.contains(to)))) {
+        return;
+      }
+      clearTimeout(hoverTimer);
+      hoverCard = null;
+      scheduleHidePreview();
+    });
+  }
+
   function wireRequestButtons(container) {
     container.addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('.seerrRequests-requestBtn') : null;
@@ -978,6 +1182,11 @@
   function loadMyRequests(container) {
     var section = container.querySelector('.seerrRequests-recentSection');
     var row = container.querySelector('.seerrRequests-recentRow');
+    if (!section || !row) {
+      // Called with the hover popover as container (its request buttons
+      // share wireRequestButtons) - nothing to refresh there.
+      return;
+    }
     apiGet('my-requests')
       .then(function (data) {
         var results = data.results || [];
@@ -1052,12 +1261,16 @@
     var apiClient = window.ApiClient;
     var urlInput = page.querySelector('#SeerrBaseUrl');
     var keyInput = page.querySelector('#SeerrApiKey');
+    var langInput = page.querySelector('#SeerrExcludedLanguages');
     var resultEl = page.querySelector('#SeerrRequestsTestResult');
 
     window.Dashboard.showLoadingMsg();
     apiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
       urlInput.value = config.SeerrBaseUrl || '';
       keyInput.value = config.SeerrApiKey || '';
+      if (langInput) {
+        langInput.value = config.ExcludedOriginalLanguages || '';
+      }
       window.Dashboard.hideLoadingMsg();
     });
 
@@ -1066,6 +1279,9 @@
       apiClient.getPluginConfiguration(PLUGIN_ID).then(function (config) {
         config.SeerrBaseUrl = urlInput.value.trim().replace(/\/+$/, '');
         config.SeerrApiKey = keyInput.value.trim();
+        if (langInput) {
+          config.ExcludedOriginalLanguages = langInput.value.trim();
+        }
         apiClient.updatePluginConfiguration(PLUGIN_ID, config).then(function (result) {
           window.Dashboard.processPluginConfigurationUpdateResult(result);
         });

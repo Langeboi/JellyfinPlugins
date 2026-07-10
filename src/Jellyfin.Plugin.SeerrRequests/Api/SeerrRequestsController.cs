@@ -52,15 +52,29 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
             if (typeSegment != null && genreId != null)
             {
-                return await ProxyGet($"/api/v1/discover/{typeSegment}/genre/{genreId}?page={page}");
+                return await ProxyGet($"/api/v1/discover/{typeSegment}/genre/{genreId}?page={page}", filterLanguages: true);
             }
 
             if (typeSegment != null)
             {
-                return await ProxyGet($"/api/v1/discover/{typeSegment}?page={page}");
+                return await ProxyGet($"/api/v1/discover/{typeSegment}?page={page}", filterLanguages: true);
             }
 
-            return await ProxyGet($"/api/v1/discover/trending?mediaType=all&page={page}");
+            return await ProxyGet($"/api/v1/discover/trending?mediaType=all&page={page}", filterLanguages: true);
+        }
+
+        // Backs the hover-expand card popover: full media details including
+        // overview and IMDb id. Movies carry imdbId at the top level, TV
+        // carries it in externalIds - the frontend reads both defensively.
+        [HttpGet("media/{mediaType}/{tmdbId:int}")]
+        public async Task<ActionResult> MediaDetails(string mediaType, int tmdbId)
+        {
+            if (mediaType != "movie" && mediaType != "tv")
+            {
+                return BadRequest();
+            }
+
+            return await ProxyGet($"/api/v1/{mediaType}/{tmdbId}");
         }
 
         // Backs the upcoming-releases hero at the top of the Seerr tab.
@@ -75,7 +89,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 return BadRequest();
             }
 
-            return await ProxyGet($"/api/v1/discover/{typeSegment}/upcoming?page={page}");
+            return await ProxyGet($"/api/v1/discover/{typeSegment}/upcoming?page={page}", filterLanguages: true);
         }
 
         [HttpGet("genres/{mediaType}")]
@@ -344,7 +358,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             return resolved;
         }
 
-        private async Task<ActionResult> ProxyGet(string path)
+        private async Task<ActionResult> ProxyGet(string path, bool filterLanguages = false)
         {
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
@@ -357,6 +371,12 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 using var request = BuildRequest(HttpMethod.Get, path);
                 using var response = await HttpClient.SendAsync(request);
                 var text = await response.Content.ReadAsStringAsync();
+
+                if (filterLanguages && response.IsSuccessStatusCode)
+                {
+                    text = FilterExcludedLanguages(text, config.ExcludedOriginalLanguages);
+                }
+
                 return new ContentResult
                 {
                     Content = text,
@@ -368,6 +388,50 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             {
                 _logger.LogWarning(ex, "SeerrRequests: proxy GET {Path} failed", path);
                 return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
+            }
+        }
+
+        // Drops results whose TMDB originalLanguage is on the configured
+        // blocklist. Applied to browse surfaces only (discover, trending,
+        // upcoming) - explicit search intentionally stays unfiltered, so a
+        // deliberately searched-for title is always findable.
+        private static string FilterExcludedLanguages(string jsonText, string excludedCsv)
+        {
+            if (string.IsNullOrWhiteSpace(excludedCsv))
+            {
+                return jsonText;
+            }
+
+            try
+            {
+                var excluded = new System.Collections.Generic.HashSet<string>(
+                    excludedCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    StringComparer.OrdinalIgnoreCase);
+
+                var json = JObject.Parse(jsonText);
+                if (json["results"] is not JArray results)
+                {
+                    return jsonText;
+                }
+
+                var kept = new JArray();
+                foreach (var item in results)
+                {
+                    var lang = item["originalLanguage"]?.ToString();
+                    if (string.IsNullOrEmpty(lang) || !excluded.Contains(lang))
+                    {
+                        kept.Add(item);
+                    }
+                }
+
+                json["results"] = kept;
+                return json.ToString();
+            }
+            catch
+            {
+                // Unexpected shape - pass the original through untouched
+                // rather than breaking the browse surface entirely.
+                return jsonText;
             }
         }
 
