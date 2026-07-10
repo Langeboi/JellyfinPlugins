@@ -83,12 +83,24 @@
     var style = document.createElement('style');
     style.id = 'seerrRequests-style';
     style.textContent =
+      // Shared accent, borrowed from Seerr's own indigo brand color, reused
+      // consistently across the tab and popup so the two feel designed
+      // together instead of like two different apps bolted on.
+      ':root{--seerr-accent:#6366f1;--seerr-accent-hover:#4f46e5;' +
+      '--seerr-accent-soft:rgba(99,102,241,.18);--seerr-card-bg:#181a20;}' +
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
       '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;}' +
+      // Small indigo accent bar in front of each section title (Trending /
+      // Film / Serier / Seneste anmodninger), a light Seerr-style touch on
+      // top of the native sectionTitle-cards look rather than replacing it.
+      '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards{position:relative;padding-left:.75em;}' +
+      '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards::before{content:"";position:absolute;left:0;' +
+      'top:.1em;bottom:.1em;width:3px;border-radius:2px;background:var(--seerr-accent);}' +
       '.seerrRequests-searchRow{margin:1em 0 .5em;}' +
       '.seerrRequests-searchInput{width:100%;max-width:480px;}' +
+      '.seerrRequests-searchInput:focus{box-shadow:0 0 0 2px var(--seerr-accent-soft);}' +
       '.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1em;}' +
       '.seerrRequests-searchResults:empty{display:none;}' +
       '.seerrRequests-searchResults .card{width:150px;}' +
@@ -97,6 +109,13 @@
       // which carries its own 23px left padding (confirmed live) that would
       // otherwise misalign them against the section title above.
       '#' + TAB_CONTENT_ID + ' [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
+      // Subtle bottom scrim on every poster in this tab (Seerr does the
+      // same under its own request buttons/badges) so the action pill and
+      // status badges stay legible against bright poster art.
+      '#' + TAB_CONTENT_ID + ' .cardImageContainer{position:relative;}' +
+      '#' + TAB_CONTENT_ID + ' .cardImageContainer::after{content:"";position:absolute;left:0;right:0;' +
+      'bottom:0;height:42%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0));' +
+      'pointer-events:none;}' +
       // Badges styled like New Badges' own NEW ribbon / rank badge - a small
       // top-left corner pill instead of a full-width bottom bar.
       '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
@@ -105,11 +124,11 @@
       // (rounded indigo pill) rather than the New-Badges-style corner pill
       // used for status badges above.
       '.seerrRequests-cardActionBottom{top:auto;left:50%;bottom:8px;transform:translateX(-50%);}' +
-      '.seerrRequests-requestBtn{background:#6366f1;color:#fff;border:none;border-radius:999px;' +
+      '.seerrRequests-requestBtn{background:var(--seerr-accent);color:#fff;border:none;border-radius:999px;' +
       'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
       'display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;' +
       'box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s;}' +
-      '.seerrRequests-requestBtn:hover{background:#4f46e5;}' +
+      '.seerrRequests-requestBtn:hover{background:var(--seerr-accent-hover);}' +
       '.seerrRequests-requestBtn:disabled{opacity:.6;cursor:default;}' +
       '.seerrRequests-requestBtnIcon{font-size:1.1em;line-height:1;font-weight:700;}' +
       '.seerrRequests-statusBadge{display:inline-block;background:rgba(20,20,20,.85);color:#fff;' +
@@ -125,15 +144,36 @@
       '.seerrRequests-genreRow:empty{display:none;}' +
       '.seerrRequests-genrePill{background:rgba(255,255,255,.05);color:rgba(255,255,255,.85);' +
       'border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:.35em .9em;' +
-      'font-size:.85em;cursor:pointer;}' +
-      '.seerrRequests-genrePill.seerrRequests-filterActive{background:rgba(255,255,255,.22);' +
-      'border-color:transparent;}' +
+      'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
+      '.seerrRequests-genrePill:hover{border-color:var(--seerr-accent);}' +
+      '.seerrRequests-genrePill.seerrRequests-filterActive{background:var(--seerr-accent);' +
+      'border-color:var(--seerr-accent);color:#fff;}' +
       // Small request popup, native dialog markup - quality choice for
       // movies, plus a season picker for TV shows, mirroring Seerr's own
       // request modal instead of always silently requesting all seasons.
-      '.seerrRequests-requestDialogBody{width:min(360px,90vw);padding:1.5em;border-radius:8px;' +
-      'text-align:center;}' +
-      '.seerrRequests-requestDialogBody h3{margin:0 0 1em;font-size:1.1em;font-weight:600;}' +
+      // The theme's own .dialog styling (translucent, ~90% opacity) is what
+      // made this look washed-out/dim - confirmed live the native/theme
+      // background is only rgba(34,37,42,.9), stacked on a translucent
+      // backdrop underneath it. Forced fully opaque here instead, since a
+      // small popup like this needs to read clearly regardless of what the
+      // rest of the theme does with bigger dialogs. Sized with vw-relative
+      // width (not native dialog-fixedSize, which is meant for much bigger
+      // content) so it stays a small popup at any window size down to phone
+      // width instead of stretching to fill most of a half-sized window.
+      // Centered explicitly with fixed positioning + a translate offset
+      // instead of relying on .dialogContainer's flex centering to do it -
+      // confirmed live that this popup can end up pinned to top:0/left:0
+      // regardless of the flex container around it, so this takes full
+      // manual control instead of trusting that mechanism.
+      '.seerrRequests-requestDialogBody{position:fixed!important;top:50%!important;left:50%!important;' +
+      'transform:translate(-50%,-50%)!important;margin:0!important;' +
+      'width:min(420px,92vw)!important;max-width:420px!important;max-height:88vh;overflow-y:auto;' +
+      'box-sizing:border-box;padding:1.6em 1.6em 1.3em;border-radius:14px!important;' +
+      'background:var(--seerr-card-bg)!important;border:1px solid rgba(99,102,241,.35);' +
+      'box-shadow:0 20px 60px rgba(0,0,0,.6);text-align:center;}' +
+      '.seerrRequests-requestDialog .dialogBackdrop{opacity:.75!important;}' +
+      '.seerrRequests-requestDialogBody h3{margin:0 0 1.1em;font-size:1.1em;font-weight:700;' +
+      'padding-bottom:.6em;border-bottom:1px solid rgba(255,255,255,.08);}' +
       '.seerrRequests-seasonHeader{display:flex;justify-content:space-between;align-items:center;' +
       'font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
       '.seerrRequests-seasonHeader label{display:flex;align-items:center;gap:.35em;cursor:pointer;}' +
@@ -141,15 +181,26 @@
       'border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.2em .7em;}' +
       '.seerrRequests-seasonItem{display:flex;align-items:center;gap:.6em;padding:.35em 0;font-size:.9em;' +
       'cursor:pointer;}' +
-      '.seerrRequests-seasonItem input{margin:0;}' +
+      '.seerrRequests-seasonItem input,.seerrRequests-seasonHeader input{margin:0;accent-color:var(--seerr-accent);' +
+      'width:15px;height:15px;}' +
       '.seerrRequests-seasonDisabled{opacity:.5;cursor:default;}' +
       '.seerrRequests-qualityLabel{font-size:.85em;opacity:.75;margin-bottom:.4em;text-align:left;}' +
-      '.seerrRequests-qualityOptions{display:flex;gap:.8em;justify-content:center;margin-bottom:1em;}' +
-      '.seerrRequests-qualityBtn{flex:1;background:rgba(255,255,255,.08);color:#fff;border:none;' +
-      'border-radius:6px;padding:.8em 0;font-weight:700;cursor:pointer;}' +
-      '.seerrRequests-qualityBtn:hover{background:#6366f1;}' +
-      '.seerrRequests-qualityCancel{background:none;border:none;color:rgba(255,255,255,.6);' +
-      'cursor:pointer;font-size:.9em;}';
+      '.seerrRequests-qualityOptions{display:flex;gap:.8em;justify-content:center;margin-bottom:.4em;}' +
+      '.seerrRequests-qualityBtn{flex:1;background:rgba(255,255,255,.06);color:#fff;' +
+      'border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.75em 0;font-weight:700;' +
+      'cursor:pointer;transition:background .15s,border-color .15s;}' +
+      '.seerrRequests-qualityBtn:hover{background:var(--seerr-accent);border-color:var(--seerr-accent);}' +
+      '.seerrRequests-qualityCancel{display:block;width:100%;margin-top:.9em;padding-top:.7em;' +
+      'background:none;border:none;border-top:1px solid rgba(255,255,255,.08);' +
+      'color:rgba(255,255,255,.55);cursor:pointer;font-size:.9em;}' +
+      '.seerrRequests-qualityCancel:hover{color:#fff;}' +
+      // Tighter popup on phone-width screens - same layout, less padding,
+      // shorter season list so it doesn't dominate the whole viewport.
+      '@media (max-width:480px){' +
+      '.seerrRequests-requestDialogBody{width:94vw!important;padding:1.25em 1.1em 1em;}' +
+      '.seerrRequests-seasonList{max-height:130px;}' +
+      '.seerrRequests-qualityBtn{padding:.65em 0;font-size:.9em;}' +
+      '}';
     document.head.appendChild(style);
   }
 
@@ -360,19 +411,61 @@
     loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
   }
 
-  function deactivateSeerrTab() {
-    var homePage = getActiveHomePage();
+  // Jellyfin's content-div ids for its own tabs (#homeTab, #favoritesTab,
+  // ...) carry a data-index matching their tab BUTTON's data-index -
+  // confirmed live. That's the generic hook used to figure out which native
+  // tab should become visible again once ours is deactivated, without
+  // hardcoding tab names/ids that could differ per install.
+  function restoreNativeActiveTab(homePage) {
+    var activeBtn = document.querySelector(
+      '.tabs-viewmenubar .emby-tab-button.emby-tab-button-active:not([' + BUTTON_MARKER + '])'
+    );
+    var index = activeBtn ? activeBtn.getAttribute('data-index') : '0';
+    var target = homePage.querySelector(':scope > .tabContent.pageTabContent[data-index="' + index + '"]');
+    if (target) {
+      target.classList.add('is-active');
+    }
+  }
+
+  function deactivateSeerrTab(homePage) {
+    homePage = homePage || getActiveHomePage();
     if (!homePage) {
       return;
     }
     var tab = homePage.querySelector('#' + TAB_CONTENT_ID);
-    if (tab) {
+    if (tab && tab.classList.contains('is-active')) {
       tab.classList.remove('is-active');
+      // Clicking a native tab button already triggers Jellyfin's own
+      // content-swap (this is a harmless no-op then), but a hashchange-driven
+      // call (see deactivateAllSeerrTabs below) has no such native swap to
+      // rely on, so this is the only thing that puts a real tab back on
+      // screen in that case.
+      restoreNativeActiveTab(homePage);
     }
     var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
     if (ourBtn) {
       ourBtn.classList.remove('emby-tab-button-active');
     }
+  }
+
+  // Jellyfin's router only restores the active TAB BUTTON's highlighted
+  // state when re-entering #/home (e.g. via the browser Back button after
+  // clicking a details link from inside our tab) - it does NOT re-toggle the
+  // is-active class on the actual content divs, since that swap normally
+  // only happens as a side effect of a real tab-button click. Confirmed live:
+  // after Back, Hjem showed as the active button while our tab's content div
+  // was still the only one marked is-active, so the page rendered nothing
+  // but our content (plus whatever other plugins inject outside the tab
+  // structure) instead of the real home page. Fixing this needs a listener
+  // that isn't click-based, and it has to sweep every mounted .page.homePage
+  // instance (not just getActiveHomePage()'s pick) since the one that needs
+  // fixing may currently be display:none while the user is elsewhere -
+  // fixing it proactively on the way out means it's already correct by the
+  // time any navigation returns to it, via Back/Forward or otherwise.
+  function deactivateAllSeerrTabs() {
+    document.querySelectorAll('.page.homePage').forEach(function (homePage) {
+      deactivateSeerrTab(homePage);
+    });
   }
 
   // ---- Genre filters (scoped per section now - Film and Serier each have
@@ -751,6 +844,11 @@
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // Covers navigating away from #/home entirely and back (e.g. Back/Forward
+    // after clicking a details link from inside our tab) - see
+    // deactivateAllSeerrTabs for why this can't just be click-based.
+    window.addEventListener('hashchange', deactivateAllSeerrTabs);
   }
 
   if (document.readyState === 'loading') {
