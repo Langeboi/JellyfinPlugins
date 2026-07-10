@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "Mobile + performance: touch swipe changes hero slides, with touch events contained inside the hero so Jellyfin's tab strip no longer hijacks a hero swipe into a tab switch (the swipe-to-Favoritter bug); vertical scrolling unaffected. Manual slide changes (dots, swipes) share the rotation's slide counter and restart its timer, fixing desynced auto-flips. Tailored phone layout: shorter banner, tighter text/logo sizing, tappable 40px buttons, larger dot hit areas. Performance: recently-added/trending pool cached 10 min in sessionStorage so the hero paints instantly on revisit; resume/next-up state always fetched fresh.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v1.1.0.0/herobar_1.1.0.0.zip",
+        "checksum": "eaa8b7cbe489ecf8de40d06d9f907d86",
+        "timestamp": "2026-07-10T16:55:00Z"
+      },
+      {
         "version": "1.0.2.0",
         "changelog": "Visual: the hero now blends into the page background instead of ending in a hard box edge. The backdrop and tint layers sit behind a vertical alpha mask that fades them out at the top and bottom, letting ElegantFin's real background gradient (measured live: linear-gradient(0deg, rgb(28,30,34) 35%, rgb(37,39,45))) show through - a true blend with no color matching involved. Text, buttons, and pagination dots are outside the masked layer and stay fully crisp.",
         "targetAbi": "10.11.0.0",
@@ -166,6 +174,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.7.1.0",
+        "changelog": "Mobile: touch swipe on the upcoming-releases hero, contained so Jellyfin's tab strip doesn't turn a hero swipe into a tab switch; manual slide changes stay in sync with auto-rotation and restart its timer. Genre pills collapse to one horizontally swipeable row on mobile instead of wrapping into several screen-eating rows. Search field pinned to 16px on mobile so iOS Safari stops auto-zooming on focus. Larger pagination-dot touch targets and a tighter phone-sized hero layout.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.7.1.0/seerrrequests_1.7.1.0.zip",
+        "checksum": "befb5c6813484c716b03af6c7358828b",
+        "timestamp": "2026-07-10T16:55:00Z"
+      },
       {
         "version": "1.7.0.0",
         "changelog": "New: upcoming-releases hero on the Seerr tab. Thin rotating banner above the search field showing upcoming movie and TV releases (from Seerr's discover upcoming endpoints), soonest first, with a Danish release-date pill, title, short overview, and the same Tilføj request flow as the row cards including the Fortryd undo countdown - already-requested or available items show their status badge instead. Clickable pagination dots, 8s crossfade rotation, and the hero stays collapsed at zero height if Seerr is unreachable. New backend proxy endpoint /SeerrRequests/upcoming.",
