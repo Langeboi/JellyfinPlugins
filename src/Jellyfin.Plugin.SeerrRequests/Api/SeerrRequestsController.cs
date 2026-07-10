@@ -55,7 +55,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
             {
-                return Ok(new JObject { ["results"] = new JArray() });
+                return Json(new JObject { ["results"] = new JArray() });
             }
 
             var jellyfinUserId = (await _authContext.GetAuthorizationInfo(Request)).UserId;
@@ -64,7 +64,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             if (seerrUserId == null)
             {
                 // Never logged into Seerr yet - nothing to show, not an error.
-                return Ok(new JObject { ["results"] = new JArray() });
+                return Json(new JObject { ["results"] = new JArray() });
             }
 
             try
@@ -114,12 +114,12 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     });
                 }
 
-                return Ok(new JObject { ["results"] = enriched });
+                return Json(new JObject { ["results"] = enriched });
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "SeerrRequests: my-requests failed");
-                return StatusCode(502, new JObject { ["error"] = "Could not reach Seerr." });
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
             }
         }
 
@@ -174,7 +174,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
             {
-                return StatusCode(503, new JObject { ["error"] = "Seerr is not configured." });
+                return Json(new JObject { ["error"] = "Seerr is not configured." }, 503);
             }
 
             if (body == null || string.IsNullOrWhiteSpace(body.MediaType) || body.MediaId <= 0)
@@ -216,7 +216,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
             {
-                return Ok(new JObject { ["ok"] = false, ["error"] = "Base URL and API key must be filled in and saved first." });
+                return Json(new JObject { ["ok"] = false, ["error"] = "Base URL and API key must be filled in and saved first." });
             }
 
             try
@@ -227,16 +227,16 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    return Ok(new JObject { ["ok"] = false, ["error"] = $"Seerr returned {(int)response.StatusCode}" });
+                    return Json(new JObject { ["ok"] = false, ["error"] = $"Seerr returned {(int)response.StatusCode}" });
                 }
 
                 var json = JObject.Parse(text);
-                return Ok(new JObject { ["ok"] = true, ["version"] = json["version"]?.ToString() });
+                return Json(new JObject { ["ok"] = true, ["version"] = json["version"]?.ToString() });
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "SeerrRequests: test-connection failed");
-                return Ok(new JObject { ["ok"] = false, ["error"] = ex.Message });
+                return Json(new JObject { ["ok"] = false, ["error"] = ex.Message });
             }
         }
 
@@ -274,7 +274,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
             {
-                return StatusCode(503, new JObject { ["error"] = "Seerr is not configured." });
+                return Json(new JObject { ["error"] = "Seerr is not configured." }, 503);
             }
 
             try
@@ -292,7 +292,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "SeerrRequests: proxy GET {Path} failed", path);
-                return StatusCode(502, new JObject { ["error"] = "Could not reach Seerr." });
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
             }
         }
 
@@ -314,7 +314,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "SeerrRequests: proxy POST {Path} failed", path);
-                return StatusCode(502, new JObject { ["error"] = "Could not reach Seerr." });
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
             }
         }
 
@@ -324,6 +324,24 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var request = new HttpRequestMessage(method, config.SeerrBaseUrl + path);
             request.Headers.Add("X-Api-Key", config.SeerrApiKey);
             return request;
+        }
+
+        // ASP.NET Core's default output formatter is System.Text.Json, which
+        // has no built-in understanding of Newtonsoft.Json.Linq.JObject (it
+        // also implements IEnumerable, so System.Text.Json silently
+        // serializes it as an empty array instead of an object - confirmed
+        // live: Ok(new JObject{["ok"]=true}) actually came back as
+        // {"ok":[]}). Route every JObject response through Newtonsoft's own
+        // ToString() as a raw ContentResult instead, exactly like the
+        // ProxyGet/ProxyPost passthroughs already do.
+        private ContentResult Json(JObject body, int statusCode = 200)
+        {
+            return new ContentResult
+            {
+                Content = body.ToString(),
+                ContentType = "application/json",
+                StatusCode = statusCode
+            };
         }
     }
 }
