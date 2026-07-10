@@ -1220,14 +1220,6 @@
           '<h2 class="sectionTitle sectionTitle-cards">Anbefalet til dig</h2>' +
         '</div>' + moviesScrollRowHtml('newBadges-moviesRecsRow') +
       '</div>' +
-      '<div class="verticalSection newBadges-moviesRandomSection" style="display:none">' +
-        '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-          '<h2 class="sectionTitle sectionTitle-cards">Tilfældige film</h2>' +
-        '</div>' +
-        moviesScrollRowHtml('newBadges-moviesRandomRow0') +
-        moviesScrollRowHtml('newBadges-moviesRandomRow1') +
-        moviesScrollRowHtml('newBadges-moviesRandomRow2') +
-      '</div>' +
       '<div class="verticalSection newBadges-moviesFavsSection" style="display:none">' +
         '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
           '<h2 class="sectionTitle sectionTitle-cards">Favoritter</h2>' +
@@ -1256,21 +1248,6 @@
         container.querySelector('.newBadges-moviesRecsSection').style.display = '';
       }
     }).catch(function () { /* row stays hidden */ });
-
-    fetchLibraryMovies(libId, { SortBy: 'Random', Limit: 36 }).then(function (result) {
-      var items = result.Items || [];
-      if (!items.length) {
-        return;
-      }
-      var rows = [items.slice(0, 12), items.slice(12, 24), items.slice(24, 36)];
-      rows.forEach(function (rowItems, i) {
-        var row = container.querySelector('.newBadges-moviesRandomRow' + i);
-        row.innerHTML = rowItems.map(buildMovieCardHtml).join('');
-        // hide empty leftover scrollers in small libraries
-        row.closest('[is="emby-scroller"]').style.display = rowItems.length ? '' : 'none';
-      });
-      container.querySelector('.newBadges-moviesRandomSection').style.display = '';
-    }).catch(function () { /* section stays hidden */ });
 
     fetchLibraryMovies(libId, { Filters: 'IsFavorite', SortBy: 'SortName', Limit: 20 }).then(function (result) {
       var items = result.Items || [];
