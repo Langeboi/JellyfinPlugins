@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.2.0",
+        "changelog": "Found the actual cause of the popup that kept looking dim/washed-out across 1.5.0.0 and 1.5.1.0, despite the background genuinely being solid: Jellyfin's own core JS auto-attaches a Web Animations API entrance animation (opacity 0 to 1, scale .96 to 1, 180ms) to any element matching the native dialog class pattern, independent of whether it was opened through Jellyfin's real dialogHelper. Confirmed live via dialog.getAnimations() that this animation gets stuck permanently at its 0%-progress frame - opacity:0 - and never completes, leaving the entire popup invisible/near-invisible instead of just dim. The dialog now proactively cancels this animation right after being inserted (with a couple of staggered retries, since Jellyfin attaches it asynchronously), which reverts the element to its normal CSS-resolved opacity:1 instantly. Also dropped the dialog-fixedSize class the popup didn't actually need (it duplicates constraints already set with !important) - as a side effect this also stopped the ElegantFin theme's own dialog-fixedSize override from forcing square corners on the popup at most window sizes. Two smaller fixes: the Tilføj button now scales up slightly on hover, and items already on the server show a green \"Tilføjet check\" badge instead of \"Tilgaengelig\", both in the browse rows and in Seneste anmodninger.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.5.2.0/seerrrequests_1.5.2.0.zip",
+        "checksum": "ba2e727fc3c3502e7a83a336e961758d",
+        "timestamp": "2026-07-10T09:16:52Z"
+      },
+      {
         "version": "1.5.1.0",
         "changelog": "Fix a regression from 1.5.0.0: the new bottom-gradient scrim added a #seerrRequestsTab .cardImageContainer{position:relative} rule to give the ::after scrim a positioning context, but .cardImageContainer is already position:absolute natively (that's what stretches it to fill the aspect-ratio box .cardPadder-overflowPortrait creates via padding-bottom) - our ID-scoped rule had higher specificity than that single-class native rule, silently downgrading it to relative and collapsing every card (Trending/Film/Serier/search/recent-requests) to zero height. Confirmed live: no artwork, no visible or clickable request buttons anywhere in the tab, even though the underlying data and DOM were all correct. Removed the unnecessary position override - position:absolute already gives descendants a valid positioning context, so the scrim didn't need it. Also renamed the request button from \"Anmod\" to \"Tilføj\" (and its in-progress/dialog-header/error text to match), for consistency with the \"Tilføj Film/Serie\" tab button's own wording.",
         "targetAbi": "10.11.0.0",

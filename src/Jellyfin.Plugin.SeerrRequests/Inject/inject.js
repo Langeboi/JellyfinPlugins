@@ -135,8 +135,8 @@
       '.seerrRequests-requestBtn{background:var(--seerr-accent);color:#fff;border:none;border-radius:999px;' +
       'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
       'display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;' +
-      'box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s;}' +
-      '.seerrRequests-requestBtn:hover{background:var(--seerr-accent-hover);}' +
+      'box-shadow:0 2px 8px rgba(0,0,0,.5);transition:background .15s,transform .15s;}' +
+      '.seerrRequests-requestBtn:hover{background:var(--seerr-accent-hover);transform:scale(1.08);}' +
       '.seerrRequests-requestBtn:disabled{opacity:.6;cursor:default;}' +
       '.seerrRequests-requestBtnIcon{font-size:1.1em;line-height:1;font-weight:700;}' +
       '.seerrRequests-statusBadge{display:inline-block;background:rgba(20,20,20,.85);color:#fff;' +
@@ -516,7 +516,7 @@
     var actionHtml;
     var actionClass = 'seerrRequests-cardAction';
     if (mediaStatus === 5) {
-      actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">Tilgængelig</div>';
+      actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">Tilføjet ✓</div>';
     } else if (mediaStatus === 2 || mediaStatus === 3 || mediaStatus === 4) {
       actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
     } else {
@@ -531,7 +531,7 @@
 
   function statusLabelForRequest(req) {
     if (req.mediaStatus === 5) {
-      return 'Tilgængelig';
+      return 'Tilføjet ✓';
     }
     if (req.mediaStatus === 4) {
       return 'Delvist tilgængelig';
@@ -603,7 +603,7 @@
       wrapper.innerHTML =
         '<div class="dialogContainer seerrRequests-requestDialog">' +
           '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
-          '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-requestDialogBody" data-lockscroll="true" data-removeonclose="true">' +
+          '<div class="dialog focuscontainer smoothScrollY centeredDialog opened seerrRequests-requestDialogBody" data-lockscroll="true" data-removeonclose="true">' +
             '<h3>Tilføj ' + escapeHtml(title || '') + '</h3>' +
             (isTv
               ? '<div class="seerrRequests-seasonHeader"><span>Sæsoner</span>' +
@@ -620,6 +620,31 @@
         '</div>';
       var dialog = wrapper.firstElementChild;
       document.body.appendChild(dialog);
+
+      // Jellyfin's own core JS auto-attaches a Web Animations API entrance
+      // animation (opacity 0->1, scale .96->1, 180ms) to any element
+      // matching the native dialog class pattern, independent of whether it
+      // was opened through Jellyfin's own dialogHelper - confirmed live via
+      // dialog.getAnimations() that this animation can get stuck forever at
+      // its 0%-progress frame (opacity:0) instead of ever completing,
+      // leaving the whole popup invisible. This, not the background color,
+      // was the real cause of the "washed out"/"dim" popup - our opaque
+      // background was already correct, it just never got a chance to
+      // render because the element sat at opacity:0. Cancelling the
+      // animation reverts the element to its normal CSS-resolved opacity:1
+      // instantly (confirmed live). Jellyfin's own MutationObserver attaches
+      // the animation asynchronously, so this is retried a few times over
+      // the next couple hundred ms rather than just once synchronously.
+      function killStuckEntranceAnimation() {
+        if (!dialog.getAnimations) {
+          return;
+        }
+        dialog.getAnimations().forEach(function (a) { a.cancel(); });
+      }
+      killStuckEntranceAnimation();
+      requestAnimationFrame(killStuckEntranceAnimation);
+      setTimeout(killStuckEntranceAnimation, 50);
+      setTimeout(killStuckEntranceAnimation, 200);
 
       function close(result) {
         dialog.remove();
