@@ -268,7 +268,39 @@
       'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
       '.seerrRequests-genrePill:hover{border-color:var(--seerr-accent);}' +
       '.seerrRequests-genrePill.seerrRequests-filterActive{background:var(--seerr-accent);' +
-      'border-color:var(--seerr-accent);color:#fff;}';
+      'border-color:var(--seerr-accent);color:#fff;}' +
+      // Upcoming-releases hero: same visual family as the Hero Bar home
+      // hero (same verified rgba(30,40,54,...) gradient family), but
+      // thinner and rounded since it sits inside the width-constrained
+      // .sections column rather than full-bleed.
+      '.seerrRequests-upcomingHero{position:relative;width:100%;height:0;overflow:hidden;' +
+      'border-radius:12px;background:#101010;transition:height .3s ease;}' +
+      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(32vh,300px);margin-bottom:1.2em;}' +
+      '.seerrRequests-uhSlide{position:absolute;inset:0;background-size:cover;' +
+      'background-position:center 25%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
+      '.seerrRequests-uhSlide.is-active{opacity:1;pointer-events:auto;}' +
+      '.seerrRequests-uhGradient{position:absolute;inset:0;pointer-events:none;background:' +
+      'linear-gradient(to top,rgba(30,40,54,.95) 0%,rgba(30,40,54,.45) 40%,rgba(30,40,54,0) 70%),' +
+      'linear-gradient(to right,rgba(30,40,54,.65) 0%,rgba(30,40,54,0) 55%);}' +
+      '.seerrRequests-uhContent{position:absolute;left:0;bottom:0;right:0;padding:1.2em 1.6em;' +
+      'max-width:min(640px,92%);z-index:1;}' +
+      '.seerrRequests-uhDate{display:inline-block;background:var(--seerr-accent,#4f46e5);color:#fff;' +
+      'border-radius:999px;padding:.25em .9em;font-size:.75em;font-weight:700;letter-spacing:.04em;' +
+      'margin-bottom:.6em;box-shadow:0 2px 8px rgba(0,0,0,.4);}' +
+      '.seerrRequests-uhTitle{font-size:1.5em;font-weight:800;margin:0 0 .3em;' +
+      'text-shadow:0 2px 6px rgba(0,0,0,.6);}' +
+      '.seerrRequests-uhOverview{opacity:.85;font-size:.85em;line-height:1.4;' +
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
+      '.seerrRequests-uhAction{margin-top:.8em;}' +
+      '.seerrRequests-uhAction .seerrRequests-statusBadge{font-size:12px;padding:5px 12px;}' +
+      '.seerrRequests-uhDots{position:absolute;bottom:1em;right:1.2em;display:flex;gap:.4em;z-index:2;}' +
+      '.seerrRequests-uhDot{width:7px;height:7px;padding:0;border-radius:50%;border:none;' +
+      'background:rgba(255,255,255,.4);cursor:pointer;transition:background .15s,transform .15s;}' +
+      '.seerrRequests-uhDot.is-active{background:#fff;transform:scale(1.2);}' +
+      '@media (max-width:800px){' +
+      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(38vh,280px);}' +
+      '.seerrRequests-uhTitle{font-size:1.2em;}' +
+      '}';
     document.head.appendChild(style);
   }
 
@@ -360,6 +392,7 @@
     wrapper.innerHTML =
       '<div id="' + TAB_CONTENT_ID + '" class="tabContent pageTabContent">' +
         '<div class="sections">' +
+          '<div class="seerrRequests-upcomingHero"></div>' +
           '<div class="seerrRequests-searchRow">' +
             '<input type="text" is="emby-input" class="seerrRequests-searchInput" placeholder="Søg efter film eller serie..." />' +
           '</div>' +
@@ -465,10 +498,148 @@
       ourBtn.classList.add('emby-tab-button-active');
     }
 
+    loadUpcomingHero(tab);
     loadMyRequests(tab);
     loadRow(tab, '.seerrRequests-trendingRow', 'all', null);
     loadRow(tab, '.seerrRequests-movieRow', 'movie', filmGenreId);
     loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
+  }
+
+  // ---- Upcoming-releases hero (thin rotating banner above the search
+  // field, same visual family as the Hero Bar plugin's home hero but
+  // sourced from Seerr's discover/{movies,tv}/upcoming) ----
+
+  var UPCOMING_MAX_SLIDES = 8;
+  var UPCOMING_ROTATE_SECONDS = 8;
+  var UPCOMING_LOADED_ATTR = 'data-seerr-upcoming-loaded';
+
+  function formatDanishDate(dateStr) {
+    var date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    var opts = { day: 'numeric', month: 'long' };
+    if (date.getFullYear() !== new Date().getFullYear()) {
+      opts.year = 'numeric';
+    }
+    return date.toLocaleDateString('da-DK', opts);
+  }
+
+  function upcomingActionHtml(item) {
+    var mediaInfo = item.mediaInfo || {};
+    var status = mediaInfo.status || null;
+    if (status === 5) {
+      return '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">Tilføjet ✓</div>';
+    }
+    if (status === 2 || status === 3 || status === 4) {
+      return '<div class="seerrRequests-statusBadge seerrRequests-statusPending">Anmodet</div>';
+    }
+    // Same class + data attributes as the row cards, so the existing
+    // wireRequestButtons delegation (attached to the whole tab) handles
+    // the click, the Fortryd undo countdown, everything - for free.
+    return '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
+      '" data-media-id="' + item.id + '">' +
+      '<span class="seerrRequests-requestBtnIcon">+</span>Tilføj</button>';
+  }
+
+  function buildUpcomingSlideHtml(item, index) {
+    var backdropUrl = tmdbImageUrl(item.backdropPath, 1280);
+    var title = mediaTitle(item);
+    var dateLabel = formatDanishDate(item.releaseDate || item.firstAirDate);
+    var overview = item.overview ? escapeHtml(item.overview) : '';
+
+    return (
+      '<div class="seerrRequests-uhSlide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '" ' +
+        'style="background-image:url(&quot;' + backdropUrl + '&quot;)">' +
+        '<div class="seerrRequests-uhGradient"></div>' +
+        '<div class="seerrRequests-uhContent">' +
+          '<div class="seerrRequests-uhDate">' + (dateLabel ? 'Udkommer ' + escapeHtml(dateLabel) : 'Kommer snart') + '</div>' +
+          '<h2 class="seerrRequests-uhTitle">' + escapeHtml(title) + '</h2>' +
+          '<div class="seerrRequests-uhOverview">' + overview + '</div>' +
+          '<div class="seerrRequests-uhAction">' + upcomingActionHtml(item) + '</div>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function loadUpcomingHero(tab) {
+    var hero = tab.querySelector('.seerrRequests-upcomingHero');
+    if (!hero || tab.hasAttribute(UPCOMING_LOADED_ATTR)) {
+      return;
+    }
+    // Set synchronously, before any async work - the exact race that
+    // stacked duplicate heroes in Hero Bar v1.0.0.0 (activateSeerrTab can
+    // run again while these fetches are still in flight).
+    tab.setAttribute(UPCOMING_LOADED_ATTR, 'true');
+
+    Promise.all([
+      apiGet('upcoming?mediaType=movie&page=1').catch(function () { return {}; }),
+      apiGet('upcoming?mediaType=tv&page=1').catch(function () { return {}; })
+    ]).then(function (results) {
+      var items = (results[0].results || []).concat(results[1].results || [])
+        .filter(function (r) {
+          return r.backdropPath && (r.mediaType === 'movie' || r.mediaType === 'tv');
+        });
+
+      // Soonest release first; items without a parseable date go last.
+      items.sort(function (a, b) {
+        var da = Date.parse(a.releaseDate || a.firstAirDate || '') || Infinity;
+        var db = Date.parse(b.releaseDate || b.firstAirDate || '') || Infinity;
+        return da - db;
+      });
+      items = items.slice(0, UPCOMING_MAX_SLIDES);
+
+      if (!items.length) {
+        // Leave the container empty (zero height) - and allow a retry on
+        // the next activation, since this was likely a transient failure.
+        tab.removeAttribute(UPCOMING_LOADED_ATTR);
+        return;
+      }
+
+      var dots = items.length > 1
+        ? '<div class="seerrRequests-uhDots">' +
+          items.map(function (item, i) {
+            return '<button type="button" class="seerrRequests-uhDot' + (i === 0 ? ' is-active' : '') +
+              '" data-index="' + i + '" aria-label="Slide ' + (i + 1) + '"></button>';
+          }).join('') +
+          '</div>'
+        : '';
+
+      hero.innerHTML = items.map(buildUpcomingSlideHtml).join('') + dots;
+      hero.classList.add('seerrRequests-uhReady');
+
+      function goTo(index) {
+        hero.querySelectorAll('.seerrRequests-uhSlide').forEach(function (el, i) {
+          el.classList.toggle('is-active', i === index);
+        });
+        hero.querySelectorAll('.seerrRequests-uhDot').forEach(function (el, i) {
+          el.classList.toggle('is-active', i === index);
+        });
+      }
+
+      hero.addEventListener('click', function (e) {
+        var dot = e.target.closest ? e.target.closest('.seerrRequests-uhDot') : null;
+        if (dot) {
+          goTo(parseInt(dot.getAttribute('data-index'), 10));
+        }
+      });
+
+      if (hero._uhTimer) {
+        clearInterval(hero._uhTimer);
+      }
+      if (items.length > 1) {
+        var current = 0;
+        hero._uhTimer = setInterval(function () {
+          if (!hero.isConnected) {
+            clearInterval(hero._uhTimer);
+            hero._uhTimer = null;
+            return;
+          }
+          current = (current + 1) % items.length;
+          goTo(current);
+        }, UPCOMING_ROTATE_SECONDS * 1000);
+      }
+    });
   }
 
   // Jellyfin's content-div ids for its own tabs (#homeTab, #favoritesTab,

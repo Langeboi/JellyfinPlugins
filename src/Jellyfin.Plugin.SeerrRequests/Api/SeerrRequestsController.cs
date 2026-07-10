@@ -63,6 +63,21 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             return await ProxyGet($"/api/v1/discover/trending?mediaType=all&page={page}");
         }
 
+        // Backs the upcoming-releases hero at the top of the Seerr tab.
+        // Route existence validated live: /discover/{movies|tv}/upcoming
+        // returns 401 without a key (route exists), bogus paths return 404.
+        [HttpGet("upcoming")]
+        public async Task<ActionResult> Upcoming([FromQuery] string mediaType = "movie", [FromQuery] int page = 1)
+        {
+            string? typeSegment = mediaType == "movie" ? "movies" : mediaType == "tv" ? "tv" : null;
+            if (typeSegment == null)
+            {
+                return BadRequest();
+            }
+
+            return await ProxyGet($"/api/v1/discover/{typeSegment}/upcoming?page={page}");
+        }
+
         [HttpGet("genres/{mediaType}")]
         public async Task<ActionResult> Genres(string mediaType)
         {
