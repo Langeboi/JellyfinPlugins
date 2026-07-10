@@ -52,6 +52,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.1.0",
+        "changelog": "Drops the Tilfældige film section from the movies library layout per feedback. The page is now: Anbefalet til dig, Favoritter (only when non-empty), then the full alphabetical catalog with the genre/watched/decade filter pills.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.5.1.0/newbadges_1.5.1.0.zip",
+        "checksum": "84632a049c47c30e4703634c7a42ac49",
+        "timestamp": "2026-07-10T22:05:00Z"
+      },
+      {
         "version": "1.5.0.0",
         "changelog": "Movies library redesign: the Film tab on every movies library replaces the flat alphabetical wall with a curated layout - 'Anbefalet til dig' (Similar-to recommendations seeded by your recently watched/half-watched movies, top-rated-unwatched fallback), 'Tilfældige film' (three rows of random picks, fresh each visit), 'Favoritter' (only shown when non-empty), and 'Alle film' (full catalog alphabetically, behind genre/watched-state/decade quick-filter pills with load-more paging; filters combine and toggle off on second click). Native grid, alpha picker, and sort/filter chrome hidden. Pill rows collapse to horizontally swipeable lines on mobile.",
         "targetAbi": "10.11.0.0",
