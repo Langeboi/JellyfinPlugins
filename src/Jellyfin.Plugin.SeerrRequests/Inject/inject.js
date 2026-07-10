@@ -138,6 +138,22 @@
       '#' + TAB_CONTENT_ID + '::before{content:"";position:absolute;top:0;left:0;right:0;' +
       'height:260px;background:linear-gradient(to bottom,rgba(15,15,22,.95) 0%,' +
       'rgba(15,15,22,.55) 45%,rgba(15,15,22,0) 100%);pointer-events:none;z-index:0;}' +
+      // Media Bar's own hero fade (.slide .gradient-overlay) is a diagonal-only
+      // wash (linear-gradient(130deg,...)), not a top-down fade - confirmed
+      // live that disabling this plugin's entire stylesheet doesn't change
+      // Media Bar's hero position/appearance at all, so the weak "fade at
+      // the top" feeling on Hjem itself isn't a conflict between plugins,
+      // it's just how Media Bar's own overlay is designed. Layering a
+      // proper vertical dark-to-transparent gradient on top of (not instead
+      // of) its existing diagonal one gives Hjem's hero the same kind of
+      // pronounced top fade this tab already has - first-listed background
+      // paints nearest the viewer, so the vertical one takes visual
+      // priority near the top while the diagonal one still shows through
+      // lower down.
+      '.slide .gradient-overlay{background:' +
+      'linear-gradient(to bottom,rgba(0,0,0,.75) 0%,rgba(0,0,0,.25) 30%,rgba(0,0,0,0) 55%),' +
+      'linear-gradient(130deg,rgba(29,29,29,.65) 10%,rgba(29,29,29,.35) 30%,rgba(29,29,29,0) 100%)' +
+      '!important;}' +
       // Small indigo accent bar in front of each section title (Trending /
       // Film / Serier / Seneste anmodninger), a light Seerr-style touch on
       // top of the native sectionTitle-cards look rather than replacing it.
@@ -927,7 +943,9 @@
     var sectionTop = found.section.getBoundingClientRect().top;
     var overlap = heroBottom - sectionTop;
     if (overlap > 0) {
-      found.section.style.marginTop = (overlap + 16) + 'px';
+      // Small buffer, not a big gap - per feedback the original +16px left
+      // more empty space than wanted once the overlap itself was fixed.
+      found.section.style.marginTop = (overlap + 4) + 'px';
     }
   }
 

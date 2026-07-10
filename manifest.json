@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.9.0",
+        "changelog": "First, ruled out the user's own suspicion that this plugin's CSS might be conflicting with Media Bar or New Badges - confirmed live by fully disabling this plugin's entire stylesheet and checking that Media Bar's hero position/appearance didn't change at all. It doesn't: Media Bar's own fade (.slide .gradient-overlay) is a diagonal-only wash (linear-gradient(130deg,...)), not a top-down fade, so the weak \"fade at the top\" feeling on Hjem was never a plugin conflict, just how Media Bar's own overlay happens to be designed. Layered a proper vertical dark-to-transparent gradient on top of (not instead of) that existing diagonal one, confirmed via a real screenshot to give Hjem's hero a much more pronounced top fade. Also tightened the Mine medier spacing fix from 1.5.7.0/1.5.8.0 - the +16px buffer used to clear the hero overlap left more empty space than wanted once the actual overlap was gone, brought down to +4px.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.5.9.0/seerrrequests_1.5.9.0.zip",
+        "checksum": "93ac2aaa470a08cd6e392c4bfe418c7b",
+        "timestamp": "2026-07-10T13:11:45Z"
+      },
+      {
         "version": "1.5.8.0",
         "changelog": "The tab-row down-shift and the top gradient still weren't showing up for the user despite two earlier attempts, and they were right - both were genuinely still broken. (1) margin-top on the tab row (tried at .6em then 1.6em) was being mostly absorbed by the header's CSS grid centering (align-items:center) - a computed 23.8px margin-top was only producing a ~2.6px actual visual shift, confirmed precisely via getBoundingClientRect before and after. Switched to position:relative + a plain pixel top offset instead, which isn't subject to that centering interaction at all - confirmed via a real before/after screenshot comparison that the row now visibly clears the logo instead of sitting inline with it. (2) The gradient looked like a floating rectangle instead of a page-wide fade because it was scoped to .sections, which is max-width:1400px + margin:0 auto - the gradient was cutting off at that box's own edges rather than reaching the sides of the window. Moved it to the tab element itself, which isn't width-constrained, so it now spans edge to edge the same way Hjem's own hero does behind its own padded content.",
         "targetAbi": "10.11.0.0",
