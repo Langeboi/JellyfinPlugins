@@ -97,18 +97,23 @@
       // it isn't flush against the very top edge - only while actually on
       // the home route (toggled by syncTabRowSpacing), since .tabs-viewmenubar
       // is shared chrome also used by non-home pages with their own tab sets.
-      // .6em was barely visible at wide/full-window widths - confirmed live
-      // that .headerTabs is a CSS grid with align-items:center there (the
-      // tab row sits inline with the logo instead of on its own line below
-      // it, unlike the narrower layout), so a small margin got mostly
-      // absorbed by the centering. 1.6em gives a clearly visible shift at
-      // both a ~1540px and an ~800px window.
-      '.seerrRequests-homeTabRow{margin-top:1.6em;}' +
+      // margin-top (tried at both .6em and 1.6em) barely moved anything -
+      // confirmed live via getBoundingClientRect that .headerTabs is a CSS
+      // grid with align-items:center, which visibly absorbed most of even a
+      // 23.8px computed margin-top into just a ~2.6px actual shift (adding
+      // margin-top grows the item's own margin box, and center-alignment
+      // re-centers that taller box, eating most of the added space instead
+      // of translating it into a real downward move). position:relative +
+      // top is a plain visual offset from wherever the element's normal
+      // layout position already is, so it isn't subject to that - confirmed
+      // live it moves the row by exactly the pixel value given, regardless
+      // of the surrounding grid/flex layout.
+      '.seerrRequests-homeTabRow{position:relative;top:18px;}' +
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
       '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;' +
-      'position:relative;}' +
+      'position:relative;z-index:1;}' +
       // Media Bar's own slideshow (#slides-container, a fixed child of
       // <body>) only renders while the native #homeTab content is active -
       // confirmed live it isn't broken by anything here, it's just scoped to
@@ -120,11 +125,19 @@
       // getComputedStyle that it WAS rendering, just too close in tone to
       // the page's own dark background to actually read as a fade. Darker
       // and a good deal more opaque at the top, still fading to nothing by
-      // the bottom of the band.
-      '#' + TAB_CONTENT_ID + ' .sections::before{content:"";position:absolute;top:0;left:0;right:0;' +
+      // the bottom of the band. Also moved from .sections (which is
+      // max-width:1400px + margin:0 auto) to the tab element itself -
+      // scoping the gradient to that centered/boxed container made it cut
+      // off at the box's own left/right edges instead of reaching the sides
+      // of the window, which visibly looked like a floating rectangle
+      // rather than a page-wide fade (confirmed via a real screenshot from
+      // the user). The tab element itself isn't width-constrained, so the
+      // gradient now spans edge to edge behind the centered content, same
+      // as how Hjem's own hero sits full-bleed behind its own padded text.
+      '#' + TAB_CONTENT_ID + '{position:relative;}' +
+      '#' + TAB_CONTENT_ID + '::before{content:"";position:absolute;top:0;left:0;right:0;' +
       'height:260px;background:linear-gradient(to bottom,rgba(15,15,22,.95) 0%,' +
       'rgba(15,15,22,.55) 45%,rgba(15,15,22,0) 100%);pointer-events:none;z-index:0;}' +
-      '#' + TAB_CONTENT_ID + ' .sections > *{position:relative;z-index:1;}' +
       // Small indigo accent bar in front of each section title (Trending /
       // Film / Serier / Seneste anmodninger), a light Seerr-style touch on
       // top of the native sectionTitle-cards look rather than replacing it.

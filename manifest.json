@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.8.0",
+        "changelog": "The tab-row down-shift and the top gradient still weren't showing up for the user despite two earlier attempts, and they were right - both were genuinely still broken. (1) margin-top on the tab row (tried at .6em then 1.6em) was being mostly absorbed by the header's CSS grid centering (align-items:center) - a computed 23.8px margin-top was only producing a ~2.6px actual visual shift, confirmed precisely via getBoundingClientRect before and after. Switched to position:relative + a plain pixel top offset instead, which isn't subject to that centering interaction at all - confirmed via a real before/after screenshot comparison that the row now visibly clears the logo instead of sitting inline with it. (2) The gradient looked like a floating rectangle instead of a page-wide fade because it was scoped to .sections, which is max-width:1400px + margin:0 auto - the gradient was cutting off at that box's own edges rather than reaching the sides of the window. Moved it to the tab element itself, which isn't width-constrained, so it now spans edge to edge the same way Hjem's own hero does behind its own padded content.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.5.8.0/seerrrequests_1.5.8.0.zip",
+        "checksum": "66f70c9c255ae4f1d015d4da302a1e1e",
+        "timestamp": "2026-07-10T12:31:47Z"
+      },
+      {
         "version": "1.5.7.0",
         "changelog": "The user pointed out half-window mode already looked perfect (both the fade and the Mine medier spacing), which narrowed this down fast: at a ~1540px window Media Bar's hero (#slides-container) is 750px tall, and Mine medier's row was starting at 631px - a ~210px overlap where the row's own poster art was painting over the bottom of the hero. That's also why the fade looked \"missing\" specifically at wide windows - it wasn't gone, it was being covered. A fixed padding value couldn't fix this without breaking the already-correct narrower layout, so the row's position is now measured against the hero's actual bottom edge every tick (and on window resize) and only pushed down by exactly the overlap when one actually exists. Also: (1) fixed the Fortryd cancel button showing Anmodet instead of Tilfoej afterward even though the cancellation had genuinely succeeded on Seerr's side - Seerr's DELETE returns 204 No Content with an empty body, which the frontend's own resp.json() call was throwing on, turning a real success into a caught error. (2) Cards in the browse rows brought closer together again (gap now .3em, down from .6em) per feedback that they still felt too spaced out.",
         "targetAbi": "10.11.0.0",
