@@ -52,6 +52,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.0.0",
+        "changelog": "Movies library redesign: the Film tab on every movies library replaces the flat alphabetical wall with a curated layout - 'Anbefalet til dig' (Similar-to recommendations seeded by your recently watched/half-watched movies, top-rated-unwatched fallback), 'Tilfældige film' (three rows of random picks, fresh each visit), 'Favoritter' (only shown when non-empty), and 'Alle film' (full catalog alphabetically, behind genre/watched-state/decade quick-filter pills with load-more paging; filters combine and toggle off on second click). Native grid, alpha picker, and sort/filter chrome hidden. Pill rows collapse to horizontally swipeable lines on mobile.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.5.0.0/newbadges_1.5.0.0.zip",
+        "checksum": "11fd2501aba942a16d51ed37f070250d",
+        "timestamp": "2026-07-10T21:40:00Z"
+      },
+      {
         "version": "1.4.0.0",
         "changelog": "Custom Langehub server logo in the header, replacing the default Jellyfin banner. The original export had the transparency checkerboard baked into the pixels (no alpha channel, 2172x724 / 774KB) - cleaned up with an edge-connected flood fill, cropped, and downscaled to 670x120 / 57KB with real transparency. Served from the plugin's own embedded resources (controller gained a binary path for PNGs), so no external image hosting is involved.",
         "targetAbi": "10.11.0.0",
@@ -182,6 +190,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.8.1.0",
+        "changelog": "Fix: the 'Mine medier' heading on the home page had reappeared. The hide logic used getElementById('homeTab'), which resolves to whichever mounted home-page instance comes first in the DOM - Jellyfin keeps previously-visited pages mounted with duplicate ids, so the visible page's heading could escape the hide. It now sweeps every mounted home-page instance. Also removed the dead Media Bar overlap-measurement code (Hero Bar's in-flow hero made it obsolete).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.8.1.0/seerrrequests_1.8.1.0.zip",
+        "checksum": "9f0ede8d4daf6762937da4a5f6872e50",
+        "timestamp": "2026-07-10T21:40:00Z"
+      },
       {
         "version": "1.8.0.0",
         "changelog": "Hover-expand card preview: hovering any browse/request card for a moment expands it into a larger preview with backdrop, rating/year/genres, a short description, a Læs mere button linking to the title's IMDb page (TMDB fallback), and the same Tilføj/status action including the Fortryd undo - desktop only, details fetched lazily via the new /SeerrRequests/media/{type}/{id} proxy and cached in-page. Language exclusion: new 'Excluded original languages' setting (comma-separated ISO 639-1 codes, prefilled with East/South/Southeast Asian languages) - browse rows, trending, and the upcoming hero hide matching titles, filtered server-side; explicit search is never filtered. Clear the field to show everything.",
