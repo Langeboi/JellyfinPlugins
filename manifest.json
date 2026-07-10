@@ -151,6 +151,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.7.0.0",
+        "changelog": "New: upcoming-releases hero on the Seerr tab. Thin rotating banner above the search field showing upcoming movie and TV releases (from Seerr's discover upcoming endpoints), soonest first, with a Danish release-date pill, title, short overview, and the same Tilføj request flow as the row cards including the Fortryd undo countdown - already-requested or available items show their status badge instead. Clickable pagination dots, 8s crossfade rotation, and the hero stays collapsed at zero height if Seerr is unreachable. New backend proxy endpoint /SeerrRequests/upcoming.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.7.0.0/seerrrequests_1.7.0.0.zip",
+        "checksum": "760e6e34656beca76e8f7734bb1a414b",
+        "timestamp": "2026-07-10T15:45:00Z"
+      },
+      {
         "version": "1.6.0.0",
         "changelog": "Found the actual root cause of the visible top seam the user kept reporting after two earlier attempts at the fade: it was a color mismatch, exactly as guessed, but the target color was wrong both times. Fetched ElegantFin's own CSS directly and found --headerColor:rgba(30,40,54,.8) (a blue-gray), used inside --headerColorGradient as a gradient that itself already fades to transparent by ~90% of the header's own height - the header was never black or Jellyfin's flat rgb(16,16,16) at all, it just looked that way at a glance. Both this tab's own top gradient and the intensified Hjem hero fade from 1.5.9.0 were using near-black instead, so the header's own fade and the hero/tab fade below it were two differently-toned overlays meeting at a hard edge. Switched both to the same rgba(30,40,54,...) - confirmed with zoomed before/after screenshots on both Hjem and this tab that the seam is gone and the two now read as one continuous fade.",
         "targetAbi": "10.11.0.0",
