@@ -139,21 +139,7 @@
     });
   }
 
-  function fetchSeriesIsOngoing(seriesId) {
-    var apiClient = window.ApiClient;
-    var userId = apiClient.getCurrentUserId();
-    var url = apiClient.getUrl('Users/' + userId + '/Items/' + seriesId);
-
-    return apiClient.getJSON(url).then(function (series) {
-      return series.Status === 'Continuing';
-    });
-  }
-
-  // skipOngoingCheck: the Trending row only needs each series' latest-episode
-  // date for its NEW ribbon - the ongoing/episode-label lookup is exclusively
-  // a Recently-Added-rows feature, so skipping it there halves the number of
-  // per-series requests this makes.
-  function fetchDates(entries, skipOngoingCheck) {
+  function fetchDates(entries) {
     var apiClient = window.ApiClient;
     if (!apiClient) {
       return Promise.reject(new Error('ApiClient not available'));
@@ -181,6 +167,33 @@
       }));
     }
 
+    // One batched Status lookup for every series in this pass, instead of
+    // the one-request-per-series it used to be. Always runs (no more
+    // skipOngoingCheck): the Trending row skipping it is what starved the
+    // Recently Added rows' episode-label swap - Trending's fetch filled
+    // dateCache first, scan() then treated those series as fully cached and
+    // never fetched their ongoing status, so the label swap silently bailed
+    // (observed live with Silo: Trending + "Nyligt tilføjet i Shows" at the
+    // same time left the native "22" count badge in place).
+    if (seriesIds.length > 0) {
+      var seriesUserId = apiClient.getCurrentUserId();
+      var statusUrl = apiClient.getUrl('Users/' + seriesUserId + '/Items', {
+        Ids: seriesIds.join(','),
+        Fields: 'Status'
+      });
+      promises.push(apiClient.getJSON(statusUrl).then(function (result) {
+        (result.Items || []).forEach(function (item) {
+          ongoingCache[item.Id] = item.Status === 'Continuing';
+        });
+      }).catch(function () {
+        seriesIds.forEach(function (id) {
+          if (ongoingCache[id] === undefined) {
+            ongoingCache[id] = false;
+          }
+        });
+      }));
+    }
+
     seriesIds.forEach(function (seriesId) {
       promises.push(
         fetchLatestEpisodeInfo(seriesId)
@@ -192,13 +205,6 @@
           })
           .catch(function () { map[seriesId] = null; })
       );
-      if (!skipOngoingCheck) {
-        promises.push(
-          fetchSeriesIsOngoing(seriesId)
-            .then(function (isOngoing) { ongoingCache[seriesId] = isOngoing; })
-            .catch(function () { ongoingCache[seriesId] = false; })
-        );
-      }
     });
 
     return Promise.all(promises).then(function () { return map; });
@@ -220,10 +226,20 @@
         }
         cardsById[id] = card;
 
-        if (Object.prototype.hasOwnProperty.call(dateCache, id)) {
+        // A series isn't "fully cached" until its ongoing status is known
+        // too - dateCache alone can be pre-filled by the Trending row's own
+        // fetch (or by its sessionStorage-restored copy after a reload),
+        // neither of which knows about ongoing/episode-label state. Treating
+        // date-only as cached is what broke the episode-label swap for shows
+        // appearing in both Trending and a Recently Added row.
+        var type = card.getAttribute('data-type');
+        var fullyCached = Object.prototype.hasOwnProperty.call(dateCache, id) &&
+          (type !== 'Series' || ongoingCache[id] !== undefined);
+
+        if (fullyCached) {
           applyCard(card, id);
         } else if (!pendingIds.has(id)) {
-          entriesToFetch.push({ id: id, type: card.getAttribute('data-type') });
+          entriesToFetch.push({ id: id, type: type });
           pendingIds.add(id);
         }
       });
@@ -348,7 +364,6 @@
   // The 30-day trending window barely shifts minute to minute, so a longer
   // cache is safe.
   var TRENDING_CACHE_TTL_MS = 10 * 60 * 1000;
-  var trendingRendered = false;
 
   function isNextUpSection(section) {
     var titleEl = section.querySelector('.sectionTitle, [class*="sectionTitle"]');
@@ -496,12 +511,13 @@
             // Reuse the same date-freshness lookup the NEW ribbon uses
             // elsewhere (latest-episode date for series, DateCreated for
             // movies) so a trending show can show both badges together.
-            // skipOngoingCheck=true: Trending doesn't use the episode-label
-            // badge, so there's no need to pay for fetchSeriesIsOngoing too.
+            // This also fills ongoingCache (one batched request), keeping
+            // the Recently Added rows' episode-label swap working for shows
+            // that appear in both places.
             var dateEntries = items.map(function (item) {
               return { id: item.Id, type: item.Type };
             });
-            return fetchDates(dateEntries, true).then(function (dateMap) {
+            return fetchDates(dateEntries).then(function (dateMap) {
               items.forEach(function (item) {
                 // Stashed on the item (not just dateCache) so a cached copy
                 // of this list, restored later without re-running fetchDates,
@@ -581,8 +597,10 @@
     fetchWithCache(cacheKey, TRENDING_CACHE_TTL_MS, fetchTrendingItems)
       .then(function (items) {
         if (items.length === 0) {
-          // Not enough data yet - remove our placeholder and restore Next Up.
+          // Not enough data yet - remove our placeholder, restore Next Up,
+          // and mark it so the scan loop doesn't retry until home re-renders.
           section.remove();
+          nextUpSection.setAttribute(TRENDING_FAILED_ATTR, 'true');
           nextUpSection.style.display = '';
           return;
         }
@@ -600,6 +618,7 @@
       })
       .catch(function () {
         section.remove();
+        nextUpSection.setAttribute(TRENDING_FAILED_ATTR, 'true');
         nextUpSection.style.display = '';
       });
   }
@@ -620,28 +639,51 @@
     return null;
   }
 
+  // Idempotency is DOM-based, not flag-based. The old boolean flag
+  // (trendingRendered) reset whenever a scan tick fired away from home, but
+  // Jellyfin keeps the home page's DOM mounted during navigation - so coming
+  // back to home saw flag=false while the previously-inserted section still
+  // existed, and inserted a second copy next to it. Checking the live DOM
+  // can't drift out of sync with the DOM.
+  var TRENDING_FAILED_ATTR = 'data-newbadges-trending-failed';
+
   function renderTrendingIfHome() {
     if (!isHomeRoute()) {
-      // Reset so navigating away and back to home retries cleanly - the
-      // Next Up section is a fresh DOM element each time home re-renders.
-      trendingRendered = false;
-      return;
-    }
-    if (trendingRendered) {
       return;
     }
     var homePage = getActiveHomePage();
     if (!homePage) {
       return;
     }
+
+    var nextUpSection = null;
     var sections = homePage.querySelectorAll('.verticalSection');
     for (var i = 0; i < sections.length; i++) {
-      if (isNextUpSection(sections[i])) {
-        trendingRendered = true;
-        renderTrendingSection(sections[i]);
-        return;
+      if (isNextUpSection(sections[i]) && !sections[i].classList.contains('newBadges-trendingSection')) {
+        nextUpSection = sections[i];
+        break;
       }
     }
+
+    var existing = homePage.querySelector('.newBadges-trendingSection');
+    if (existing) {
+      // Jellyfin re-renders its own rows periodically, which can reset the
+      // native section's inline display - re-assert the hide on every tick,
+      // same as the Continue Watching row already does.
+      if (nextUpSection && nextUpSection.style.display !== 'none') {
+        nextUpSection.style.display = 'none';
+      }
+      return;
+    }
+
+    // The failed-marker replaces the old flag's only useful property:
+    // not hammering the API in a retry loop when the data fetch fails or
+    // comes back empty. It lives on the native DOM node, so it naturally
+    // disappears (allowing a retry) when Jellyfin renders home fresh.
+    if (!nextUpSection || nextUpSection.hasAttribute(TRENDING_FAILED_ATTR)) {
+      return;
+    }
+    renderTrendingSection(nextUpSection);
   }
 
   // Merge "Fortsæt afspilning" (Continue Watching) and "Næste afsnit"
@@ -655,7 +697,6 @@
   // Short TTL - Resume position changes as you actively watch, so this can't
   // be cached nearly as long as Trending.
   var CONTINUE_CACHE_TTL_MS = 60 * 1000;
-  var continueRendered = false;
 
   function isContinueWatchingSection(section) {
     var titleEl = section.querySelector('.sectionTitle, [class*="sectionTitle"]');
@@ -809,6 +850,7 @@
       .then(function (items) {
         if (items.length === 0) {
           section.remove();
+          cwSection.setAttribute(CONTINUE_FAILED_ATTR, 'true');
           cwSection.style.display = '';
           return;
         }
@@ -817,16 +859,18 @@
       })
       .catch(function () {
         section.remove();
+        cwSection.setAttribute(CONTINUE_FAILED_ATTR, 'true');
         cwSection.style.display = '';
       });
   }
 
+  // Same DOM-based idempotency as renderTrendingIfHome (and for the same
+  // reason - the old continueRendered flag reset on away-from-home ticks
+  // while the inserted row stayed mounted, duplicating it on return).
+  var CONTINUE_FAILED_ATTR = 'data-newbadges-continue-failed';
+
   function renderContinueIfHome() {
     if (!isHomeRoute()) {
-      // Reset so navigating away and back to home retries cleanly - the
-      // Continue Watching section is a fresh DOM element each time home
-      // re-renders.
-      continueRendered = false;
       return;
     }
     var homePage = getActiveHomePage();
@@ -843,7 +887,9 @@
         break;
       }
     }
-    if (!nativeSection) {
+    if (!nativeSection || nativeSection.hasAttribute(CONTINUE_FAILED_ATTR)) {
+      // Failed earlier: the native row stays visible as the fallback, and
+      // the marker dies with the node when Jellyfin renders home fresh.
       return;
     }
 
@@ -856,10 +902,9 @@
       nativeSection.style.display = 'none';
     }
 
-    if (continueRendered) {
+    if (homePage.querySelector('.newBadges-continueSection')) {
       return;
     }
-    continueRendered = true;
     renderContinueSection(nativeSection);
   }
 
