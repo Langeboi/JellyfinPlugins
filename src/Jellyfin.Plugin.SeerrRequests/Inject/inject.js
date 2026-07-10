@@ -111,15 +111,23 @@
       '#' + TAB_CONTENT_ID + ' [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
       // Subtle bottom scrim on every poster in this tab (Seerr does the
       // same under its own request buttons/badges) so the action pill and
-      // status badges stay legible against bright poster art.
-      '#' + TAB_CONTENT_ID + ' .cardImageContainer{position:relative;}' +
+      // status badges stay legible against bright poster art. Deliberately
+      // NOT setting position:relative here - .cardImageContainer is already
+      // position:absolute natively (that's what stretches it to fill the
+      // aspect-ratio box .cardPadder-overflowPortrait creates via
+      // padding-bottom). Our own ID-scoped rule has higher specificity than
+      // that single-class native rule, so setting position:relative here
+      // silently downgraded it and collapsed every card to zero height -
+      // confirmed live (no artwork, no visible/clickable buttons at all).
+      // position:absolute already gives ::after a valid positioning context,
+      // so this was never actually needed.
       '#' + TAB_CONTENT_ID + ' .cardImageContainer::after{content:"";position:absolute;left:0;right:0;' +
       'bottom:0;height:42%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0));' +
       'pointer-events:none;}' +
       // Badges styled like New Badges' own NEW ribbon / rank badge - a small
       // top-left corner pill instead of a full-width bottom bar.
       '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
-      // The actual "Anmod" request button lives bottom-center of the poster
+      // The actual "Tilføj" request button lives bottom-center of the poster
       // instead, matching Seerr's own request button placement/style
       // (rounded indigo pill) rather than the New-Badges-style corner pill
       // used for status badges above.
@@ -515,7 +523,7 @@
       actionClass = 'seerrRequests-cardAction seerrRequests-cardActionBottom';
       actionHtml = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
         '" data-media-id="' + item.id + '" data-title="' + escapeAttr(title) + '">' +
-        '<span class="seerrRequests-requestBtnIcon">+</span>Anmod</button>';
+        '<span class="seerrRequests-requestBtnIcon">+</span>Tilføj</button>';
     }
 
     return buildCardHtml(title, bgStyle, actionHtml, actionClass, mediaStatus === 5 ? jellyfinMediaId : null);
@@ -596,7 +604,7 @@
         '<div class="dialogContainer seerrRequests-requestDialog">' +
           '<div class="dialogBackdrop dialogBackdropOpened"></div>' +
           '<div class="dialog focuscontainer smoothScrollY centeredDialog opened dialog-fixedSize seerrRequests-requestDialogBody" data-lockscroll="true" data-removeonclose="true">' +
-            '<h3>Anmod om ' + escapeHtml(title || '') + '</h3>' +
+            '<h3>Tilføj ' + escapeHtml(title || '') + '</h3>' +
             (isTv
               ? '<div class="seerrRequests-seasonHeader"><span>Sæsoner</span>' +
                 '<label><input type="checkbox" class="seerrRequests-selectAllSeasons" checked /> Vælg alle</label></div>' +
@@ -684,7 +692,7 @@
         }
 
         btn.disabled = true;
-        btn.textContent = 'Anmoder...';
+        btn.textContent = 'Tilføjer...';
 
         var payload = { mediaType: mediaType, mediaId: mediaId, is4k: choice.is4k };
         if (choice.seasons) {
@@ -698,8 +706,8 @@
           })
           .catch(function (err) {
             btn.disabled = false;
-            btn.textContent = 'Anmod';
-            alert('Kunne ikke anmode: ' + err.message);
+            btn.textContent = 'Tilføj';
+            alert('Kunne ikke tilføje: ' + err.message);
           });
       });
     });
