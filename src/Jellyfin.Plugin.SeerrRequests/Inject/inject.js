@@ -135,9 +135,13 @@
       // gradient now spans edge to edge behind the centered content, same
       // as how Hjem's own hero sits full-bleed behind its own padded text.
       '#' + TAB_CONTENT_ID + '{position:relative;}' +
+      // Same rgba(30,40,54,...) as the Hjem hero fade below - this used to
+      // be a near-black rgba(15,15,22,...) which, combined with that
+      // mismatch, was part of what made the two tabs' top treatments look
+      // inconsistent with each other and with the header itself.
       '#' + TAB_CONTENT_ID + '::before{content:"";position:absolute;top:0;left:0;right:0;' +
-      'height:260px;background:linear-gradient(to bottom,rgba(15,15,22,.95) 0%,' +
-      'rgba(15,15,22,.55) 45%,rgba(15,15,22,0) 100%);pointer-events:none;z-index:0;}' +
+      'height:260px;background:linear-gradient(to bottom,rgba(30,40,54,.9) 0%,' +
+      'rgba(30,40,54,.5) 45%,rgba(30,40,54,0) 100%);pointer-events:none;z-index:0;}' +
       // Media Bar's own hero fade (.slide .gradient-overlay) is a diagonal-only
       // wash (linear-gradient(130deg,...)), not a top-down fade - confirmed
       // live that disabling this plugin's entire stylesheet doesn't change
@@ -150,8 +154,20 @@
       // paints nearest the viewer, so the vertical one takes visual
       // priority near the top while the diagonal one still shows through
       // lower down.
+      //
+      // A first attempt used near-black (rgba(0,0,0,...)) and still left a
+      // visible hard seam right where the header ends and the hero begins -
+      // confirmed live via a zoomed screenshot. Root cause: ElegantFin's own
+      // header background isn't black or html's flat rgb(16,16,16) either,
+      // it's --headerColor:rgba(30,40,54,.8) (a blue-gray), used in
+      // --headerColorGradient as a gradient that itself already fades to
+      // transparent by ~90% of the header's own height (found by fetching
+      // the theme's actual CSS, not guessing). Matching that same color here
+      // makes this gradient read as a continuation of the header's own
+      // fade instead of a differently-toned overlay starting fresh - the
+      // seam is gone, confirmed live.
       '.slide .gradient-overlay{background:' +
-      'linear-gradient(to bottom,rgba(0,0,0,.75) 0%,rgba(0,0,0,.25) 30%,rgba(0,0,0,0) 55%),' +
+      'linear-gradient(to bottom,rgba(30,40,54,.9) 0%,rgba(30,40,54,.35) 30%,rgba(30,40,54,0) 55%),' +
       'linear-gradient(130deg,rgba(29,29,29,.65) 10%,rgba(29,29,29,.35) 30%,rgba(29,29,29,0) 100%)' +
       '!important;}' +
       // Small indigo accent bar in front of each section title (Trending /

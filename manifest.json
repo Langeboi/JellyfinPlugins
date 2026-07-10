@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.6.0.0",
+        "changelog": "Found the actual root cause of the visible top seam the user kept reporting after two earlier attempts at the fade: it was a color mismatch, exactly as guessed, but the target color was wrong both times. Fetched ElegantFin's own CSS directly and found --headerColor:rgba(30,40,54,.8) (a blue-gray), used inside --headerColorGradient as a gradient that itself already fades to transparent by ~90% of the header's own height - the header was never black or Jellyfin's flat rgb(16,16,16) at all, it just looked that way at a glance. Both this tab's own top gradient and the intensified Hjem hero fade from 1.5.9.0 were using near-black instead, so the header's own fade and the hero/tab fade below it were two differently-toned overlays meeting at a hard edge. Switched both to the same rgba(30,40,54,...) - confirmed with zoomed before/after screenshots on both Hjem and this tab that the seam is gone and the two now read as one continuous fade.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.6.0.0/seerrrequests_1.6.0.0.zip",
+        "checksum": "15815fb244a31b4fc9b7ff9135b79c4e",
+        "timestamp": "2026-07-10T13:23:36Z"
+      },
+      {
         "version": "1.5.9.0",
         "changelog": "First, ruled out the user's own suspicion that this plugin's CSS might be conflicting with Media Bar or New Badges - confirmed live by fully disabling this plugin's entire stylesheet and checking that Media Bar's hero position/appearance didn't change at all. It doesn't: Media Bar's own fade (.slide .gradient-overlay) is a diagonal-only wash (linear-gradient(130deg,...)), not a top-down fade, so the weak \"fade at the top\" feeling on Hjem was never a plugin conflict, just how Media Bar's own overlay happens to be designed. Layered a proper vertical dark-to-transparent gradient on top of (not instead of) that existing diagonal one, confirmed via a real screenshot to give Hjem's hero a much more pronounced top fade. Also tightened the Mine medier spacing fix from 1.5.7.0/1.5.8.0 - the +16px buffer used to clear the hero overlap left more empty space than wanted once the actual overlap was gone, brought down to +4px.",
         "targetAbi": "10.11.0.0",
