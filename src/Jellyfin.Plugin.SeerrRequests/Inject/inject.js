@@ -88,6 +88,11 @@
       // together instead of like two different apps bolted on.
       ':root{--seerr-accent:#6366f1;--seerr-accent-hover:#4f46e5;' +
       '--seerr-accent-soft:rgba(99,102,241,.18);--seerr-card-bg:#181a20;}' +
+      // Nudges the whole Hjem/Favoritter/Tilføj Film/Serie row down a bit so
+      // it isn't flush against the very top edge - only while actually on
+      // the home route (toggled by syncTabRowSpacing), since .tabs-viewmenubar
+      // is shared chrome also used by non-home pages with their own tab sets.
+      '.seerrRequests-homeTabRow{margin-top:.6em;}' +
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
@@ -98,17 +103,32 @@
       '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards{position:relative;padding-left:.75em;}' +
       '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards::before{content:"";position:absolute;left:0;' +
       'top:.1em;bottom:.1em;width:3px;border-radius:2px;background:var(--seerr-accent);}' +
-      '.seerrRequests-searchRow{margin:1em 0 .5em;}' +
+      '.seerrRequests-searchRow{margin:1em 0;}' +
       '.seerrRequests-searchInput{width:100%;max-width:480px;}' +
       '.seerrRequests-searchInput:focus{box-shadow:0 0 0 2px var(--seerr-accent-soft);}' +
-      '.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1em;}' +
+      '.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1.6em;}' +
+      '.seerrRequests-recentSection{margin-top:.8em;}' +
       '.seerrRequests-searchResults:empty{display:none;}' +
       '.seerrRequests-searchResults .card{width:150px;}' +
       '.seerrRequests-loading,.seerrRequests-empty{opacity:.6;padding:.5em 0;}' +
-      // Recent-requests and discover rows both use the native emby-scroller,
-      // which carries its own 23px left padding (confirmed live) that would
-      // otherwise misalign them against the section title above.
-      '#' + TAB_CONTENT_ID + ' [is="emby-scroller"]{padding-left:0!important;padding-right:0!important;}' +
+      // Recent-requests/Trending/Film/Serier rows are a plain horizontally
+      // scrolling flex row (overflow-x:auto) instead of the native
+      // is="emby-scroller" custom element - that element scrolls via a
+      // JS-driven transform (overflow-x:visible under the hood, confirmed
+      // live), so there was never an actual native scrollbar to restyle,
+      // only its own left/right chevron nav buttons. A plain scrolling div
+      // gets real mouse-wheel/trackpad/touch scrolling for free plus a
+      // styleable native scrollbar - simpler than fighting the custom
+      // element for a "modern scrollbar instead of arrows" look.
+      '.seerrRequests-scrollRow{display:flex;gap:1em;overflow-x:auto;overflow-y:hidden;' +
+      'scroll-behavior:smooth;padding:.3em 0 .7em;scrollbar-width:thin;' +
+      'scrollbar-color:var(--seerr-accent) rgba(255,255,255,.08);}' +
+      '.seerrRequests-scrollRow::-webkit-scrollbar{height:6px;}' +
+      '.seerrRequests-scrollRow::-webkit-scrollbar-track{background:rgba(255,255,255,.08);border-radius:3px;}' +
+      '.seerrRequests-scrollRow::-webkit-scrollbar-thumb{background:var(--seerr-accent);border-radius:3px;}' +
+      '.seerrRequests-scrollRow::-webkit-scrollbar-thumb:hover{background:var(--seerr-accent-hover);}' +
+      '.seerrRequests-scrollRow > .card{flex:none;}' +
+      '.seerrRequests-scrollRow:empty{display:none;}' +
       // Subtle bottom scrim on every poster in this tab (Seerr does the
       // same under its own request buttons/badges) so the action pill and
       // status badges stay legible against bright poster art. Deliberately
@@ -124,14 +144,12 @@
       '#' + TAB_CONTENT_ID + ' .cardImageContainer::after{content:"";position:absolute;left:0;right:0;' +
       'bottom:0;height:42%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0));' +
       'pointer-events:none;}' +
-      // Badges styled like New Badges' own NEW ribbon / rank badge - a small
-      // top-left corner pill instead of a full-width bottom bar.
-      '.seerrRequests-cardAction{position:absolute;top:8px;left:8px;z-index:6;}' +
-      // The actual "Tilføj" request button lives bottom-center of the poster
-      // instead, matching Seerr's own request button placement/style
-      // (rounded indigo pill) rather than the New-Badges-style corner pill
-      // used for status badges above.
-      '.seerrRequests-cardActionBottom{top:auto;left:50%;bottom:8px;transform:translateX(-50%);}' +
+      // Every action/status state (Tilføj button, Tilføjet/Anmodet/Behandles
+      // badges) shares one bottom-center slot on the poster, matching
+      // Seerr's own request-button placement - moved here from an earlier
+      // top-left corner-pill layout so the slot doesn't visually jump around
+      // depending on which state a card is currently in.
+      '.seerrRequests-cardAction{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:6;}' +
       '.seerrRequests-requestBtn{background:var(--seerr-accent);color:#fff;border:none;border-radius:999px;' +
       'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
       'display:inline-flex;align-items:center;gap:.35em;white-space:nowrap;' +
@@ -145,6 +163,15 @@
       '.seerrRequests-statusAvailable{background:rgba(46,160,67,.9);}' +
       '.seerrRequests-statusPending{background:rgba(200,140,0,.9);}' +
       '.seerrRequests-statusDeclined{background:rgba(180,40,40,.9);}' +
+      // Three sequentially-bouncing dots after "Behandles" (processing), a
+      // small loading-style cue instead of a static label.
+      '.seerrRequests-dots{display:inline-flex;gap:2px;margin-left:.35em;vertical-align:middle;}' +
+      '.seerrRequests-dots span{width:3px;height:3px;border-radius:50%;background:currentColor;' +
+      'display:inline-block;animation:seerrRequests-dotBounce 1.1s infinite ease-in-out both;}' +
+      '.seerrRequests-dots span:nth-child(2){animation-delay:.15s;}' +
+      '.seerrRequests-dots span:nth-child(3){animation-delay:.3s;}' +
+      '@keyframes seerrRequests-dotBounce{0%,60%,100%{transform:translateY(0);opacity:.5;}' +
+      '30%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
       // Genre filter pills, scoped per section now (Film / Serier each get
       // their own row instead of one global type toggle).
@@ -308,35 +335,27 @@
             '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
               '<h2 class="sectionTitle sectionTitle-cards">Seneste anmodninger</h2>' +
             '</div>' +
-            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
-              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-recentRow"></div>' +
-            '</div>' +
+            '<div class="seerrRequests-scrollRow seerrRequests-recentRow"></div>' +
           '</div>' +
           '<div class="verticalSection">' +
             '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
               '<h2 class="sectionTitle sectionTitle-cards">Trending</h2>' +
             '</div>' +
-            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
-              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-trendingRow"></div>' +
-            '</div>' +
+            '<div class="seerrRequests-scrollRow seerrRequests-trendingRow"></div>' +
           '</div>' +
           '<div class="verticalSection">' +
             '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
               '<h2 class="sectionTitle sectionTitle-cards">Film</h2>' +
             '</div>' +
             '<div class="seerrRequests-genreRow seerrRequests-movieGenreRow"></div>' +
-            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
-              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-movieRow"></div>' +
-            '</div>' +
+            '<div class="seerrRequests-scrollRow seerrRequests-movieRow"></div>' +
           '</div>' +
           '<div class="verticalSection">' +
             '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
               '<h2 class="sectionTitle sectionTitle-cards">Serier</h2>' +
             '</div>' +
             '<div class="seerrRequests-genreRow seerrRequests-tvGenreRow"></div>' +
-            '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
-              '<div class="itemsContainer scrollSlider focuscontainer-x seerrRequests-tvRow"></div>' +
-            '</div>' +
+            '<div class="seerrRequests-scrollRow seerrRequests-tvRow"></div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -558,11 +577,18 @@
     return 'seerrRequests-statusPending';
   }
 
+  // Three small dots that bounce in sequence after "Behandles" (processing),
+  // a loading-style cue instead of a static label sitting there unchanged.
+  var LOADING_DOTS_HTML = '<span class="seerrRequests-dots"><span></span><span></span><span></span></span>';
+
   function buildRecentRequestCardHtml(req) {
     var posterUrl = tmdbImageUrl(req.posterPath, 300);
     var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
-    var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' +
-      escapeHtml(statusLabelForRequest(req)) + '</div>';
+    var label = escapeHtml(statusLabelForRequest(req));
+    if (req.mediaStatus === 3) {
+      label += LOADING_DOTS_HTML;
+    }
+    var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' + label + '</div>';
     return buildCardHtml(req.title, bgStyle, actionHtml, 'seerrRequests-cardAction', req.mediaStatus === 5 ? req.jellyfinMediaId : null);
   }
 
@@ -632,21 +658,37 @@
       // background was already correct, it just never got a chance to
       // render because the element sat at opacity:0. Cancelling the
       // animation reverts the element to its normal CSS-resolved opacity:1
-      // instantly (confirmed live). Jellyfin's own MutationObserver attaches
-      // the animation asynchronously, so this is retried a few times over
-      // the next couple hundred ms rather than just once synchronously.
+      // instantly (confirmed live).
+      //
+      // A first attempt retried on a fixed schedule (rAF + 50ms + 200ms) but
+      // that still left the dialog stuck live - confirmed via getAnimations()
+      // that Jellyfin's MutationObserver can attach the animation well after
+      // 200ms (observed as late as ~1s under some conditions), so a few
+      // fixed-delay retries aren't a wide enough net. Polling instead: cheap
+      // (a getAnimations() call every 120ms), bounded (stops after ~4s), and
+      // catches the animation reliably whenever it actually lands.
       function killStuckEntranceAnimation() {
         if (!dialog.getAnimations) {
-          return;
+          return false;
         }
-        dialog.getAnimations().forEach(function (a) { a.cancel(); });
+        var anims = dialog.getAnimations();
+        if (anims.length) {
+          anims.forEach(function (a) { a.cancel(); });
+        }
+        return anims.length > 0;
       }
       killStuckEntranceAnimation();
-      requestAnimationFrame(killStuckEntranceAnimation);
-      setTimeout(killStuckEntranceAnimation, 50);
-      setTimeout(killStuckEntranceAnimation, 200);
+      var animationKillTicks = 0;
+      var animationKillTimer = setInterval(function () {
+        killStuckEntranceAnimation();
+        animationKillTicks++;
+        if (animationKillTicks > 32) {
+          clearInterval(animationKillTimer);
+        }
+      }, 120);
 
       function close(result) {
+        clearInterval(animationKillTimer);
         dialog.remove();
         resolve(result);
       }
@@ -858,7 +900,19 @@
   // MutationObserver tick (instead of behind a debounce meant for heavier
   // work) is what makes the button appear as fast as the native
   // Hjem/Favoritter tabs next to it, instead of visibly lagging in after.
+  // .tabs-viewmenubar is shared app chrome (used on library pages too, not
+  // just home), so the down-shift only applies while actually on the home
+  // route - toggled every tick instead of a one-way add, since this element
+  // persists across route changes and nothing else would ever remove it.
+  function syncTabRowSpacing() {
+    var viewmenubar = document.querySelector('.tabs-viewmenubar');
+    if (viewmenubar) {
+      viewmenubar.classList.toggle('seerrRequests-homeTabRow', isHomeRoute());
+    }
+  }
+
   function runChecks() {
+    syncTabRowSpacing();
     injectButtonIfHome();
     wireConfigPageIfPresent();
   }
