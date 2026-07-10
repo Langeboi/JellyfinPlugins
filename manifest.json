@@ -124,6 +124,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.1.0",
+        "changelog": "Fix: the 'Tilføj Film/Serie' button could vanish permanently after opening the full page and going back. Button injection cached an 'already injected' flag and skipped re-checking once true, but Jellyfin rebuilds the Hjem/Favoritter tab row's contents on any hashchange - including toggling the ?seerrRequests=1 flag on and back off - even though the underlying route (#/home) never changes, silently wiping the button out from under the stale flag. Removed the flag entirely; the DOM presence check itself is cheap enough to just always run.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v1.1.1.0/seerrrequests_1.1.1.0.zip",
+        "checksum": "d6cf3a52a16c97044f7a887a259d5a43",
+        "timestamp": "2026-07-10T06:24:14Z"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "Two changes based on feedback: (1) Replaced the floating dialog with a real full-page view. The old modal stacked a translucent dialog body (90% opaque) on top of a translucent backdrop (66% opaque) - both native Jellyfin dialog conventions - which compounded into a noticeably dim, washed-out look. The panel now opens as a solid full-viewport page (matching the app's own #101010 background) toggled by a hash flag on the current route (#/home?seerrRequests=1) rather than a real new route, since navigating to an actually-unrecognized hash renders Jellyfin's own 'Side ikke fundet' error page - this way the browser back button and URL both work like real navigation without fighting Jellyfin's router. (2) The 'Tilføj Film/Serie' button was visibly slower to appear than the native Hjem/Favoritter tabs next to it, because button injection was gated behind the same 400ms debounce used for heavier scan work. It's now a plain cheap idempotency check that runs immediately on every DOM mutation instead.",
         "targetAbi": "10.11.0.0",

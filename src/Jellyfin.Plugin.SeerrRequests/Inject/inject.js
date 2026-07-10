@@ -5,7 +5,6 @@
   var PAGE_CLASS = 'seerrRequests-page';
   var PAGE_OPEN_CLASS = 'seerrRequests-pageOpen';
   var HASH_FLAG = 'seerrRequests=1';
-  var buttonInjected = false;
   var searchDebounceTimer = null;
 
   function isHomeRoute() {
@@ -105,10 +104,6 @@
 
   function injectButtonIfHome() {
     if (!isHomeRoute()) {
-      buttonInjected = false;
-      return;
-    }
-    if (buttonInjected) {
       return;
     }
     // .tabs-viewmenubar lives in the shared app header (.skinHeader), a
@@ -119,8 +114,12 @@
     if (!slider) {
       return;
     }
+    // Always re-check DOM presence rather than caching an "already injected"
+    // flag - confirmed live that Jellyfin rebuilds this tab row's contents
+    // on a hashchange even when the route itself (#/home) doesn't change
+    // (e.g. toggling the ?seerrRequests=1 flag on and back off), silently
+    // wiping our button out from under a stale flag that assumed otherwise.
     if (slider.querySelector('[' + BUTTON_MARKER + ']')) {
-      buttonInjected = true;
       return;
     }
 
@@ -147,7 +146,6 @@
     }, true);
 
     slider.appendChild(btn);
-    buttonInjected = true;
   }
 
   // ---- Page (was a floating dialog; now a real full-page view toggled by a
