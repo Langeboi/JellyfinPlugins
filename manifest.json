@@ -52,6 +52,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.6.0.0",
+        "changelog": "Drawer quick actions - the burger menu goes from a bare link list to an actually useful panel: quick search (type + Enter lands on the search page with results loading), Fortsæt (three most recent in-progress items with thumbnail/title/progress bar - one click resumes playback instantly), Overrask mig (plays a random unwatched movie), and Tilføj Film/Serie (jumps straight to the Seerr request tab). All additions sit between Hjem and Medier; everything native stays put.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.6.0.0/newbadges_1.6.0.0.zip",
+        "checksum": "4dce235b4b3ed654335b326f4ad205b2",
+        "timestamp": "2026-07-11T07:20:00Z"
+      },
+      {
         "version": "1.5.1.0",
         "changelog": "Drops the Tilfældige film section from the movies library layout per feedback. The page is now: Anbefalet til dig, Favoritter (only when non-empty), then the full alphabetical catalog with the genre/watched/decade filter pills.",
         "targetAbi": "10.11.0.0",
