@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.0.0",
+        "changelog": "Multi-worker pool. Enroll any number of machines with the one-line curl installer (each prints its URL + enrollment code, pasted into the new worker list in settings, which shows live online/offline status and queue depth per worker with add/remove management). The nightly task and per-item button split jobs between whichever workers are online - powered-off machines are skipped. Files are consistently assigned to the same worker (stable path hash) so each machine's already-checked database stays effective; offline machines' work is deterministically picked up by the others. v1.1.0.0 single-worker settings migrate automatically. This pool is the foundation for the upcoming Whisper transcription phase.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.2.0.0/subtitleguard_1.2.0.0.zip",
+        "checksum": "30cf307f506a49adac1c3f2e353aca46",
+        "timestamp": "2026-07-11T12:20:00Z"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "Subtitle sync fixer. New companion worker service (worker/subtitle-worker in the repo, one-script install on any Debian/Ubuntu machine with file access to the media) aligns drifted external subtitles to the audio via ffsubsync - only files off by more than 0.4s are touched, originals kept as .bak, checked file versions remembered so repeated runs are cheap. Plugin: 'Fix subtitle sync' scheduled task (default daily 04:00) submits the whole library nightly; 'Fix undertekst-sync' button on item pages for on-demand fixes; settings for worker URL, API key, and path mapping.",
         "targetAbi": "10.11.0.0",
