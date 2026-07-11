@@ -115,7 +115,7 @@
   }
 
   function watchdogTick() {
-    if (!config || !config.EnableWatchdog || watch.checking) {
+    if (!window.ApiClient || !config || !config.EnableWatchdog || watch.checking) {
       return;
     }
     var video = document.querySelector('.videoPlayerContainer video') || document.querySelector('video');
@@ -267,6 +267,11 @@
   function wireConfigPageIfPresent() {
     var page = document.querySelector('#SubtitleGuardConfigPage');
     if (!page || page.hasAttribute('data-subguard-wired')) {
+      return;
+    }
+    // Not ready yet - bail BEFORE marking wired, so the next observer tick
+    // retries instead of leaving the page permanently dead.
+    if (!window.ApiClient || !window.Dashboard) {
       return;
     }
     page.setAttribute('data-subguard-wired', 'true');
@@ -455,12 +460,29 @@
     });
   }
 
-  function init() {
-    loadConfig().then(function (cfg) {
-      injectSizeStyle(cfg);
-      setInterval(watchdogTick, CHECK_INTERVAL_MS);
-    });
+  // window.ApiClient is set by Jellyfin's own bootstrap AFTER
+  // DOMContentLoaded - calling it directly from init was a race this
+  // script sometimes lost, and the resulting synchronous TypeError killed
+  // the whole plugin frontend before the MutationObserver was installed
+  // (observed live: config page rendered but nothing was wired). Poll for
+  // readiness instead; nothing here is urgent enough to justify crashing.
+  function whenApiClientReady(callback) {
+    if (window.ApiClient) {
+      callback();
+      return;
+    }
+    var poll = setInterval(function () {
+      if (window.ApiClient) {
+        clearInterval(poll);
+        callback();
+      }
+    }, 250);
+  }
 
+  function init() {
+    // The observer goes in FIRST and unconditionally - everything it calls
+    // guards its own prerequisites, so a not-ready tick is a no-op instead
+    // of a crash.
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
         if (mutations[i].addedNodes.length > 0) {
@@ -471,8 +493,15 @@
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
-    wireConfigPageIfPresent();
-    renderSyncButton();
+
+    whenApiClientReady(function () {
+      loadConfig().then(function (cfg) {
+        injectSizeStyle(cfg);
+        setInterval(watchdogTick, CHECK_INTERVAL_MS);
+      });
+      wireConfigPageIfPresent();
+      renderSyncButton();
+    });
   }
 
   if (document.readyState === 'loading') {
