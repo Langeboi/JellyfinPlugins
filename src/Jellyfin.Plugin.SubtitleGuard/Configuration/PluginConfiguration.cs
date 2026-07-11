@@ -24,13 +24,20 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public bool EnableWatchdog { get; set; } = true;
 
         /// <summary>
-        /// Base URL of the subtitle sync worker service
-        /// (see worker/subtitle-worker in the plugin repo), e.g.
-        /// http://10.10.100.5:8099. Empty disables all sync features.
+        /// JSON array of enrolled workers:
+        /// [{"Name":"...","Url":"http://ip:8099","ApiKey":"..."}]. Managed
+        /// by the config page. Empty disables all sync features.
+        /// </summary>
+        public string WorkersJson { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Legacy single-worker fields from v1.1.0.0 - migrated into
+        /// <see cref="WorkersJson"/> on first read, kept only so an upgrade
+        /// doesn't lose the configured worker.
         /// </summary>
         public string WorkerUrl { get; set; } = string.Empty;
 
-        /// <summary>API key printed by the worker's installer.</summary>
+        /// <summary>Legacy single-worker API key (see WorkerUrl).</summary>
         public string WorkerApiKey { get; set; } = string.Empty;
 
         /// <summary>

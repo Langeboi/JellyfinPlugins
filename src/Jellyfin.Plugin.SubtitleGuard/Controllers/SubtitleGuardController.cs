@@ -80,35 +80,28 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
 
             try
             {
-                await SyncWorker.SubmitBatch(jobs, cancellationToken).ConfigureAwait(false);
+                await SyncWorker.DistributeAndSubmit(jobs, cancellationToken).ConfigureAwait(false);
                 return Json(new JObject { ["queued"] = jobs.Count });
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "SubtitleGuard: worker submit failed");
-                return Json(new JObject { ["error"] = "Kunne ikke nå sync-workeren." }, 502);
+                return Json(new JObject { ["error"] = "Ingen sync-workere online." }, 502);
             }
         }
 
+        // Per-worker online/queue status for the config page.
         [Authorize]
-        [HttpGet("sync/status")]
-        public async Task<ActionResult> SyncStatus(CancellationToken cancellationToken)
+        [HttpGet("workers/status")]
+        public async Task<ActionResult> WorkersStatus(CancellationToken cancellationToken)
         {
-            if (!SyncWorker.IsConfigured)
+            var statuses = await SyncWorker.GetStatuses(cancellationToken).ConfigureAwait(false);
+            return new ContentResult
             {
-                return Json(new JObject { ["error"] = "Sync worker er ikke konfigureret." }, 503);
-            }
-
-            try
-            {
-                var text = await SyncWorker.GetStatus(cancellationToken).ConfigureAwait(false);
-                return Content(text, "application/json");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "SubtitleGuard: worker status failed");
-                return Json(new JObject { ["error"] = "Kunne ikke nå sync-workeren." }, 502);
-            }
+                Content = new JObject { ["workers"] = statuses }.ToString(),
+                ContentType = "application/json",
+                StatusCode = 200
+            };
         }
 
         // System.Text.Json silently serializes JObject as an empty array -

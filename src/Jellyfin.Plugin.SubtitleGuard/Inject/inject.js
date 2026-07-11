@@ -275,24 +275,130 @@
     var sizeCheckbox = page.querySelector('#SgEnableStandardSize');
     var percentInput = page.querySelector('#SgSizePercent');
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
-    var workerUrlInput = page.querySelector('#SgWorkerUrl');
-    var workerKeyInput = page.querySelector('#SgWorkerApiKey');
     var mapFromInput = page.querySelector('#SgPathMapFrom');
     var mapToInput = page.querySelector('#SgPathMapTo');
+    var workerList = page.querySelector('#SgWorkerList');
+
+    // Worker pool state, kept in sync with cfg.WorkersJson.
+    var workers = [];
+
+    function renderWorkers(statusByUrl) {
+      if (!workerList) {
+        return;
+      }
+      if (!workers.length) {
+        workerList.innerHTML = '<div style="opacity:.7;padding:.5em 0;">Ingen workers tilmeldt endnu.</div>';
+        return;
+      }
+      workerList.innerHTML = workers.map(function (w, i) {
+        var st = statusByUrl ? statusByUrl[w.Url] : null;
+        var dotColor = !st ? '#888' : (st.online ? '#3fb950' : '#f85149');
+        var detail = '';
+        if (st && st.online) {
+          detail = ' - online' + (st.queue_depth > 0 ? ', ' + st.queue_depth + ' i kø' : ', ledig');
+        } else if (st) {
+          detail = ' - offline' + (st.error ? ' (' + st.error + ')' : '');
+        }
+        return (
+          '<div style="display:flex;align-items:center;gap:.8em;padding:.5em .2em;border-bottom:1px solid rgba(255,255,255,.08);">' +
+            '<span style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex:0 0 auto;"></span>' +
+            '<span style="flex:1;min-width:0;">' +
+              '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
+              '<span style="opacity:.65;font-size:.85em;display:block;">' + w.Url.replace(/</g, '&lt;') + detail + '</span>' +
+            '</span>' +
+            '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="min-width:auto;padding:.3em .9em;">Fjern</button>' +
+          '</div>'
+        );
+      }).join('');
+    }
+
+    function saveWorkers(then) {
+      apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+        cfg.WorkersJson = JSON.stringify(workers);
+        // Clear the v1.1.0.0 single-worker fields, otherwise the read-time
+        // migration would resurrect a removed worker forever.
+        cfg.WorkerUrl = '';
+        cfg.WorkerApiKey = '';
+        apiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function () {
+          if (then) {
+            then();
+          }
+        });
+      });
+    }
+
+    function refreshStatuses() {
+      fetch(apiClient.getUrl('SubtitleGuard/workers/status'), {
+        headers: { 'X-Emby-Token': apiClient.accessToken() }
+      })
+        .then(function (resp) { return resp.json(); })
+        .then(function (data) {
+          var byUrl = {};
+          (data.workers || []).forEach(function (s) { byUrl[s.url] = s; });
+          renderWorkers(byUrl);
+        })
+        .catch(function () {
+          renderWorkers(null);
+        });
+    }
 
     window.Dashboard.showLoadingMsg();
     apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
       sizeCheckbox.checked = cfg.EnableStandardSize !== false;
       percentInput.value = cfg.SubtitleSizePercent || 100;
       watchdogCheckbox.checked = cfg.EnableWatchdog !== false;
-      if (workerUrlInput) {
-        workerUrlInput.value = cfg.WorkerUrl || '';
-        workerKeyInput.value = cfg.WorkerApiKey || '';
+      if (mapFromInput) {
         mapFromInput.value = cfg.PathMapFrom || '';
         mapToInput.value = cfg.PathMapTo || '';
       }
+      try {
+        workers = cfg.WorkersJson ? JSON.parse(cfg.WorkersJson) : [];
+      } catch (e) {
+        workers = [];
+      }
+      // Show a not-yet-migrated v1.1.0.0 single worker in the list.
+      if (!workers.length && cfg.WorkerUrl && cfg.WorkerApiKey) {
+        workers = [{ Name: 'Worker 1', Url: cfg.WorkerUrl.replace(/\/+$/, ''), ApiKey: cfg.WorkerApiKey }];
+      }
+      renderWorkers(null);
+      refreshStatuses();
       window.Dashboard.hideLoadingMsg();
     });
+
+    var addBtn = page.querySelector('#SgAddWorkerButton');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        var name = page.querySelector('#SgNewWorkerName').value.trim();
+        var url = page.querySelector('#SgNewWorkerUrl').value.trim().replace(/\/+$/, '');
+        var key = page.querySelector('#SgNewWorkerKey').value.trim();
+        if (!url || !key) {
+          window.Dashboard.alert('Worker URL og enrollment-kode skal udfyldes.');
+          return;
+        }
+        workers.push({ Name: name || url, Url: url, ApiKey: key });
+        saveWorkers(function () {
+          page.querySelector('#SgNewWorkerName').value = '';
+          page.querySelector('#SgNewWorkerUrl').value = '';
+          page.querySelector('#SgNewWorkerKey').value = '';
+          renderWorkers(null);
+          refreshStatuses();
+        });
+      });
+    }
+
+    if (workerList) {
+      workerList.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-sg-remove]') : null;
+        if (!btn) {
+          return;
+        }
+        workers.splice(parseInt(btn.getAttribute('data-sg-remove'), 10), 1);
+        saveWorkers(function () {
+          renderWorkers(null);
+          refreshStatuses();
+        });
+      });
+    }
 
     page.querySelector('#SubtitleGuardSaveButton').addEventListener('click', function () {
       window.Dashboard.showLoadingMsg();
@@ -300,9 +406,7 @@
         cfg.EnableStandardSize = sizeCheckbox.checked;
         cfg.SubtitleSizePercent = parseInt(percentInput.value, 10) || 100;
         cfg.EnableWatchdog = watchdogCheckbox.checked;
-        if (workerUrlInput) {
-          cfg.WorkerUrl = workerUrlInput.value.trim().replace(/\/+$/, '');
-          cfg.WorkerApiKey = workerKeyInput.value.trim();
+        if (mapFromInput) {
           cfg.PathMapFrom = mapFromInput.value.trim();
           cfg.PathMapTo = mapToInput.value.trim();
         }

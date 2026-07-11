@@ -61,15 +61,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 jobs.AddRange(SyncWorker.CollectJobs(item));
             }
 
-            _logger.LogInformation("SubtitleGuard: submitting {Count} subtitle sync jobs", jobs.Count);
+            _logger.LogInformation("SubtitleGuard: distributing {Count} subtitle sync jobs across the worker pool", jobs.Count);
+            progress.Report(10);
 
-            const int batchSize = 500;
-            for (var i = 0; i < jobs.Count; i += batchSize)
+            var counts = await SyncWorker.DistributeAndSubmit(jobs, cancellationToken).ConfigureAwait(false);
+            foreach (var pair in counts)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var batch = jobs.Skip(i).Take(batchSize).ToList();
-                await SyncWorker.SubmitBatch(batch, cancellationToken).ConfigureAwait(false);
-                progress.Report(Math.Min(100.0, (i + batch.Count) * 100.0 / Math.Max(1, jobs.Count)));
+                _logger.LogInformation("SubtitleGuard: {Count} jobs -> worker '{Worker}'", pair.Value, pair.Key);
             }
 
             progress.Report(100);

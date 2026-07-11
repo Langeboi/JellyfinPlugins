@@ -16,15 +16,23 @@ subtitle files to their media's audio using [ffsubsync], fully automatically.
   so nightly resubmissions of the whole library are cheap no-ops for
   everything already checked.
 
-## Install (Debian/Ubuntu)
+## Enroll a worker (Debian/Ubuntu, one line)
 
 ```bash
-sudo bash install.sh
+curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash
 ```
 
-The installer prints an **API key** - paste it, together with this machine's
-URL (`http://<ip>:8099`), into the Subtitle Guard plugin settings in
-Jellyfin.
+The installer prints the worker's **URL** and an **enrollment code** -
+paste both into the Subtitle Guard plugin settings ("Tilføj worker").
+Repeat on as many machines as you like (a container, a Proxmox VM, a
+desktop). Jobs are split between whichever enrolled workers are online
+when a run starts; machines that are powered off are simply skipped.
+
+Each subtitle file is consistently assigned to the same worker (stable
+hash of its path), so every machine's already-checked database stays
+effective across nights. If a file's worker is offline, another one
+picks it up - re-checking an already-fixed file is harmless, since it
+measures as in-sync and is left untouched.
 
 ## Path mapping
 

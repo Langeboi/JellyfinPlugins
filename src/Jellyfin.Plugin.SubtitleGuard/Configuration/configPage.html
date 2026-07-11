@@ -35,20 +35,30 @@
         </div>
 
         <div class="verticalSection">
-          <h2>Sync worker</h2>
-          <p>Optional companion service that aligns drifted external subtitles to the audio (see <code>worker/subtitle-worker</code> in the plugin repo). Enables the nightly "Fix subtitle sync" scheduled task and the button on item pages.</p>
+          <h2>Sync workers</h2>
+          <p>Machines that do the actual subtitle work. Enroll one by running this on any Debian/Ubuntu machine that has the media mounted:</p>
+          <p><code>curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</code></p>
+          <p>The installer prints the worker's URL and an enrollment code - paste them below. Jobs are split between whichever enrolled workers are online (machines that are off are simply skipped).</p>
         </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgWorkerUrl">Worker URL</label>
-          <input id="SgWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
-          <div class="fieldDescription">Base URL of the machine running the sync worker. Empty disables sync features.</div>
-        </div>
+        <div id="SgWorkerList" class="paperList" style="margin-bottom:1em;"></div>
 
         <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgWorkerApiKey">Worker API key</label>
-          <input id="SgWorkerApiKey" type="password" is="emby-input" />
-          <div class="fieldDescription">Printed by the worker's installer.</div>
+          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerName">Name</label>
+          <input id="SgNewWorkerName" type="text" is="emby-input" placeholder="Debian container" />
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerUrl">Worker URL</label>
+          <input id="SgNewWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment code</label>
+          <input id="SgNewWorkerKey" type="password" is="emby-input" />
+        </div>
+        <div style="margin-bottom:1.5em;">
+          <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised block emby-button">
+            <span>Tilføj worker</span>
+          </button>
         </div>
 
         <div class="inputContainer">
