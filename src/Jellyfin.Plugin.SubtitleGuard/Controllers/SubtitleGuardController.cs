@@ -29,6 +29,11 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
         [HttpGet("{file}")]
         public ActionResult GetFile([FromRoute] string file)
         {
+            // The script URL is versioned per release (see
+            // TransformationPatches) - force revalidation so a stale copy
+            // can never outlive an update.
+            Response.Headers["Cache-Control"] = "no-cache";
+
             var assembly = Assembly.GetExecutingAssembly();
             var resourceName = $"Jellyfin.Plugin.SubtitleGuard.Inject.{file}";
             var stream = assembly.GetManifestResourceStream(resourceName);

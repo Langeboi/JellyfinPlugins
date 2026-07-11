@@ -292,24 +292,43 @@
       }
       workerList.innerHTML = workers.map(function (w, i) {
         var st = statusByUrl ? statusByUrl[w.Url] : null;
-        var dotColor = !st ? '#888' : (st.online ? '#3fb950' : '#f85149');
+        var working = st && st.online && st.processing;
+        // Grey = status unknown (still checking), green = online and idle,
+        // pulsing amber = actively working on a file, red = offline.
+        var dotColor = !st ? '#888' : (st.online ? (working ? '#d29922' : '#3fb950') : '#f85149');
+        var dotStyle = 'width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex:0 0 auto;' +
+          (working ? 'animation:sgPulse 1.2s ease-in-out infinite;' : '');
         var detail = '';
-        if (st && st.online) {
-          detail = ' - online' + (st.queue_depth > 0 ? ', ' + st.queue_depth + ' i kø' : ', ledig');
+        if (working) {
+          var fileName = String(st.processing).split(/[\\/]/).pop();
+          detail = ' - arbejder på: ' + fileName +
+            (st.queue_depth > 0 ? ' (+' + st.queue_depth + ' i kø)' : '');
+        } else if (st && st.online) {
+          detail = st.queue_depth > 0 ? ' - online, ' + st.queue_depth + ' i kø' : ' - online, ledig';
+          if (st.done > 0 || st.failed > 0) {
+            detail += ' · ' + st.done + ' klaret' + (st.failed > 0 ? ', ' + st.failed + ' fejlet' : '');
+          }
         } else if (st) {
           detail = ' - offline' + (st.error ? ' (' + st.error + ')' : '');
         }
         return (
           '<div style="display:flex;align-items:center;gap:.8em;padding:.5em .2em;border-bottom:1px solid rgba(255,255,255,.08);">' +
-            '<span style="width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex:0 0 auto;"></span>' +
+            '<span style="' + dotStyle + '"></span>' +
             '<span style="flex:1;min-width:0;">' +
               '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
-              '<span style="opacity:.65;font-size:.85em;display:block;">' + w.Url.replace(/</g, '&lt;') + detail + '</span>' +
+              '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+                w.Url.replace(/</g, '&lt;') + detail.replace(/</g, '&lt;') + '</span>' +
             '</span>' +
             '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="min-width:auto;padding:.3em .9em;">Fjern</button>' +
           '</div>'
         );
       }).join('');
+      if (!document.getElementById('sgPulseStyle')) {
+        var pulse = document.createElement('style');
+        pulse.id = 'sgPulseStyle';
+        pulse.textContent = '@keyframes sgPulse{0%,100%{opacity:1;}50%{opacity:.35;}}';
+        document.head.appendChild(pulse);
+      }
     }
 
     function saveWorkers(then) {
@@ -364,6 +383,23 @@
       refreshStatuses();
       window.Dashboard.hideLoadingMsg();
     });
+
+    // Live status: refresh every 10s while the config page is on screen,
+    // so the working/queue indicators actually move.
+    var statusTimer = setInterval(function () {
+      if (!document.body.contains(page) || getComputedStyle(page).display === 'none') {
+        return;
+      }
+      refreshStatuses();
+    }, 10000);
+    // Page elements get discarded when the dashboard navigates away for
+    // good - stop polling entirely once the node is gone.
+    var lifeCheck = setInterval(function () {
+      if (!document.body.contains(page)) {
+        clearInterval(statusTimer);
+        clearInterval(lifeCheck);
+      }
+    }, 30000);
 
     var addBtn = page.querySelector('#SgAddWorkerButton');
     if (addBtn) {
