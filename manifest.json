@@ -1,5 +1,24 @@
 [
   {
+    "guid": "288e2c30-9a8f-42f7-90a5-729528f5013a",
+    "name": "Subtitle Guard",
+    "description": "Standardizes subtitle size in the web/mobile player (one viewport-scaled size on every device, covering both the browser-native cue renderer and Jellyfin's HTML overlay, configurable 50-200%) and watches every playback to make sure selected text subtitles actually render - re-applying them automatically through the player's own command path when they silently fail. Applies to the web player and official mobile apps; native clients like Swiftfin are out of reach for server-side plugins.",
+    "overview": "Consistent subtitle size + a watchdog that makes selected subtitles actually show up.",
+    "owner": "Langeboi",
+    "category": "General",
+    "imageUrl": "",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "First release. Standardized viewport-scaled subtitle size for both rendering paths (video::cue native cues and the .videoSubtitles HTML overlay), configurable 50-200%. Rendering watchdog: while a video plays with a text subtitle selected, verifies every 8s that a showing text track with loaded cues (or the HTML overlay) exists, and re-applies the subtitle selection via SetSubtitleStreamIndex (off, then back on) when it silently fails - a real failure mode reproduced live. 20s startup grace, max two fix attempts per item, burned-in/image subtitles skipped.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.0.0.0/subtitleguard_1.0.0.0.zip",
+        "checksum": "75b7078cc7bcc759a542d220a785459c",
+        "timestamp": "2026-07-11T09:45:00Z"
+      }
+    ]
+  },
+  {
     "guid": "e6e18d98-310f-4b9c-875a-5787cd570e6f",
     "name": "Hero Bar",
     "description": "A from-scratch, in-flow rotating featured-content hero for the Jellyfin home page, built as a lighter-weight, fully compatible replacement for the third-party Media Bar plugin. Inserted as a normal first child of the home tab content (not a body-level overlay), so it never overlaps or requires manual positioning fixes against other home rows. Mixes recently added items with a trending row, shows ClearLogo art with a text-title fallback, rating/year/genre metadata, overview, and Play/Info/Favorite buttons with clickable pagination dots.",
