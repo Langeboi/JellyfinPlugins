@@ -22,5 +22,25 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// when it is selected but not actually rendering.
         /// </summary>
         public bool EnableWatchdog { get; set; } = true;
+
+        /// <summary>
+        /// Base URL of the subtitle sync worker service
+        /// (see worker/subtitle-worker in the plugin repo), e.g.
+        /// http://10.10.100.5:8099. Empty disables all sync features.
+        /// </summary>
+        public string WorkerUrl { get; set; } = string.Empty;
+
+        /// <summary>API key printed by the worker's installer.</summary>
+        public string WorkerApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Path prefix as Jellyfin sees the media (e.g. /media). Rewritten
+        /// to <see cref="PathMapTo"/> before submitting to the worker.
+        /// Empty = paths are identical on both machines.
+        /// </summary>
+        public string PathMapFrom { get; set; } = string.Empty;
+
+        /// <summary>Path prefix as the worker machine sees the media.</summary>
+        public string PathMapTo { get; set; } = string.Empty;
     }
 }

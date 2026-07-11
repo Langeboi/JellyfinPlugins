@@ -191,6 +191,76 @@
       });
   }
 
+  // ---- "Fix undertekst-sync" button on item detail pages ----
+  // One tap queues the item's external text subtitles on the sync worker.
+  // The backend answers with how many were queued (or that there were none),
+  // which is shown inline on the button itself.
+
+  function renderSyncButton() {
+    var m = location.hash.match(/#\/details\?id=([a-f0-9]+)/i);
+    if (!m) {
+      return;
+    }
+    var itemId = m[1];
+    var pages = document.querySelectorAll('.page.itemDetailPage, .page');
+    var page = null;
+    for (var i = 0; i < pages.length; i++) {
+      if (getComputedStyle(pages[i]).display !== 'none' && pages[i].querySelector('.mainDetailButtons')) {
+        page = pages[i];
+        break;
+      }
+    }
+    if (!page) {
+      return;
+    }
+    var buttons = page.querySelector('.mainDetailButtons');
+    var existing = buttons.querySelector('.subtitleGuard-syncBtn');
+    if (existing) {
+      if (existing.getAttribute('data-item-id') !== itemId) {
+        existing.setAttribute('data-item-id', itemId);
+        existing.querySelector('span:last-child').textContent = 'Fix undertekst-sync';
+        existing.disabled = false;
+      }
+      return;
+    }
+
+    var btn = document.createElement('button');
+    btn.setAttribute('is', 'emby-button');
+    btn.type = 'button';
+    btn.className = 'button-flat btnSubtitleGuardSync detailButton emby-button subtitleGuard-syncBtn';
+    btn.setAttribute('data-item-id', itemId);
+    btn.title = 'Synkroniser underteksterne til lyden';
+    btn.innerHTML = '<span class="material-icons detailButton-icon subtitles" aria-hidden="true"></span>' +
+      '<span class="subtitleGuard-syncLabel">Fix undertekst-sync</span>';
+    buttons.appendChild(btn);
+
+    btn.addEventListener('click', function () {
+      var apiClient = window.ApiClient;
+      var label = btn.querySelector('.subtitleGuard-syncLabel');
+      btn.disabled = true;
+      label.textContent = 'Sender...';
+      fetch(apiClient.getUrl('SubtitleGuard/sync/' + btn.getAttribute('data-item-id')), {
+        method: 'POST',
+        headers: { 'X-Emby-Token': apiClient.accessToken() }
+      })
+        .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; }); })
+        .then(function (r) {
+          if (!r.ok || r.data.error) {
+            label.textContent = r.data.error || 'Fejl - prøv igen';
+            btn.disabled = false;
+            return;
+          }
+          label.textContent = r.data.queued > 0
+            ? 'I kø (' + r.data.queued + ') ✓'
+            : (r.data.message || 'Ingen undertekster');
+        })
+        .catch(function () {
+          label.textContent = 'Fejl - prøv igen';
+          btn.disabled = false;
+        });
+    });
+  }
+
   // ---- Config page wiring (no inline scripts in plugin config pages on
   // this server - same pattern as the rest of the plugin family) ----
 
@@ -205,12 +275,22 @@
     var sizeCheckbox = page.querySelector('#SgEnableStandardSize');
     var percentInput = page.querySelector('#SgSizePercent');
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
+    var workerUrlInput = page.querySelector('#SgWorkerUrl');
+    var workerKeyInput = page.querySelector('#SgWorkerApiKey');
+    var mapFromInput = page.querySelector('#SgPathMapFrom');
+    var mapToInput = page.querySelector('#SgPathMapTo');
 
     window.Dashboard.showLoadingMsg();
     apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
       sizeCheckbox.checked = cfg.EnableStandardSize !== false;
       percentInput.value = cfg.SubtitleSizePercent || 100;
       watchdogCheckbox.checked = cfg.EnableWatchdog !== false;
+      if (workerUrlInput) {
+        workerUrlInput.value = cfg.WorkerUrl || '';
+        workerKeyInput.value = cfg.WorkerApiKey || '';
+        mapFromInput.value = cfg.PathMapFrom || '';
+        mapToInput.value = cfg.PathMapTo || '';
+      }
       window.Dashboard.hideLoadingMsg();
     });
 
@@ -220,6 +300,12 @@
         cfg.EnableStandardSize = sizeCheckbox.checked;
         cfg.SubtitleSizePercent = parseInt(percentInput.value, 10) || 100;
         cfg.EnableWatchdog = watchdogCheckbox.checked;
+        if (workerUrlInput) {
+          cfg.WorkerUrl = workerUrlInput.value.trim().replace(/\/+$/, '');
+          cfg.WorkerApiKey = workerKeyInput.value.trim();
+          cfg.PathMapFrom = mapFromInput.value.trim();
+          cfg.PathMapTo = mapToInput.value.trim();
+        }
         apiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {
           config = null;
           loadConfig().then(injectSizeStyle);
@@ -239,12 +325,14 @@
       for (var i = 0; i < mutations.length; i++) {
         if (mutations[i].addedNodes.length > 0) {
           wireConfigPageIfPresent();
+          renderSyncButton();
           return;
         }
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
     wireConfigPageIfPresent();
+    renderSyncButton();
   }
 
   if (document.readyState === 'loading') {
