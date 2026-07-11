@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.1.0",
+        "changelog": "Fix: 'Tilføj worker' could do nothing after updating - the browser paired a stale cached copy of the previous version's script with the new settings page, so the button never got its click handler. The injected script URL now carries the plugin version (guaranteed cache miss on every update; no hard refresh needed anymore). Worker list: pulsing amber dot with 'arbejder på: <file>' while a worker processes, done/failed counters, and statuses auto-refresh every 10s while the settings page is open.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.2.1.0/subtitleguard_1.2.1.0.zip",
+        "checksum": "c2d6022a20825d1eeb8310b4034f170e",
+        "timestamp": "2026-07-11T13:10:00Z"
+      },
+      {
         "version": "1.2.0.0",
         "changelog": "Multi-worker pool. Enroll any number of machines with the one-line curl installer (each prints its URL + enrollment code, pasted into the new worker list in settings, which shows live online/offline status and queue depth per worker with add/remove management). The nightly task and per-item button split jobs between whichever workers are online - powered-off machines are skipped. Files are consistently assigned to the same worker (stable path hash) so each machine's already-checked database stays effective; offline machines' work is deterministically picked up by the others. v1.1.0.0 single-worker settings migrate automatically. This pool is the foundation for the upcoming Whisper transcription phase.",
         "targetAbi": "10.11.0.0",
