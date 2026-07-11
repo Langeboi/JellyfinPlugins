@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.2.0",
+        "changelog": "Fix: the plugin frontend could crash at page load and take everything with it - subtitle sizing, the rendering watchdog, and the settings-page wiring ('Tilføj worker' did nothing). Root cause: the script asked for window.ApiClient before Jellyfin's bootstrap had created it; losing that race threw an error that prevented the plugin's page-watcher from ever being installed. Everything now waits for ApiClient readiness and the watcher installs unconditionally and crash-proof, so the settings page wires itself reliably on every load.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.2.2.0/subtitleguard_1.2.2.0.zip",
+        "checksum": "a1bfa49099496676ab8d594f2b4e5f9c",
+        "timestamp": "2026-07-11T17:45:00Z"
+      },
+      {
         "version": "1.2.1.0",
         "changelog": "Fix: 'Tilføj worker' could do nothing after updating - the browser paired a stale cached copy of the previous version's script with the new settings page, so the button never got its click handler. The injected script URL now carries the plugin version (guaranteed cache miss on every update; no hard refresh needed anymore). Worker list: pulsing amber dot with 'arbejder på: <file>' while a worker processes, done/failed counters, and statuses auto-refresh every 10s while the settings page is open.",
         "targetAbi": "10.11.0.0",
