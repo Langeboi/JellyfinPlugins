@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "Subtitle sync fixer. New companion worker service (worker/subtitle-worker in the repo, one-script install on any Debian/Ubuntu machine with file access to the media) aligns drifted external subtitles to the audio via ffsubsync - only files off by more than 0.4s are touched, originals kept as .bak, checked file versions remembered so repeated runs are cheap. Plugin: 'Fix subtitle sync' scheduled task (default daily 04:00) submits the whole library nightly; 'Fix undertekst-sync' button on item pages for on-demand fixes; settings for worker URL, API key, and path mapping.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.1.0.0/subtitleguard_1.1.0.0.zip",
+        "checksum": "603af67d0dfb6daa9163403c933dfd45",
+        "timestamp": "2026-07-11T11:30:00Z"
+      },
+      {
         "version": "1.0.0.0",
         "changelog": "First release. Standardized viewport-scaled subtitle size for both rendering paths (video::cue native cues and the .videoSubtitles HTML overlay), configurable 50-200%. Rendering watchdog: while a video plays with a text subtitle selected, verifies every 8s that a showing text track with loaded cues (or the HTML overlay) exists, and re-applies the subtitle selection via SetSubtitleStreamIndex (off, then back on) when it silently fails - a real failure mode reproduced live. 20s startup grace, max two fix attempts per item, burned-in/image subtitles skipped.",
         "targetAbi": "10.11.0.0",
