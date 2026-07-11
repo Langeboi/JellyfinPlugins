@@ -87,7 +87,41 @@
       'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
       '.newBadges-moviesPills::-webkit-scrollbar{display:none;}' +
       '.newBadges-pill{flex:0 0 auto;padding:.45em 1em;}' +
-      '}';
+      '}' +
+      // Drawer quick actions.
+      '.newBadges-drawerPlus{padding:.4em .8em .6em;border-bottom:1px solid rgba(255,255,255,.08);}' +
+      '.newBadges-drawerSearchWrap{display:flex;align-items:center;gap:.5em;' +
+      'background:rgba(255,255,255,.07);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
+      '.newBadges-drawerSearchWrap .material-icons{font-size:18px;opacity:.6;}' +
+      '.newBadges-drawerSearch{background:transparent;border:none;outline:none;color:inherit;' +
+      'width:100%;font-size:16px;}' +
+      '.newBadges-drawerSearch::placeholder{color:rgba(255,255,255,.4);}' +
+      '.newBadges-drawerResume{display:flex;flex-direction:column;gap:2px;}' +
+      '.newBadges-drawerResumeItem{display:flex;align-items:center;gap:.7em;width:100%;' +
+      'background:transparent;border:none;color:inherit;text-align:left;cursor:pointer;' +
+      'padding:.4em .2em;border-radius:8px;transition:background .15s;}' +
+      '.newBadges-drawerResumeItem:hover{background:rgba(255,255,255,.08);}' +
+      '.newBadges-drawerThumb{position:relative;flex:0 0 64px;height:38px;border-radius:6px;' +
+      'background-size:cover;background-position:center;background-color:rgba(255,255,255,.08);' +
+      'display:flex;align-items:center;justify-content:center;overflow:hidden;}' +
+      '.newBadges-drawerThumb .material-icons{font-size:20px;color:#fff;' +
+      'text-shadow:0 1px 4px rgba(0,0,0,.8);opacity:.9;}' +
+      '.newBadges-drawerResumeText{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px;}' +
+      '.newBadges-drawerResumeTitle{font-size:.85em;font-weight:600;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis;}' +
+      '.newBadges-drawerResumeSub{font-size:.72em;opacity:.6;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis;}' +
+      '.newBadges-drawerProgress{display:block;height:3px;border-radius:2px;' +
+      'background:rgba(255,255,255,.15);margin-top:3px;overflow:hidden;}' +
+      '.newBadges-drawerProgress span{display:block;height:100%;border-radius:2px;' +
+      'background:rgba(140,130,255,.95);}' +
+      '.newBadges-drawerActions{display:flex;flex-direction:column;gap:2px;margin-top:.5em;}' +
+      '.newBadges-drawerAction{display:flex;align-items:center;gap:.7em;width:100%;' +
+      'background:transparent;border:none;color:inherit;text-align:left;cursor:pointer;' +
+      'padding:.55em .2em;border-radius:8px;font-size:.9em;font-weight:600;transition:background .15s;}' +
+      '.newBadges-drawerAction:hover{background:rgba(255,255,255,.08);}' +
+      '.newBadges-drawerAction .material-icons{font-size:20px;opacity:.75;}' +
+      '.newBadges-drawerAction:disabled{opacity:.5;cursor:default;}';
     document.head.appendChild(style);
   }
 
@@ -939,6 +973,235 @@
     renderContinueSection(nativeSection);
   }
 
+  // ---- Drawer quick actions ("Drawer+") ----
+  // The burger menu ships as a bare link list - this adds: a quick-search
+  // field, a "Fortsæt" block with the three most recent in-progress items
+  // (thumbnail, title, progress bar - one click starts playback instantly),
+  // an "Overrask mig" button that plays a random unwatched movie, and a
+  // shortcut to the Seerr request tab.
+
+  var DRAWER_RESUME_COUNT = 3;
+
+  // Same self-remote-control PlayNow mechanism Hero Bar uses (validated
+  // live there): the web client is a controllable session and acts on
+  // commands sent to itself. startTicks resumes mid-item.
+  function drawerPlayItem(itemId, startTicks) {
+    var apiClient = window.ApiClient;
+    return apiClient.getJSON(apiClient.getUrl('Sessions', { deviceId: apiClient.deviceId() }))
+      .then(function (sessions) {
+        if (!sessions || !sessions.length) {
+          throw new Error('own session not found');
+        }
+        var params = { playCommand: 'PlayNow', itemIds: itemId };
+        if (startTicks) {
+          params.startPositionTicks = startTicks;
+        }
+        return fetch(apiClient.getUrl('Sessions/' + sessions[0].Id + '/Playing', params), {
+          method: 'POST',
+          headers: { 'X-Emby-Token': apiClient.accessToken() }
+        });
+      })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error('PlayNow failed');
+        }
+      })
+      .catch(function () {
+        // Fall back to the details page rather than doing nothing.
+        location.hash = '#/details?id=' + itemId;
+      });
+  }
+
+  function closeDrawer() {
+    // Clicking the scrim is the least invasive way to ask Jellyfin to close
+    // its own drawer; fall back to removing the open state directly.
+    var scrim = document.querySelector('.mainDrawer-scrim, .drawer-scrim');
+    if (scrim) {
+      scrim.click();
+      return;
+    }
+    var drawer = document.querySelector('.mainDrawer');
+    if (drawer) {
+      drawer.classList.remove('drawer-open');
+    }
+  }
+
+  function buildDrawerResumeRowHtml(item) {
+    var imgUrl = getContinueCardImageUrl(item);
+    var lines = getContinueCardTextLines(item);
+    var pct = item._source === 'resume' && item.UserData ? (item.UserData.PlayedPercentage || 0) : 0;
+    var ticks = item._source === 'resume' && item.UserData ? (item.UserData.PlaybackPositionTicks || 0) : 0;
+    return (
+      '<button type="button" class="newBadges-drawerResumeItem" data-item-id="' + item.Id + '" data-ticks="' + ticks + '">' +
+        '<span class="newBadges-drawerThumb"' +
+          (imgUrl ? ' style="background-image:url(&quot;' + imgUrl + '&quot;)"' : '') + '>' +
+          '<span class="material-icons play_arrow" aria-hidden="true"></span>' +
+        '</span>' +
+        '<span class="newBadges-drawerResumeText">' +
+          '<span class="newBadges-drawerResumeTitle">' + escapeHtml(lines[0] || '') + '</span>' +
+          '<span class="newBadges-drawerResumeSub">' + escapeHtml(lines[1] || '') + '</span>' +
+          (pct > 0 ? '<span class="newBadges-drawerProgress"><span style="width:' + Math.min(pct, 100) + '%"></span></span>' : '') +
+        '</span>' +
+      '</button>'
+    );
+  }
+
+  function refreshDrawerResume(block) {
+    var wrap = block.querySelector('.newBadges-drawerResume');
+    var header = block.querySelector('.newBadges-drawerResumeHeader');
+    var cacheKey = 'continue-' + window.ApiClient.getCurrentUserId();
+    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems)
+      .then(function (items) {
+        items = (items || []).slice(0, DRAWER_RESUME_COUNT);
+        wrap.innerHTML = items.map(buildDrawerResumeRowHtml).join('');
+        header.style.display = items.length ? '' : 'none';
+      })
+      .catch(function () {
+        header.style.display = 'none';
+        wrap.innerHTML = '';
+      });
+  }
+
+  function wireDrawerPlus(block) {
+    var searchInput = block.querySelector('.newBadges-drawerSearch');
+
+    function goSearch() {
+      var query = searchInput.value.trim();
+      if (!query) {
+        return;
+      }
+      closeDrawer();
+      location.hash = '#/search?query=' + encodeURIComponent(query);
+      // The search page doesn't always pick the query up from the URL -
+      // poll briefly for its input and fill it directly (dispatching input
+      // so its own live-search wiring reacts).
+      var tries = 0;
+      var poll = setInterval(function () {
+        var nativeInput = document.querySelector('#searchTextInput');
+        if (nativeInput) {
+          clearInterval(poll);
+          nativeInput.value = query;
+          nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
+        } else if (++tries > 20) {
+          clearInterval(poll);
+        }
+      }, 150);
+      searchInput.value = '';
+    }
+
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        goSearch();
+      }
+      // Keep keystrokes inside the field - the drawer/page has global key
+      // handlers (e.g. backspace-as-back) that must not see these.
+      e.stopPropagation();
+    });
+
+    block.addEventListener('click', function (e) {
+      var resumeBtn = e.target.closest ? e.target.closest('.newBadges-drawerResumeItem') : null;
+      if (resumeBtn) {
+        closeDrawer();
+        drawerPlayItem(resumeBtn.getAttribute('data-item-id'), parseInt(resumeBtn.getAttribute('data-ticks'), 10) || 0);
+        return;
+      }
+
+      var surprise = e.target.closest ? e.target.closest('.newBadges-drawerSurprise') : null;
+      if (surprise) {
+        surprise.disabled = true;
+        var apiClient = window.ApiClient;
+        apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', {
+          IncludeItemTypes: 'Movie',
+          Recursive: true,
+          Filters: 'IsUnplayed',
+          SortBy: 'Random',
+          Limit: 1
+        })).then(function (result) {
+          var item = (result.Items || [])[0];
+          if (!item) {
+            throw new Error('no unplayed movies');
+          }
+          closeDrawer();
+          return drawerPlayItem(item.Id, 0);
+        }).catch(function () { /* nothing sensible to play */ }).finally(function () {
+          surprise.disabled = false;
+        });
+        return;
+      }
+
+      var seerrLink = e.target.closest ? e.target.closest('.newBadges-drawerSeerr') : null;
+      if (seerrLink) {
+        e.preventDefault();
+        closeDrawer();
+        location.hash = '#/home';
+        // The Seerr tab button is injected by the Seerr Requests plugin -
+        // click it once it exists. If that plugin isn't installed, this
+        // quietly lands on Hjem, which is a sane fallback.
+        var tries = 0;
+        var poll = setInterval(function () {
+          var btn = null;
+          document.querySelectorAll('.emby-tab-button').forEach(function (b) {
+            for (var i = 0; i < b.attributes.length; i++) {
+              if (b.attributes[i].name.indexOf('data-seerr') === 0) { btn = b; }
+            }
+          });
+          if (btn) {
+            clearInterval(poll);
+            btn.click();
+          } else if (++tries > 20) {
+            clearInterval(poll);
+          }
+        }, 150);
+      }
+    });
+  }
+
+  function renderDrawerPlus() {
+    var drawer = document.querySelector('.mainDrawer');
+    if (!drawer) {
+      return;
+    }
+    var scroll = drawer.querySelector('.mainDrawer-scrollContainer') || drawer;
+    var existing = scroll.querySelector('.newBadges-drawerPlus');
+    if (existing) {
+      // Refresh the resume list at most once per cache TTL - cheap because
+      // fetchWithCache serves from sessionStorage inside the window.
+      if (!existing._lastRefresh || Date.now() - existing._lastRefresh > CONTINUE_CACHE_TTL_MS) {
+        existing._lastRefresh = Date.now();
+        refreshDrawerResume(existing);
+      }
+      return;
+    }
+
+    // Anchor: directly after the Hjem link, before the "Medier" header.
+    var homeLink = scroll.querySelector('a.navMenuOption[href="#/home"]');
+    if (!homeLink) {
+      return;
+    }
+
+    var block = document.createElement('div');
+    block.className = 'newBadges-drawerPlus';
+    block.innerHTML =
+      '<div class="newBadges-drawerSearchWrap">' +
+        '<span class="material-icons search" aria-hidden="true"></span>' +
+        '<input type="text" class="newBadges-drawerSearch" placeholder="Hurtig søgning..." />' +
+      '</div>' +
+      '<h3 class="sidebarHeader newBadges-drawerResumeHeader" style="display:none">Fortsæt</h3>' +
+      '<div class="newBadges-drawerResume"></div>' +
+      '<div class="newBadges-drawerActions">' +
+        '<button type="button" class="newBadges-drawerAction newBadges-drawerSurprise">' +
+          '<span class="material-icons casino" aria-hidden="true"></span>Overrask mig</button>' +
+        '<button type="button" class="newBadges-drawerAction newBadges-drawerSeerr">' +
+          '<span class="material-icons add_circle_outline" aria-hidden="true"></span>Tilføj Film/Serie</button>' +
+      '</div>';
+
+    homeLink.parentNode.insertBefore(block, homeLink.nextSibling);
+    wireDrawerPlus(block);
+    block._lastRefresh = Date.now();
+    refreshDrawerResume(block);
+  }
+
   // ---- Movies library redesign ----
   // Replaces the Film tab's flat alphabetical wall (plus alpha picker and
   // native sort/filter chrome) on every movies-type library with a curated
@@ -1317,6 +1580,7 @@
       renderTrendingIfHome();
       renderContinueIfHome();
       renderMoviesRedesignIfPresent();
+      renderDrawerPlus();
     }, 400);
   }
 
