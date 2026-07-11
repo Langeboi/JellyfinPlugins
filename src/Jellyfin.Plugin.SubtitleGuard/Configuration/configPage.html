@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Subtitle Guard</title>
+</head>
+<body>
+  <div id="SubtitleGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+      <div class="content-primary">
+        <div class="verticalSection">
+          <h2>Subtitle Guard</h2>
+          <p>Standardizes subtitle size in the web/mobile player and watches every playback to make sure selected subtitles actually render - re-applying them automatically when they silently fail.</p>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input id="SgEnableStandardSize" type="checkbox" is="emby-checkbox" />
+            <span>Standardize subtitle size</span>
+          </label>
+          <div class="fieldDescription">One consistent, viewport-scaled size on every device, instead of whatever each player defaults to.</div>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Size (percent)</label>
+          <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
+          <div class="fieldDescription">100 = the standard size. Raise or lower to taste (50-200).</div>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input id="SgEnableWatchdog" type="checkbox" is="emby-checkbox" />
+            <span>Rendering watchdog</span>
+          </label>
+          <div class="fieldDescription">While something plays with subtitles selected, verifies they are actually being shown - and re-applies the subtitle track automatically if not. Only applies to text subtitles (burned-in image subtitles can't fail this way).</div>
+        </div>
+
+        <div style="margin-top:1.5em;">
+          <button is="emby-button" type="button" id="SubtitleGuardSaveButton" class="raised button-submit block emby-button">
+            <span>Save</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!--
+    No inline <script> on purpose: Jellyfin's dashboard does not execute
+    embedded script tags in plugin config pages on this server (confirmed
+    live with the other plugins in this family). All wiring lives in
+    Inject/inject.js, plain type="button" elements, no <form>.
+  -->
+</body>
+</html>
