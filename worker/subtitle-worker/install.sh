@@ -265,4 +265,3 @@ echo ""
 echo "  systemctl daemon-reload"
 echo "  systemctl restart subtitle-worker"
 echo "=================================================================="
-```
