@@ -63,11 +63,22 @@ WHISPER_CT=int8
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected - installing CUDA runtime libraries"
   "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
-  CUDA_LIBS=$("$INSTALL_DIR/venv/bin/python" - <<'PYEOF'
+  # The nvidia-* wheels install as PEP 420 namespace packages, so their
+  # __file__ is None (this crashed the installer on Python 3.14). Use
+  # __path__ instead, and never let a detection failure abort the install
+  # (|| true) - a missing LD_LIBRARY_PATH is recoverable, a dead install
+  # is not.
+  CUDA_LIBS=$("$INSTALL_DIR/venv/bin/python" - <<'PYEOF' || true
 import os
-import nvidia.cublas, nvidia.cudnn
-print(os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib") + ":" +
-      os.path.join(os.path.dirname(nvidia.cudnn.__file__), "lib"))
+def libdir(name):
+    try:
+        mod = __import__(name, fromlist=["__path__"])
+        paths = list(getattr(mod, "__path__", []) or [])
+        return os.path.join(paths[0], "lib") if paths else ""
+    except Exception:
+        return ""
+parts = [p for p in (libdir("nvidia.cublas"), libdir("nvidia.cudnn")) if p and os.path.isdir(p)]
+print(":".join(parts))
 PYEOF
 )
   WHISPER_NOTE="CUDA (model: large-v3)"
