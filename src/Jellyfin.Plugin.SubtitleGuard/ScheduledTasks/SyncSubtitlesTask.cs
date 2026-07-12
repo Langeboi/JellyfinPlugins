@@ -61,7 +61,23 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 jobs.AddRange(SyncWorker.CollectJobs(item));
             }
 
-            _logger.LogInformation("SubtitleGuard: distributing {Count} subtitle sync jobs across the worker pool", jobs.Count);
+            // Pool-wide dedupe: drop everything ANY worker already finished,
+            // so newly-enrolled workers don't redo the library and nightly
+            // runs only ship the actual remainder.
+            var done = await SyncWorker.GetProcessedPaths("sync", cancellationToken).ConfigureAwait(false);
+            var before = jobs.Count;
+            jobs = jobs.Where(j => !done.Contains(j["subtitle_path"]?.ToString() ?? string.Empty)).ToList();
+            _logger.LogInformation(
+                "SubtitleGuard: {Remaining} sync jobs to distribute ({Skipped} already completed by the pool)",
+                jobs.Count,
+                before - jobs.Count);
+
+            if (jobs.Count == 0)
+            {
+                progress.Report(100);
+                return;
+            }
+
             progress.Report(10);
 
             var counts = await SyncWorker.DistributeAndSubmit(jobs, cancellationToken).ConfigureAwait(false);

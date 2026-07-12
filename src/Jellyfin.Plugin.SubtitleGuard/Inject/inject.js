@@ -320,40 +320,55 @@
         workerList.innerHTML = '<div style="opacity:.7;padding:.5em 0;">Ingen workers tilmeldt endnu.</div>';
         return;
       }
+      var ctrlBtnStyle = 'min-width:auto;padding:.3em .9em;font-size:.85em;';
       workerList.innerHTML = workers.map(function (w, i) {
         var st = statusByUrl ? statusByUrl[w.Url] : null;
-        var working = st && st.online && st.processing;
-        // Grey = status unknown (still checking), green = online and idle,
-        // pulsing amber = actively working on a file, red = offline.
-        var dotColor = !st ? '#888' : (st.online ? (working ? '#d29922' : '#3fb950') : '#f85149');
+        var paused = st && st.online && st.paused;
+        var working = st && st.online && !paused && st.processing;
+        // Grey = unknown/paused, green = online and idle, pulsing amber =
+        // actively working, red = offline.
+        var dotColor = !st ? '#888' : (!st.online ? '#f85149' : (paused ? '#888' : (working ? '#d29922' : '#3fb950')));
         var dotStyle = 'width:10px;height:10px;border-radius:50%;background:' + dotColor + ';flex:0 0 auto;' +
           (working ? 'animation:sgPulse 1.2s ease-in-out infinite;' : '');
         var detail = '';
-        if (working) {
-          var fileName = String(st.processing).split(/[\\/]/).pop();
-          detail = ' - arbejder på: ' + fileName +
+        if (paused) {
+          detail = ' - pauset' + (st.queue_depth > 0 ? ' (' + st.queue_depth + ' venter i kø)' : '');
+        } else if (working) {
+          var files = String(st.processing).split(', ').map(function (p) { return p.split(/[\\/]/).pop(); });
+          detail = ' - arbejder på ' + (st.active > 1 ? st.active + ' filer: ' : '') + files.join(', ') +
             (st.queue_depth > 0 ? ' (+' + st.queue_depth + ' i kø)' : '');
         } else if (st && st.online) {
           detail = st.queue_depth > 0 ? ' - online, ' + st.queue_depth + ' i kø' : ' - online, ledig';
           if (st.done > 0 || st.failed > 0) {
             detail += ' · ' + st.done + ' klaret' + (st.failed > 0 ? ', ' + st.failed + ' fejlet' : '');
           }
-          if (st.transcribe) {
-            detail += ' · Whisper: ' + (st.transcribe === 'cuda' ? 'GPU' : 'CPU') +
-              (st.whisper_model ? ' (' + st.whisper_model + ')' : '');
-          }
         } else if (st) {
           detail = ' - offline' + (st.error ? ' (' + st.error + ')' : '');
         }
+        if (st && st.online && st.transcribe) {
+          detail += ' · Whisper: ' + (st.transcribe === 'cuda' ? 'GPU' : 'CPU') +
+            (st.whisper_model ? ' (' + st.whisper_model + ')' : '');
+        }
+        var controls = '';
+        if (st && st.online) {
+          controls += '<button type="button" is="emby-button" class="raised emby-button" data-sg-control="' +
+            (paused ? 'resume' : 'pause') + '" data-sg-url="' + w.Url.replace(/"/g, '') + '" style="' + ctrlBtnStyle + '">' +
+            (paused ? 'Fortsæt' : 'Pause') + '</button>';
+          if (st.queue_depth > 0) {
+            controls += '<button type="button" is="emby-button" class="raised emby-button" data-sg-control="clear" data-sg-url="' +
+              w.Url.replace(/"/g, '') + '" style="' + ctrlBtnStyle + '" title="Tøm køen (' + st.queue_depth + ' jobs)">Ryd kø</button>';
+          }
+        }
         return (
-          '<div style="display:flex;align-items:center;gap:.8em;padding:.5em .2em;border-bottom:1px solid rgba(255,255,255,.08);">' +
+          '<div style="display:flex;align-items:center;gap:.6em;padding:.5em .2em;border-bottom:1px solid rgba(255,255,255,.08);">' +
             '<span style="' + dotStyle + '"></span>' +
             '<span style="flex:1;min-width:0;">' +
               '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
               '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
                 w.Url.replace(/</g, '&lt;') + detail.replace(/</g, '&lt;') + '</span>' +
             '</span>' +
-            '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="min-width:auto;padding:.3em .9em;">Fjern</button>' +
+            controls +
+            '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="' + ctrlBtnStyle + '">Fjern</button>' +
           '</div>'
         );
       }).join('');
@@ -461,6 +476,17 @@
 
     if (workerList) {
       workerList.addEventListener('click', function (e) {
+        var ctrl = e.target.closest ? e.target.closest('[data-sg-control]') : null;
+        if (ctrl) {
+          ctrl.disabled = true;
+          fetch(apiClient.getUrl('SubtitleGuard/workers/control'), {
+            method: 'POST',
+            headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Url: ctrl.getAttribute('data-sg-url'), Action: ctrl.getAttribute('data-sg-control') })
+          }).then(refreshStatuses).catch(refreshStatuses);
+          return;
+        }
+
         var btn = e.target.closest ? e.target.closest('[data-sg-remove]') : null;
         if (!btn) {
           return;

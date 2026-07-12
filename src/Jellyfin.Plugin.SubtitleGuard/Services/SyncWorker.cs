@@ -229,6 +229,9 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["processing"] = body["processing"];
                         entry["transcribe"] = body["capabilities"]?["transcribe"];
                         entry["whisper_model"] = body["whisper_model"];
+                        entry["paused"] = body["paused"];
+                        entry["active"] = body["active"];
+                        entry["concurrency"] = body["concurrency"];
                     }
                     else
                     {
@@ -330,6 +333,75 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             }
 
             return counts;
+        }
+
+        /// <summary>
+        /// Union of every online worker's successfully-completed paths
+        /// (mtime-verified worker-side). Filtering jobs against this BEFORE
+        /// distribution is what stops a freshly-enrolled worker from redoing
+        /// files another worker already finished - the per-worker ledgers
+        /// become one pool-wide ledger at submit time.
+        /// </summary>
+        public static async Task<HashSet<string>> GetProcessedPaths(string kind, CancellationToken cancellationToken)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            var workers = GetWorkers();
+            var sets = await Task.WhenAll(workers.Select(async w =>
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, w.Url + "/processed?kind=" + kind + "&verify=1");
+                    request.Headers.Add("X-Api-Key", w.ApiKey);
+                    using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return Array.Empty<string>();
+                    }
+
+                    var body = JObject.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    return (body["paths"] as JArray)?.Select(p => p.ToString()).ToArray() ?? Array.Empty<string>();
+                }
+                catch
+                {
+                    // Offline/unreachable worker contributes nothing; its
+                    // completed files may be redone elsewhere, which is
+                    // wasteful but harmless (a fixed file measures in-sync).
+                    return Array.Empty<string>();
+                }
+            })).ConfigureAwait(false);
+
+            foreach (var set in sets)
+            {
+                foreach (var path in set)
+                {
+                    result.Add(path);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>Relays a control action (pause/resume/clear) to one worker.</summary>
+        public static async Task<string> ControlWorker(WorkerEntry worker, string action, CancellationToken cancellationToken)
+        {
+            var path = action switch
+            {
+                "pause" => "/pause",
+                "resume" => "/resume",
+                "clear" => "/queue/clear",
+                _ => throw new ArgumentException("unknown action", nameof(action))
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, worker.Url + path);
+            request.Headers.Add("X-Api-Key", worker.ApiKey);
+            using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Worker returned {(int)response.StatusCode}: {text}");
+            }
+
+            return text;
         }
 
         public static async Task SubmitBatch(WorkerEntry worker, IReadOnlyCollection<JObject> jobs, CancellationToken cancellationToken)

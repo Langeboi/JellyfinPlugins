@@ -61,6 +61,9 @@ SUBWORKER_API_KEY=$API_KEY
 SUBWORKER_PORT=8099
 SUBWORKER_MIN_OFFSET=0.4
 SUBWORKER_DB=$INSTALL_DIR/processed.db
+# Parallel sync jobs (default: min(4, cores-1)). Each job streams a full
+# media file over the network - lower this to cap bandwidth usage.
+# SUBWORKER_SYNC_CONCURRENCY=2
 EOF
 if [ -n "${CUDA_LIBS:-}" ]; then
   echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -141,6 +142,45 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             {
                 _logger.LogWarning(ex, "SubtitleGuard: transcribe submit failed");
                 return Json(new JObject { ["error"] = "Kunne ikke nå workerne." }, 502);
+            }
+        }
+
+        public class WorkerControlBody
+        {
+            public string Url { get; set; } = string.Empty;
+
+            public string Action { get; set; } = string.Empty;
+        }
+
+        // Relays pause/resume/clear-queue from the config page to a worker.
+        // The worker is looked up in the configured pool so its API key
+        // never has to round-trip through the browser.
+        [Authorize]
+        [HttpPost("workers/control")]
+        public async Task<ActionResult> WorkerControl([FromBody] WorkerControlBody body, CancellationToken cancellationToken)
+        {
+            if (body == null || string.IsNullOrWhiteSpace(body.Url)
+                || body.Action is not ("pause" or "resume" or "clear"))
+            {
+                return BadRequest();
+            }
+
+            var worker = SyncWorker.GetWorkers()
+                .FirstOrDefault(w => string.Equals(w.Url, body.Url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+            if (worker == null)
+            {
+                return NotFound();
+            }
+
+            try
+            {
+                var text = await SyncWorker.ControlWorker(worker, body.Action, cancellationToken).ConfigureAwait(false);
+                return Content(text, "application/json");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SubtitleGuard: worker control {Action} failed", body.Action);
+                return Json(new JObject { ["error"] = "Kunne ikke nå workeren." }, 502);
             }
         }
 

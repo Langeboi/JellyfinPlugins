@@ -122,19 +122,40 @@ def write_srt(segments, path: str) -> int:
 
 app = FastAPI(title="subtitle-sync-worker")
 
+# How many jobs run in parallel. ffsubsync is single-threaded, so an 8-core
+# machine doing one job at a time wastes most of its CPU - but each parallel
+# job also reads a full media file over the network, so this is as much a
+# bandwidth knob as a CPU one. Override with SUBWORKER_SYNC_CONCURRENCY.
+SYNC_CONCURRENCY = int(
+    os.environ.get("SUBWORKER_SYNC_CONCURRENCY", "0")
+) or min(4, max(1, (os.cpu_count() or 2) - 1))
+
 job_queue: "queue.Queue[dict]" = queue.Queue()
 state = {
-    "processing": None,
+    "processing": {},  # thread name -> label of the job it is running
     "done": 0,
     "skipped": 0,
     "failed": 0,
+    "paused": False,
     "started_at": datetime.now(timezone.utc).isoformat(),
 }
 state_lock = threading.Lock()
 
+# set = running, cleared = paused. Threads finish their current job and
+# then wait; pausing never kills work mid-file.
+pause_event = threading.Event()
+pause_event.set()
+
+# Only ONE transcription at a time regardless of concurrency - a second
+# large-v3 on the same GPU would OOM, and on CPU it would thrash. Sync jobs
+# keep flowing on the other threads while a transcription runs.
+transcribe_job_lock = threading.Lock()
+
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout matters now that several worker threads write concurrently -
+    # SQLite serializes writes and a busy writer must wait, not error out.
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute(
         """CREATE TABLE IF NOT EXISTS processed (
             sub_path TEXT PRIMARY KEY,
@@ -316,25 +337,35 @@ def process_transcribe_job(job: dict):
 
 
 def worker_loop():
+    name = threading.current_thread().name
     while True:
-        job = job_queue.get()
+        # Respect pause BEFORE pulling a job, so pausing takes effect after
+        # the current file finishes and a subsequent queue-clear works.
+        pause_event.wait()
+        try:
+            job = job_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
         label = job.get("subtitle_path") or job.get("media_path")
         if job.get("type") == "transcribe":
             label = "[whisper] " + os.path.basename(job.get("media_path") or "")
         with state_lock:
-            state["processing"] = label
+            state["processing"][name] = label
         try:
             if job.get("type") == "transcribe":
-                process_transcribe_job(job)
+                with transcribe_job_lock:
+                    process_transcribe_job(job)
             else:
                 process_job(job)
         finally:
             with state_lock:
-                state["processing"] = None
+                state["processing"].pop(name, None)
             job_queue.task_done()
 
 
-threading.Thread(target=worker_loop, daemon=True).start()
+for _i in range(SYNC_CONCURRENCY):
+    threading.Thread(target=worker_loop, name=f"worker-{_i + 1}", daemon=True).start()
 
 
 def check_key(x_api_key):
@@ -377,11 +408,84 @@ def submit_batch(batch: Batch, x_api_key: str = Header(default="")):
     return {"queued": len(batch.jobs), "queue_depth": job_queue.qsize()}
 
 
+@app.post("/pause")
+def pause(x_api_key: str = Header(default="")):
+    check_key(x_api_key)
+    pause_event.clear()
+    with state_lock:
+        state["paused"] = True
+    return {"paused": True}
+
+
+@app.post("/resume")
+def resume(x_api_key: str = Header(default="")):
+    check_key(x_api_key)
+    pause_event.set()
+    with state_lock:
+        state["paused"] = False
+    return {"paused": False}
+
+
+@app.post("/queue/clear")
+def clear_queue(x_api_key: str = Header(default="")):
+    check_key(x_api_key)
+    removed = 0
+    try:
+        while True:
+            job_queue.get_nowait()
+            job_queue.task_done()
+            removed += 1
+    except queue.Empty:
+        pass
+    return {"removed": removed, "queue_depth": job_queue.qsize()}
+
+
+@app.get("/processed")
+def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(default="")):
+    """Successfully completed work, so the plugin can merge every worker's
+    ledger and stop resubmitting (and re-processing) finished files - the
+    fix for a freshly-enrolled worker redoing the whole library. With
+    verify=1 (default), entries whose file changed on disk since being
+    processed are dropped, so a re-downloaded subtitle gets redone."""
+    check_key(x_api_key)
+    conn = db()
+    try:
+        rows = conn.execute("SELECT sub_path, mtime, status FROM processed").fetchall()
+    finally:
+        conn.close()
+
+    paths = []
+    for sub_path, mtime, row_status in rows:
+        s = str(row_status)
+        if kind == "transcribe":
+            if not sub_path.startswith("transcribe:"):
+                continue
+            if not (s.startswith("transcribed:") or s == "already-has-sub"):
+                continue
+            real = sub_path[len("transcribe:"):]
+        else:
+            if sub_path.startswith("transcribe:") or s not in ("fixed", "in-sync"):
+                continue
+            real = sub_path
+        if verify:
+            try:
+                if abs(os.path.getmtime(real if kind != "transcribe" else real) - mtime) > 1e-6:
+                    continue
+            except OSError:
+                continue
+        paths.append(real)
+    return {"kind": kind, "paths": paths}
+
+
 @app.get("/status")
 def status(x_api_key: str = Header(default="")):
     check_key(x_api_key)
     with state_lock:
         snapshot = dict(state)
+        active = dict(snapshot["processing"])
+    snapshot["active"] = len(active)
+    snapshot["processing"] = ", ".join(active.values()) if active else None
+    snapshot["concurrency"] = SYNC_CONCURRENCY
     snapshot["queue_depth"] = job_queue.qsize()
     snapshot["capabilities"] = {"sync": True, "transcribe": TRANSCRIBE_CAPABILITY}
     snapshot["whisper_model"] = WHISPER_MODEL_NAME if TRANSCRIBE_CAPABILITY else None

@@ -74,9 +74,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 }
             }
 
+            // Pool-wide dedupe by media path (same mechanism as the sync task).
+            var done = await SyncWorker.GetProcessedPaths("transcribe", cancellationToken).ConfigureAwait(false);
+            jobs = jobs.Where(j => !done.Contains(j["media_path"]?.ToString() ?? string.Empty)).ToList();
+
             if (jobs.Count == 0)
             {
-                _logger.LogInformation("SubtitleGuard: nothing to transcribe - every item has a target-language subtitle");
+                _logger.LogInformation("SubtitleGuard: nothing to transcribe - every item has a target-language subtitle or was already transcribed");
                 progress.Report(100);
                 return;
             }
