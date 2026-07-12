@@ -288,18 +288,58 @@ def process_translate_job(job: dict):
             os.unlink(tmp_extract)
 
 
+# Cue-timing tuning. Whisper's SEGMENT timestamps are padded - a cue often
+# starts before the line is spoken and lingers after it ends. When word
+# timestamps are available we hug the actual speech (first word start ->
+# last word end) instead, then apply a tiny lead-in, a readable minimum
+# duration, and an anti-overlap pass.
+CUE_LEAD_IN = 0.06           # show a hair before the first word
+CUE_MIN_DURATION = 0.9       # never flash a cue faster than this
+CUE_CHARS_PER_SEC = 16.0     # reading speed used to lengthen short cues
+CUE_MIN_GAP = 0.04           # gap kept between consecutive cues
+
+
+def _tight_bounds(segment):
+    """(start, end) hugging real speech via word timestamps, or the raw
+    segment bounds when word timing isn't available."""
+    words = getattr(segment, "words", None) or []
+    words = [w for w in words if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
+    if words:
+        return words[0].start, words[-1].end
+    return segment.start, segment.end
+
+
 def write_srt(segments, path: str) -> int:
-    """Stream Whisper segments to an SRT file; returns the segment count.
-    Streaming matters: faster-whisper yields segments lazily, so this is
-    where the actual transcription time is spent."""
+    """Build a tightly-timed SRT from Whisper segments. Consuming the
+    generator is where the transcription time is actually spent."""
+    cues = []  # [start, end, text]
+    for segment in segments:
+        text = " ".join(segment.text.split())
+        if not text:
+            continue
+        start, end = _tight_bounds(segment)
+        cues.append([max(0.0, start - CUE_LEAD_IN), end, text])
+
+    # Readable minimum duration: longer for longer lines, floored so short
+    # lines don't blink out.
+    for cue in cues:
+        want = max(CUE_MIN_DURATION, len(cue[2]) / CUE_CHARS_PER_SEC)
+        if cue[1] - cue[0] < want:
+            cue[1] = cue[0] + want
+
+    # Anti-overlap: if a stretched cue runs into the next one, pull its end
+    # back to just before the next cue starts (keeping it at least visible).
+    for i in range(len(cues) - 1):
+        if cues[i][1] > cues[i + 1][0] - CUE_MIN_GAP:
+            cues[i][1] = max(cues[i][0] + 0.3, cues[i + 1][0] - CUE_MIN_GAP)
+
     count = 0
     with open(path, "w", encoding="utf-8") as fh:
-        for segment in segments:
-            text = segment.text.strip()
-            if not text:
+        for start, end, text in cues:
+            if end <= start:
                 continue
             count += 1
-            fh.write(f"{count}\n{_srt_timestamp(segment.start)} --> {_srt_timestamp(segment.end)}\n{text}\n\n")
+            fh.write(f"{count}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{text}\n\n")
     return count
 
 app = FastAPI(title="subtitle-sync-worker")
@@ -570,7 +610,8 @@ def process_transcribe_job(job: dict):
         return
 
     mtime = os.path.getmtime(media)
-    if already_processed(key, mtime):
+    force = bool(job.get("force"))
+    if not force and already_processed(key, mtime):
         with state_lock:
             state["skipped"] += 1
         return
@@ -580,15 +621,22 @@ def process_transcribe_job(job: dict):
         model = get_whisper_model()
         # language=None auto-detects the SPOKEN language; Whisper transcribes
         # in that language (it can translate to English but never to Danish -
-        # translation is a future, separate step).
-        segments, info = model.transcribe(media, vad_filter=True, language=job.get("language") or None)
+        # translation is a future, separate step). word_timestamps=True gives
+        # per-word timing so write_srt can tighten each cue to real speech.
+        segments, info = model.transcribe(
+            media,
+            vad_filter=True,
+            word_timestamps=True,
+            language=job.get("language") or None,
+        )
 
         base = os.path.splitext(media)[0]
         target = f"{base}.{info.language}.srt"
-        if os.path.exists(target):
+        if os.path.exists(target) and not force:
             # A subtitle for the detected language already exists (maybe
             # added since the job was queued) - never overwrite real subs
-            # with machine output.
+            # with machine output. force=True (explicit re-transcribe from
+            # the button) overwrites our OWN previous output.
             record(key, mtime, None, "already-has-sub")
             with state_lock:
                 state["skipped"] += 1
@@ -667,6 +715,7 @@ class Job(BaseModel):
     type: str = "sync"  # "sync" | "transcribe" | "translate"
     language: str | None = None  # transcribe only; None = auto-detect
     stream_index: int | None = None  # translate only: embedded source stream
+    force: bool = False  # transcribe: re-run even if already processed / target exists
 
 
 class Batch(BaseModel):
