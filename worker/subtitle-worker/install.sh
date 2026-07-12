@@ -1,4 +1,4 @@
-```bash
+bash
 #!/usr/bin/env bash
 # Installer for the subtitle sync worker on a Debian/Ubuntu machine.
 # Run as root (or with sudo) on the container that can see the media files.
