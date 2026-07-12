@@ -295,8 +295,18 @@ def process_translate_job(job: dict):
 # duration, and an anti-overlap pass.
 CUE_LEAD_IN = 0.06           # show a hair before the first word
 CUE_MIN_DURATION = 0.9       # never flash a cue faster than this
+CUE_MAX_DURATION = 7.0       # never hold a cue longer than this
 CUE_CHARS_PER_SEC = 16.0     # reading speed used to lengthen short cues
 CUE_MIN_GAP = 0.04           # gap kept between consecutive cues
+
+# Whisper emits one segment per phrase, so cue-per-segment gives a rapid
+# flicker of short single lines. Instead we merge neighbouring segments into
+# proper subtitles (up to 2 lines, standard ~42 chars/line) as long as the
+# pause between them is short and the result stays readable in one glance.
+CUE_MAX_LINE_CHARS = 42      # per-line width before wrapping to a 2nd line
+CUE_MAX_LINES = 2            # cap at a 2-line block (subtitle convention)
+CUE_MAX_CHARS = CUE_MAX_LINE_CHARS * CUE_MAX_LINES  # merge budget
+CUE_MERGE_MAX_GAP = 0.9      # don't merge across a pause longer than this
 
 
 def _tight_bounds(segment):
@@ -307,6 +317,39 @@ def _tight_bounds(segment):
     if words:
         return words[0].start, words[-1].end
     return segment.start, segment.end
+
+
+def _wrap_lines(text: str) -> str:
+    """Wrap a cue's text to at most CUE_MAX_LINES balanced lines. A single
+    short line is left alone; a long line is split near the middle at a word
+    boundary so both halves fit CUE_MAX_LINE_CHARS."""
+    if len(text) <= CUE_MAX_LINE_CHARS:
+        return text
+    words = text.split()
+    # Prefer a 2-line split that balances the two halves (smallest length
+    # difference) while keeping both within the per-line width.
+    best = None
+    for i in range(1, len(words)):
+        top = " ".join(words[:i])
+        bottom = " ".join(words[i:])
+        if len(top) <= CUE_MAX_LINE_CHARS and len(bottom) <= CUE_MAX_LINE_CHARS:
+            score = abs(len(top) - len(bottom))
+            if best is None or score < best[0]:
+                best = (score, top + "\n" + bottom)
+    if best is not None:
+        return best[1]
+    # Too long for 2 lines (a very long single segment) - greedily wrap into
+    # as many lines as needed rather than dropping any words.
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > CUE_MAX_LINE_CHARS:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        lines.append(cur)
+    return "\n".join(lines)
 
 
 def write_srt(segments, path: str) -> int:
@@ -320,10 +363,30 @@ def write_srt(segments, path: str) -> int:
         start, end = _tight_bounds(segment)
         cues.append([max(0.0, start - CUE_LEAD_IN), end, text])
 
-    # Readable minimum duration: longer for longer lines, floored so short
-    # lines don't blink out.
+    # Merge neighbouring cues into 2-line subtitles: keeps dialogue together
+    # and stops the fast single-line flicker. Only merge across a short pause,
+    # while the combined text fits the 2-line budget and the block stays
+    # within the max on-screen duration.
+    merged = []
     for cue in cues:
-        want = max(CUE_MIN_DURATION, len(cue[2]) / CUE_CHARS_PER_SEC)
+        if merged:
+            prev = merged[-1]
+            gap = cue[0] - prev[1]
+            combined_chars = len(prev[2]) + 1 + len(cue[2])
+            combined_dur = cue[1] - prev[0]
+            if (gap <= CUE_MERGE_MAX_GAP
+                    and combined_chars <= CUE_MAX_CHARS
+                    and combined_dur <= CUE_MAX_DURATION):
+                prev[1] = cue[1]
+                prev[2] = f"{prev[2]} {cue[2]}"
+                continue
+        merged.append(list(cue))
+    cues = merged
+
+    # Readable minimum duration: longer for longer lines, floored so short
+    # lines don't blink out, capped so nothing lingers too long.
+    for cue in cues:
+        want = min(CUE_MAX_DURATION, max(CUE_MIN_DURATION, len(cue[2]) / CUE_CHARS_PER_SEC))
         if cue[1] - cue[0] < want:
             cue[1] = cue[0] + want
 
@@ -339,7 +402,7 @@ def write_srt(segments, path: str) -> int:
             if end <= start:
                 continue
             count += 1
-            fh.write(f"{count}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{text}\n\n")
+            fh.write(f"{count}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{_wrap_lines(text)}\n\n")
     return count
 
 app = FastAPI(title="subtitle-sync-worker")
