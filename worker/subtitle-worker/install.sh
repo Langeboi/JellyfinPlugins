@@ -33,6 +33,7 @@ python3 -m venv "$INSTALL_DIR/venv"
 echo "== Whisper transcription support =="
 "$INSTALL_DIR/venv/bin/pip" install faster-whisper
 WHISPER_NOTE="CPU (model: small)"
+TRANSLATE_NOTE="not installed (CPU machine)"
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected - installing CUDA runtime libraries"
   "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
@@ -44,6 +45,31 @@ print(os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib") + ":" +
 PYEOF
 )
   WHISPER_NOTE="CUDA (model: large-v3)"
+
+  # English->Danish translation (NLLB-200 distilled 1.3B, quality-first
+  # choice). Converted once to CTranslate2 format; the download+conversion
+  # is ~5-6GB and takes a while - skipped when already done, and skippable
+  # entirely with WITH_TRANSLATE=0.
+  if [ "${WITH_TRANSLATE:-1}" = "1" ]; then
+    if [ -d "$INSTALL_DIR/nllb-ct2" ]; then
+      echo "== NLLB translation model already present, keeping it =="
+      TRANSLATE_NOTE="NLLB-200 1.3B (CUDA)"
+    else
+      echo "== Installing NLLB translation (this downloads ~6GB, be patient) =="
+      "$INSTALL_DIR/venv/bin/pip" install transformers sentencepiece
+      "$INSTALL_DIR/venv/bin/pip" install torch --index-url https://download.pytorch.org/whl/cpu
+      if "$INSTALL_DIR/venv/bin/ct2-transformers-converter" \
+           --model facebook/nllb-200-distilled-1.3B \
+           --output_dir "$INSTALL_DIR/nllb-ct2" \
+           --quantization float16 --force; then
+        TRANSLATE_NOTE="NLLB-200 1.3B (CUDA)"
+      else
+        echo "WARNING: NLLB conversion failed - translation disabled on this worker"
+        rm -rf "$INSTALL_DIR/nllb-ct2"
+        TRANSLATE_NOTE="FAILED (see output above)"
+      fi
+    fi
+  fi
 fi
 
 # Re-running this installer (e.g. to upgrade) must NOT rotate the API key -
@@ -99,6 +125,7 @@ echo ""
 echo "  Worker URL:      http://${IP_ADDR:-<this-machines-ip>}:8099"
 echo "  Enrollment code: $API_KEY"
 echo "  Transcription:   $WHISPER_NOTE"
+echo "  Translation:     $TRANSLATE_NOTE"
 echo ""
 echo "Paste both into Jellyfin > Dashboard > Plugins > Subtitle Guard"
 echo "under 'Tilføj worker'."

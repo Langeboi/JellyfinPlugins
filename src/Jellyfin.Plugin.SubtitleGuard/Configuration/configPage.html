@@ -9,79 +9,133 @@
       <div class="content-primary">
         <div class="verticalSection">
           <h2>Subtitle Guard</h2>
-          <p>Standardizes subtitle size in the web/mobile player and watches every playback to make sure selected subtitles actually render - re-applying them automatically when they silently fail.</p>
         </div>
 
-        <div class="checkboxContainer checkboxContainer-withDescription">
-          <label>
-            <input id="SgEnableStandardSize" type="checkbox" is="emby-checkbox" />
-            <span>Standardize subtitle size</span>
-          </label>
-          <div class="fieldDescription">One consistent, viewport-scaled size on every device, instead of whatever each player defaults to.</div>
+        <!-- Tab bar: each button toggles one data-sg-tab panel. Wired in
+             inject.js like everything else (inline scripts don't run). -->
+        <div id="SgTabBar" style="display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1.2em;">
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="workers">Workers</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="sync">Synkronisering</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="subs">Undertekster</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="trans">Transskription</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="status">Status</button>
         </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Size (percent)</label>
-          <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
-          <div class="fieldDescription">100 = the standard size. Raise or lower to taste (50-200).</div>
+        <!-- ======================= WORKERS ======================= -->
+        <div data-sg-tab="workers">
+          <div class="verticalSection">
+            <h2>Sync workers</h2>
+            <p>Machines that do the actual subtitle work. Enroll one by running this on any Debian/Ubuntu machine that has the media mounted:</p>
+            <p><code>curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</code></p>
+            <p>Jobs are split between online workers, and idle workers automatically pull extra work from the busiest one.</p>
+          </div>
+
+          <div id="SgWorkerList" class="paperList" style="margin-bottom:1em;"></div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerName">Name</label>
+            <input id="SgNewWorkerName" type="text" is="emby-input" placeholder="Debian container" />
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerUrl">Worker URL</label>
+            <input id="SgNewWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment code</label>
+            <input id="SgNewWorkerKey" type="password" is="emby-input" />
+          </div>
+          <div style="margin-bottom:1.5em;">
+            <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised block emby-button">
+              <span>Tilføj worker</span>
+            </button>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgPathMapFrom">Path mapping: Jellyfin prefix</label>
+            <input id="SgPathMapFrom" type="text" is="emby-input" placeholder="/media" />
+            <div class="fieldDescription">Leave both fields empty if the workers mount media at the same paths as Jellyfin.</div>
+          </div>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgPathMapTo">Path mapping: worker prefix</label>
+            <input id="SgPathMapTo" type="text" is="emby-input" placeholder="/mnt/tank/media" />
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgIncludedPaths">Included libraries (path prefixes)</label>
+            <input id="SgIncludedPaths" type="text" is="emby-input" placeholder="/Media/Movies,/Media/Shows" />
+            <div class="fieldDescription">When set, the scheduled tasks only touch items under these paths. Empty = whole library. Buttons on item pages ignore this.</div>
+          </div>
         </div>
 
-        <div class="checkboxContainer checkboxContainer-withDescription">
-          <label>
-            <input id="SgEnableWatchdog" type="checkbox" is="emby-checkbox" />
-            <span>Rendering watchdog</span>
-          </label>
-          <div class="fieldDescription">While something plays with subtitles selected, verifies they are actually being shown - and re-applies the subtitle track automatically if not. Only applies to text subtitles (burned-in image subtitles can't fail this way).</div>
+        <!-- ==================== SYNKRONISERING =================== -->
+        <div data-sg-tab="sync">
+          <div class="verticalSection">
+            <h2>Seneste rettelser</h2>
+            <p>The last subtitles the workers actually rewrote. "Fortryd rettelse" restores the original file (the .bak backup) and tells the pool not to re-fix it.</p>
+          </div>
+          <div id="SgRecentList" style="margin-bottom:1.5em;"></div>
+          <p class="fieldDescription">The nightly "Fix subtitle sync" task runs at 04:00 by default - change it under Dashboard &gt; Scheduled Tasks.</p>
         </div>
 
-        <div class="verticalSection">
-          <h2>Sync workers</h2>
-          <p>Machines that do the actual subtitle work. Enroll one by running this on any Debian/Ubuntu machine that has the media mounted:</p>
-          <p><code>curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</code></p>
-          <p>The installer prints the worker's URL and an enrollment code - paste them below. Jobs are split between whichever enrolled workers are online (machines that are off are simply skipped).</p>
+        <!-- ===================== UNDERTEKSTER ==================== -->
+        <div data-sg-tab="subs">
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SgEnableStandardSize" type="checkbox" is="emby-checkbox" />
+              <span>Standardize subtitle size</span>
+            </label>
+            <div class="fieldDescription">One consistent, viewport-scaled size on every device.</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Size (percent)</label>
+            <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
+            <div class="fieldDescription">100 = the standard size (50-200).</div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SgEnableWatchdog" type="checkbox" is="emby-checkbox" />
+              <span>Rendering watchdog</span>
+            </label>
+            <div class="fieldDescription">Re-applies the selected subtitle automatically when it is selected but not actually shown.</div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SgEnableTrackFilter" type="checkbox" is="emby-checkbox" />
+              <span>Ryd op i undertekst-menuen</span>
+            </label>
+            <div class="fieldDescription">Hides unwanted tracks in the player's subtitle menu: languages outside the list below, hearing-impaired (SDH/CC) variants, and duplicate tracks of the same language - one clean choice per language.</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgVisibleLanguages">Visible subtitle languages</label>
+            <input id="SgVisibleLanguages" type="text" is="emby-input" placeholder="da,en" />
+            <div class="fieldDescription">Comma-separated two-letter codes. Tracks without a language tag are kept.</div>
+          </div>
         </div>
 
-        <div id="SgWorkerList" class="paperList" style="margin-bottom:1em;"></div>
+        <!-- ==================== TRANSSKRIPTION =================== -->
+        <div data-sg-tab="trans">
+          <div class="verticalSection">
+            <h2>Whisper &amp; oversættelse</h2>
+            <p>"Generate missing subtitles" (01:00) transcribes items lacking a subtitle in the target languages - GPU workers preferred, spoken language decides the output. "Translate subtitles to Danish" (02:00) machine-translates English subs to Danish (NLLB, quality-first) for items without a Danish sub.</p>
+          </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerName">Name</label>
-          <input id="SgNewWorkerName" type="text" is="emby-input" placeholder="Debian container" />
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerUrl">Worker URL</label>
-          <input id="SgNewWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment code</label>
-          <input id="SgNewWorkerKey" type="password" is="emby-input" />
-        </div>
-        <div style="margin-bottom:1.5em;">
-          <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised block emby-button">
-            <span>Tilføj worker</span>
-          </button>
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Target languages</label>
+            <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
+            <div class="fieldDescription">Items that already have a text subtitle in any of these are skipped by the transcription task.</div>
+          </div>
         </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgPathMapFrom">Path mapping: Jellyfin prefix</label>
-          <input id="SgPathMapFrom" type="text" is="emby-input" placeholder="/media" />
-          <div class="fieldDescription">How Jellyfin sees the media path. Leave both fields empty if the worker machine mounts media at the same paths.</div>
-        </div>
-
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgPathMapTo">Path mapping: worker prefix</label>
-          <input id="SgPathMapTo" type="text" is="emby-input" placeholder="/mnt/tank/media" />
-          <div class="fieldDescription">The same location as seen from the worker machine.</div>
-        </div>
-
-        <div class="verticalSection">
-          <h2>Transskription (Whisper)</h2>
-          <p>The nightly "Generate missing subtitles" task queues items lacking a subtitle in these languages for Whisper transcription on GPU/CPU-capable workers. Whisper writes subtitles in the language actually spoken (it cannot translate to Danish - an English movie gets English subtitles).</p>
-        </div>
-
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Target languages</label>
-          <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
-          <div class="fieldDescription">Comma-separated two-letter codes. Items that already have a text subtitle in any of these are skipped.</div>
+        <!-- ======================== STATUS ======================= -->
+        <div data-sg-tab="status">
+          <div class="verticalSection">
+            <h2>Pool-status</h2>
+          </div>
+          <div id="SgPoolSummary" style="margin-bottom:1.5em;opacity:.85;"></div>
         </div>
 
         <div style="margin-top:1.5em;">
@@ -94,9 +148,8 @@
   </div>
   <!--
     No inline <script> on purpose: Jellyfin's dashboard does not execute
-    embedded script tags in plugin config pages on this server (confirmed
-    live with the other plugins in this family). All wiring lives in
-    Inject/inject.js, plain type="button" elements, no <form>.
+    embedded script tags in plugin config pages on this server. All wiring,
+    including the tab switching, lives in Inject/inject.js.
   -->
 </body>
 </html>

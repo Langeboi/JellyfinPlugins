@@ -67,6 +67,11 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!SyncWorker.ItemIncluded(item))
+                {
+                    continue;
+                }
+
                 var job = SyncWorker.CollectTranscribeJob(item, targetLangs);
                 if (job != null)
                 {
@@ -90,7 +95,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
 
             try
             {
-                var counts = await SyncWorker.DistributeAndSubmit(jobs, cancellationToken, transcribe: true).ConfigureAwait(false);
+                var counts = await SyncWorker.DistributeAndSubmit(jobs, cancellationToken, capability: "transcribe").ConfigureAwait(false);
                 foreach (var pair in counts)
                 {
                     _logger.LogInformation("SubtitleGuard: {Count} transcription jobs -> worker '{Worker}'", pair.Value, pair.Key);

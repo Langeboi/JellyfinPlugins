@@ -56,5 +56,24 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// transcription by the nightly task.
         /// </summary>
         public string TranscribeLanguages { get; set; } = "da,en";
+
+        /// <summary>
+        /// Comma-separated path prefixes (as Jellyfin sees them). When set,
+        /// the scheduled tasks only touch items under these paths - e.g.
+        /// "/Media/Movies,/Media/Shows" keeps Standup/Western/etc. out of
+        /// the pool entirely. Empty = whole library. The per-item buttons
+        /// deliberately ignore this (an explicit request wins).
+        /// </summary>
+        public string IncludedPathPrefixes { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Hide unwanted subtitle tracks in the player's selection menu:
+        /// anything not in <see cref="VisibleSubtitleLanguages"/>, hearing-
+        /// impaired variants, and duplicate tracks of the same language.
+        /// </summary>
+        public bool EnableTrackFilter { get; set; } = true;
+
+        /// <summary>Languages allowed to appear in the subtitle menu.</summary>
+        public string VisibleSubtitleLanguages { get; set; } = "da,en";
     }
 }

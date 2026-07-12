@@ -106,6 +106,184 @@ def _srt_timestamp(seconds: float) -> str:
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
+# ---- NLLB translation (optional capability, GPU machines) ----
+# The installer converts facebook/nllb-200-distilled-1.3B to a CTranslate2
+# model (same engine faster-whisper already uses). Quality-first choice:
+# NLLB is a dedicated translation model and the 1.3B distillation is close
+# to 1:1 for English->Danish - it just takes a couple of minutes per movie,
+# which was explicitly the acceptable trade-off.
+NLLB_DIR = os.environ.get("SUBWORKER_NLLB_DIR", "/opt/subtitle-worker/nllb-ct2")
+NLLB_TOKENIZER = os.environ.get("SUBWORKER_NLLB_TOKENIZER", "facebook/nllb-200-distilled-1.3B")
+
+try:
+    import ctranslate2  # noqa: F401
+
+    _HAS_CT2 = True
+except Exception:  # noqa: BLE001
+    _HAS_CT2 = False
+
+TRANSLATE_CAPABILITY = _HAS_CT2 and os.path.isdir(NLLB_DIR)
+
+_translator = None
+_nllb_tokenizer = None
+_translate_lock = threading.Lock()
+
+
+def get_translator():
+    global _translator, _nllb_tokenizer  # noqa: PLW0603
+    with _translate_lock:
+        if _translator is None:
+            from transformers import AutoTokenizer
+
+            _nllb_tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER, src_lang="eng_Latn")
+            _translator = ctranslate2.Translator(
+                NLLB_DIR,
+                device=WHISPER_DEVICE,
+                compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
+            )
+        return _translator, _nllb_tokenizer
+
+
+def translate_texts_en_to_da(texts):
+    """Batch-translate English lines to Danish, preserving list order."""
+    translator, tok = get_translator()
+    out = []
+    batch_size = 16
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        source = [tok.convert_ids_to_tokens(tok.encode(t)) for t in batch]
+        results = translator.translate_batch(
+            source,
+            target_prefix=[["dan_Latn"]] * len(batch),
+            beam_size=4,
+        )
+        for r in results:
+            tokens = r.hypotheses[0]
+            # drop the forced dan_Latn target-language token
+            if tokens and tokens[0] == "dan_Latn":
+                tokens = tokens[1:]
+            out.append(tok.decode(tok.convert_tokens_to_ids(tokens), skip_special_tokens=True).strip())
+    return out
+
+
+SRT_BLOCK_RE = re.compile(
+    r"(\d+)\s*\n(\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3}[^\n]*)\n(.*?)(?=\n\s*\n|\Z)",
+    re.DOTALL,
+)
+
+
+def parse_srt(text: str):
+    """Returns [(timing_line, cue_text), ...] in order."""
+    cues = []
+    for m in SRT_BLOCK_RE.finditer(text):
+        cue_text = m.group(3).strip()
+        if cue_text:
+            cues.append((m.group(2).strip(), cue_text))
+    return cues
+
+
+def wrap_cue(text: str, width: int = 42) -> str:
+    """Rebalance a translated cue into at most two readable lines."""
+    text = " ".join(text.split())
+    if len(text) <= width:
+        return text
+    mid = len(text) // 2
+    best = None
+    for idx, ch in enumerate(text):
+        if ch == " " and (best is None or abs(idx - mid) < abs(best - mid)):
+            best = idx
+    if best is None:
+        return text
+    return text[:best] + "\n" + text[best + 1:]
+
+
+def process_translate_job(job: dict):
+    media = job["media_path"]
+    key = "translate:" + media
+
+    if not TRANSLATE_CAPABILITY:
+        record(key, 0, None, "no-translator")
+        with state_lock:
+            state["failed"] += 1
+        return
+
+    if not os.path.isfile(media):
+        record(key, 0, None, "missing-file")
+        with state_lock:
+            state["failed"] += 1
+        return
+
+    mtime = os.path.getmtime(media)
+    if already_processed(key, mtime):
+        with state_lock:
+            state["skipped"] += 1
+        return
+
+    target = os.path.splitext(media)[0] + ".da.srt"
+    if os.path.exists(target):
+        record(key, mtime, None, "already-has-sub")
+        with state_lock:
+            state["skipped"] += 1
+        return
+
+    tmp_extract = None
+    try:
+        # Source English subtitle: an external file when the plugin knows
+        # one, otherwise extract the embedded stream with ffmpeg.
+        source_path = job.get("subtitle_path")
+        if not source_path and job.get("stream_index") is not None:
+            fd, tmp_extract = tempfile.mkstemp(suffix=".srt")
+            os.close(fd)
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-i", media, "-map", f"0:{int(job['stream_index'])}", tmp_extract],
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            if proc.returncode != 0 or not os.path.getsize(tmp_extract):
+                record(key, mtime, None, "extract-failed")
+                with state_lock:
+                    state["failed"] += 1
+                return
+            source_path = tmp_extract
+
+        if not source_path or not os.path.isfile(source_path):
+            record(key, mtime, None, "missing-source-sub")
+            with state_lock:
+                state["failed"] += 1
+            return
+
+        with open(source_path, "r", encoding="utf-8", errors="replace") as fh:
+            cues = parse_srt(fh.read())
+        if not cues:
+            record(key, mtime, None, "empty-source-sub")
+            with state_lock:
+                state["failed"] += 1
+            return
+
+        # Translate cue texts (newlines flattened - NLLB translates whole
+        # sentences better than fragments), then re-wrap for readability.
+        translated = translate_texts_en_to_da([" ".join(c[1].split()) for c in cues])
+
+        fd, tmp_out = tempfile.mkstemp(suffix=".srt")
+        os.close(fd)
+        with open(tmp_out, "w", encoding="utf-8") as fh:
+            for i, ((timing, _), text) in enumerate(zip(cues, translated), start=1):
+                fh.write(f"{i}\n{timing}\n{wrap_cue(text)}\n\n")
+        shutil.move(tmp_out, target)
+
+        record(key, mtime, None, "translated")
+        with state_lock:
+            state["done"] += 1
+    except Exception as exc:  # noqa: BLE001 - keep the worker alive
+        record(key, mtime, None, f"error: {exc}")
+        with state_lock:
+            state["failed"] += 1
+    finally:
+        if tmp_extract and os.path.exists(tmp_extract):
+            os.unlink(tmp_extract)
+
+
 def write_srt(segments, path: str) -> int:
     """Stream Whisper segments to an SRT file; returns the segment count.
     Streaming matters: faster-whisper yields segments lazily, so this is
@@ -142,14 +320,103 @@ state = {
 state_lock = threading.Lock()
 
 # set = running, cleared = paused. Threads finish their current job and
-# then wait; pausing never kills work mid-file.
+# then wait; pausing never kills work mid-file. The paused state persists
+# across restarts via a flag file - a machine you paused stays paused after
+# a reboot instead of silently rejoining the pool.
+PAUSE_FLAG = os.environ.get(
+    "SUBWORKER_PAUSE_FLAG", os.path.join(os.path.dirname(DB_PATH) or ".", ".subworker-paused")
+)
 pause_event = threading.Event()
-pause_event.set()
+if os.path.exists(PAUSE_FLAG):
+    state["paused"] = True
+else:
+    pause_event.set()
 
 # Only ONE transcription at a time regardless of concurrency - a second
 # large-v3 on the same GPU would OOM, and on CPU it would thrash. Sync jobs
 # keep flowing on the other threads while a transcription runs.
 transcribe_job_lock = threading.Lock()
+
+# ---- Work stealing ----
+# The plugin distributes each worker's peer list (url + key). When this
+# worker goes fully idle, it asks the peer with the deepest queue to hand
+# over a slice of its jobs - so a fast machine finishing early helps a slow
+# one instead of sitting idle while the nightly backlog grinds elsewhere.
+PEERS_FILE = os.path.join(os.path.dirname(DB_PATH) or ".", ".subworker-peers.json")
+peers_lock = threading.Lock()
+peers: "list[dict]" = []
+import json as _json  # noqa: E402
+
+try:
+    if os.path.exists(PEERS_FILE):
+        with open(PEERS_FILE, "r", encoding="utf-8") as _fh:
+            peers = _json.load(_fh)
+except Exception:  # noqa: BLE001
+    peers = []
+
+
+def my_capabilities():
+    return {"sync": True, "transcribe": TRANSCRIBE_CAPABILITY, "translate": TRANSLATE_CAPABILITY}
+
+
+def job_suitable_for(job: dict, caps: dict) -> bool:
+    jtype = job.get("type", "sync")
+    if jtype == "transcribe":
+        return bool(caps.get("transcribe"))
+    if jtype == "translate":
+        return bool(caps.get("translate"))
+    return True
+
+
+def steal_loop():
+    import urllib.request
+
+    while True:
+        time.sleep(45)
+        try:
+            if not pause_event.is_set() or job_queue.qsize() > 0:
+                continue
+            with state_lock:
+                if state["processing"]:
+                    continue
+            with peers_lock:
+                current_peers = list(peers)
+            if not current_peers:
+                continue
+
+            # Find the peer with the deepest queue.
+            best = None
+            best_depth = 1  # only bother when someone has 2+ queued
+            for peer in current_peers:
+                try:
+                    req = urllib.request.Request(peer["url"].rstrip("/") + "/status")
+                    req.add_header("X-Api-Key", peer["api_key"])
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        depth = _json.loads(resp.read()).get("queue_depth", 0)
+                    if depth > best_depth:
+                        best, best_depth = peer, depth
+                except Exception:  # noqa: BLE001 - peer offline, skip
+                    continue
+
+            if best is None:
+                continue
+
+            payload = _json.dumps({
+                "count": min(max(1, best_depth // 2), 10),
+                "capabilities": my_capabilities(),
+            }).encode("utf-8")
+            req = urllib.request.Request(best["url"].rstrip("/") + "/steal", data=payload, method="POST")
+            req.add_header("X-Api-Key", best["api_key"])
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                stolen = _json.loads(resp.read()).get("jobs", [])
+            for job in stolen:
+                job_queue.put(job)
+        except Exception:  # noqa: BLE001 - never let the loop die
+            continue
+
+
+threading.Thread(target=steal_loop, daemon=True).start()
 
 
 def db():
@@ -173,7 +440,7 @@ def db():
 # error) must NOT block a later retry - otherwise a transient problem (like
 # the ffsubsync-not-found bug) would poison every affected subtitle forever,
 # since the nightly task would keep skipping them.
-SUCCESS_STATUSES = ("fixed", "in-sync", "already-has-sub")
+SUCCESS_STATUSES = ("fixed", "in-sync", "already-has-sub", "rolled-back", "translated")
 
 
 def already_processed(sub_path: str, mtime: float) -> bool:
@@ -350,12 +617,19 @@ def worker_loop():
         label = job.get("subtitle_path") or job.get("media_path")
         if job.get("type") == "transcribe":
             label = "[whisper] " + os.path.basename(job.get("media_path") or "")
+        elif job.get("type") == "translate":
+            label = "[oversætter] " + os.path.basename(job.get("media_path") or "")
         with state_lock:
             state["processing"][name] = label
         try:
             if job.get("type") == "transcribe":
+                # Whisper and NLLB share the same GPU - one heavy ML job at
+                # a time, sync keeps flowing on the other threads.
                 with transcribe_job_lock:
                     process_transcribe_job(job)
+            elif job.get("type") == "translate":
+                with transcribe_job_lock:
+                    process_translate_job(job)
             else:
                 process_job(job)
         finally:
@@ -376,21 +650,120 @@ def check_key(x_api_key):
 class Job(BaseModel):
     media_path: str
     subtitle_path: str | None = None
-    type: str = "sync"  # "sync" | "transcribe"
+    type: str = "sync"  # "sync" | "transcribe" | "translate"
     language: str | None = None  # transcribe only; None = auto-detect
+    stream_index: int | None = None  # translate only: embedded source stream
 
 
 class Batch(BaseModel):
     jobs: list[Job]
 
 
+class RollbackBody(BaseModel):
+    subtitle_path: str
+
+
+class PeerEntry(BaseModel):
+    url: str
+    api_key: str
+
+
+class PeersBody(BaseModel):
+    peers: list[PeerEntry]
+
+
+class StealBody(BaseModel):
+    count: int = 5
+    capabilities: dict = {}
+
+
+@app.post("/peers")
+def set_peers(body: PeersBody, x_api_key: str = Header(default="")):
+    check_key(x_api_key)
+    global peers  # noqa: PLW0603
+    with peers_lock:
+        peers = [p.model_dump() for p in body.peers]
+        try:
+            with open(PEERS_FILE, "w", encoding="utf-8") as fh:
+                _json.dump(peers, fh)
+        except OSError:
+            pass
+    return {"peers": len(peers)}
+
+
+@app.post("/steal")
+def steal(body: StealBody, x_api_key: str = Header(default="")):
+    """Hand queued jobs to an idle peer. Jobs the requester can't run
+    (e.g. a transcription asked for by a non-GPU worker) are kept."""
+    check_key(x_api_key)
+    taken: list[dict] = []
+    kept: list[dict] = []
+    want = max(1, min(20, body.count))
+    try:
+        while len(taken) < want:
+            job = job_queue.get_nowait()
+            job_queue.task_done()
+            if job_suitable_for(job, body.capabilities):
+                taken.append(job)
+            else:
+                kept.append(job)
+    except queue.Empty:
+        pass
+    for job in kept:
+        job_queue.put(job)
+    return {"jobs": taken, "queue_depth": job_queue.qsize()}
+
+
 @app.get("/health")
 def health():
     return {
         "ok": True,
-        "capabilities": {"sync": True, "transcribe": TRANSCRIBE_CAPABILITY},
+        "capabilities": {
+            "sync": True,
+            "transcribe": TRANSCRIBE_CAPABILITY,
+            "translate": TRANSLATE_CAPABILITY,
+        },
         "whisper_model": WHISPER_MODEL_NAME if TRANSCRIBE_CAPABILITY else None,
     }
+
+
+@app.get("/recent")
+def recent(limit: int = 5, x_api_key: str = Header(default="")):
+    """Most recent sync FIXES (files actually rewritten) that can still be
+    rolled back - i.e. their .bak original exists."""
+    check_key(x_api_key)
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT sub_path, offset_seconds, processed_at FROM processed "
+            "WHERE status = 'fixed' ORDER BY processed_at DESC LIMIT ?",
+            (max(1, min(50, limit)) * 3,),  # overfetch: some .baks may be gone
+        ).fetchall()
+    finally:
+        conn.close()
+
+    items = []
+    for sub_path, offset, at in rows:
+        if os.path.exists(sub_path + ".bak"):
+            items.append({"subtitle_path": sub_path, "offset_seconds": offset, "processed_at": at})
+        if len(items) >= limit:
+            break
+    return {"items": items}
+
+
+@app.post("/rollback")
+def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
+    check_key(x_api_key)
+    sub = body.subtitle_path
+    bak = sub + ".bak"
+    if not os.path.exists(bak):
+        raise HTTPException(status_code=404, detail="no backup for this file")
+    shutil.copy2(bak, sub)
+    # Recorded as its own success status so the nightly task does NOT
+    # immediately re-fix what the user deliberately reverted. The .bak is
+    # kept, so the decision remains reversible by hand.
+    record(sub, os.path.getmtime(sub), None, "rolled-back")
+    return {"restored": sub}
 
 
 @app.post("/jobs")
@@ -412,6 +785,11 @@ def submit_batch(batch: Batch, x_api_key: str = Header(default="")):
 def pause(x_api_key: str = Header(default="")):
     check_key(x_api_key)
     pause_event.clear()
+    try:
+        with open(PAUSE_FLAG, "w", encoding="utf-8") as fh:
+            fh.write(datetime.now(timezone.utc).isoformat())
+    except OSError:
+        pass  # in-memory pause still works, it just won't survive a reboot
     with state_lock:
         state["paused"] = True
     return {"paused": True}
@@ -421,6 +799,11 @@ def pause(x_api_key: str = Header(default="")):
 def resume(x_api_key: str = Header(default="")):
     check_key(x_api_key)
     pause_event.set()
+    try:
+        if os.path.exists(PAUSE_FLAG):
+            os.unlink(PAUSE_FLAG)
+    except OSError:
+        pass
     with state_lock:
         state["paused"] = False
     return {"paused": False}
@@ -463,13 +846,21 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
             if not (s.startswith("transcribed:") or s == "already-has-sub"):
                 continue
             real = sub_path[len("transcribe:"):]
+        elif kind == "translate":
+            if not sub_path.startswith("translate:"):
+                continue
+            if s not in ("translated", "already-has-sub"):
+                continue
+            real = sub_path[len("translate:"):]
         else:
-            if sub_path.startswith("transcribe:") or s not in ("fixed", "in-sync"):
+            if sub_path.startswith("transcribe:") or sub_path.startswith("translate:"):
+                continue
+            if s not in ("fixed", "in-sync", "rolled-back"):
                 continue
             real = sub_path
         if verify:
             try:
-                if abs(os.path.getmtime(real if kind != "transcribe" else real) - mtime) > 1e-6:
+                if abs(os.path.getmtime(real) - mtime) > 1e-6:
                     continue
             except OSError:
                 continue
@@ -485,9 +876,14 @@ def status(x_api_key: str = Header(default="")):
         active = dict(snapshot["processing"])
     snapshot["active"] = len(active)
     snapshot["processing"] = ", ".join(active.values()) if active else None
+    snapshot["processing_list"] = list(active.values())
     snapshot["concurrency"] = SYNC_CONCURRENCY
     snapshot["queue_depth"] = job_queue.qsize()
-    snapshot["capabilities"] = {"sync": True, "transcribe": TRANSCRIBE_CAPABILITY}
+    snapshot["capabilities"] = {
+        "sync": True,
+        "transcribe": TRANSCRIBE_CAPABILITY,
+        "translate": TRANSLATE_CAPABILITY,
+    }
     snapshot["whisper_model"] = WHISPER_MODEL_NAME if TRANSCRIBE_CAPABILITY else None
     # Persisted outcome breakdown so problems are visible without opening
     # the database by hand (e.g. a wall of "ffsubsync-failed" is a very

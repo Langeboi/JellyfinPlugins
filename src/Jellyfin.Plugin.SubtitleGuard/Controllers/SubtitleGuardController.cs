@@ -129,7 +129,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
 
             try
             {
-                await SyncWorker.DistributeAndSubmit(new[] { job }, cancellationToken, transcribe: true).ConfigureAwait(false);
+                await SyncWorker.DistributeAndSubmit(new[] { job }, cancellationToken, capability: "transcribe").ConfigureAwait(false);
                 return Json(new JObject { ["queued"] = 1 });
             }
             catch (InvalidOperationException ex)
@@ -142,6 +142,51 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             {
                 _logger.LogWarning(ex, "SubtitleGuard: transcribe submit failed");
                 return Json(new JObject { ["error"] = "Kunne ikke nå workerne." }, 502);
+            }
+        }
+
+        // The last few subtitles the pool actually rewrote, newest first -
+        // backs the rollback menu in the settings page.
+        [Authorize]
+        [HttpGet("recent")]
+        public async Task<ActionResult> RecentFixes(CancellationToken cancellationToken)
+        {
+            var items = await SyncWorker.GetRecentFixes(5, cancellationToken).ConfigureAwait(false);
+            return Content(new JObject { ["items"] = items }.ToString(), "application/json");
+        }
+
+        public class RollbackRequestBody
+        {
+            public string Url { get; set; } = string.Empty;
+
+            public string SubtitlePath { get; set; } = string.Empty;
+        }
+
+        [Authorize]
+        [HttpPost("rollback")]
+        public async Task<ActionResult> RollbackFix([FromBody] RollbackRequestBody body, CancellationToken cancellationToken)
+        {
+            if (body == null || string.IsNullOrWhiteSpace(body.Url) || string.IsNullOrWhiteSpace(body.SubtitlePath))
+            {
+                return BadRequest();
+            }
+
+            var worker = SyncWorker.GetWorkers()
+                .FirstOrDefault(w => string.Equals(w.Url, body.Url.TrimEnd('/'), StringComparison.OrdinalIgnoreCase));
+            if (worker == null)
+            {
+                return NotFound();
+            }
+
+            try
+            {
+                var text = await SyncWorker.Rollback(worker, body.SubtitlePath, cancellationToken).ConfigureAwait(false);
+                return Content(text, "application/json");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SubtitleGuard: rollback failed");
+                return Json(new JObject { ["error"] = "Kunne ikke rulle tilbage (mangler .bak eller worker offline)." }, 502);
             }
         }
 

@@ -131,6 +131,9 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
 
             /// <summary>"cuda", "cpu", or null when the worker can't transcribe.</summary>
             public string? Transcribe { get; set; }
+
+            /// <summary>True when the worker has the NLLB translation model.</summary>
+            public bool Translate { get; set; }
         }
 
         public static async Task<WorkerHealth> GetHealth(WorkerEntry worker, CancellationToken cancellationToken)
@@ -149,13 +152,164 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                 return new WorkerHealth
                 {
                     Online = true,
-                    Transcribe = transcribe == null || transcribe.Type == JTokenType.Null ? null : transcribe.ToString()
+                    Transcribe = transcribe == null || transcribe.Type == JTokenType.Null ? null : transcribe.ToString(),
+                    Translate = body["capabilities"]?["translate"]?.Value<bool>() ?? false
                 };
             }
             catch
             {
                 return new WorkerHealth { Online = false };
             }
+        }
+
+        /// <summary>
+        /// Scheduled-task scope filter: when IncludedPathPrefixes is set,
+        /// only items under those paths participate.
+        /// </summary>
+        public static bool ItemIncluded(BaseItem item)
+        {
+            var csv = Plugin.Instance!.Configuration.IncludedPathPrefixes;
+            if (string.IsNullOrWhiteSpace(csv) || string.IsNullOrEmpty(item.Path))
+            {
+                return string.IsNullOrWhiteSpace(csv);
+            }
+
+            foreach (var prefix in csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (item.Path.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// One translation job when the item has an English TEXT subtitle
+        /// (external file preferred, embedded stream as fallback - the
+        /// worker extracts it with ffmpeg) but no Danish text subtitle.
+        /// </summary>
+        public static JObject? CollectTranslateJob(BaseItem item)
+        {
+            if (string.IsNullOrEmpty(item.Path))
+            {
+                return null;
+            }
+
+            string? externalEnPath = null;
+            int? embeddedEnIndex = null;
+
+            foreach (var stream in item.GetMediaStreams())
+            {
+                if (stream.Type != MediaStreamType.Subtitle || !TextCodec.IsMatch(stream.Codec ?? string.Empty))
+                {
+                    continue;
+                }
+
+                var lang = string.IsNullOrEmpty(stream.Language) ? string.Empty : NormalizeLang(stream.Language);
+                if (lang == "da")
+                {
+                    return null; // Danish already exists
+                }
+
+                if (lang == "en")
+                {
+                    if (stream.IsExternal && !string.IsNullOrEmpty(stream.Path))
+                    {
+                        externalEnPath ??= stream.Path;
+                    }
+                    else if (!stream.IsExternal)
+                    {
+                        embeddedEnIndex ??= stream.Index;
+                    }
+                }
+            }
+
+            if (externalEnPath == null && embeddedEnIndex == null)
+            {
+                return null;
+            }
+
+            var job = new JObject
+            {
+                ["type"] = "translate",
+                ["media_path"] = MapPath(item.Path)
+            };
+            if (externalEnPath != null)
+            {
+                job["subtitle_path"] = MapPath(externalEnPath);
+            }
+            else
+            {
+                job["stream_index"] = embeddedEnIndex;
+            }
+
+            return job;
+        }
+
+        /// <summary>Merged "last fixed" list across the pool, newest first.</summary>
+        public static async Task<JArray> GetRecentFixes(int limit, CancellationToken cancellationToken)
+        {
+            var workers = GetWorkers();
+            var all = new List<JObject>();
+            var results = await Task.WhenAll(workers.Select(async w =>
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, w.Url + "/recent?limit=" + limit);
+                    request.Headers.Add("X-Api-Key", w.ApiKey);
+                    using var response = await HealthHttp.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return new List<JObject>();
+                    }
+
+                    var body = JObject.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    var items = new List<JObject>();
+                    foreach (var entry in body["items"] as JArray ?? new JArray())
+                    {
+                        var obj = (JObject)entry;
+                        obj["worker_name"] = w.Name;
+                        obj["worker_url"] = w.Url;
+                        items.Add(obj);
+                    }
+
+                    return items;
+                }
+                catch
+                {
+                    return new List<JObject>();
+                }
+            })).ConfigureAwait(false);
+
+            foreach (var list in results)
+            {
+                all.AddRange(list);
+            }
+
+            var top = all
+                .OrderByDescending(o => o["processed_at"]?.ToString() ?? string.Empty)
+                .Take(limit);
+            return new JArray(top.Cast<object>());
+        }
+
+        public static async Task<string> Rollback(WorkerEntry worker, string subtitlePath, CancellationToken cancellationToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, worker.Url + "/rollback");
+            request.Headers.Add("X-Api-Key", worker.ApiKey);
+            request.Content = new StringContent(
+                new JObject { ["subtitle_path"] = subtitlePath }.ToString(),
+                Encoding.UTF8,
+                "application/json");
+            using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Worker returned {(int)response.StatusCode}: {text}");
+            }
+
+            return text;
         }
 
         // Jellyfin tags streams with ISO 639-2 codes ("eng", "dan"); the
@@ -228,10 +382,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["failed"] = body["failed"];
                         entry["processing"] = body["processing"];
                         entry["transcribe"] = body["capabilities"]?["transcribe"];
+                        entry["translate"] = body["capabilities"]?["translate"];
                         entry["whisper_model"] = body["whisper_model"];
                         entry["paused"] = body["paused"];
                         entry["active"] = body["active"];
                         entry["concurrency"] = body["concurrency"];
+                        entry["outcomes"] = body["outcomes"];
+                        entry["processing_list"] = body["processing_list"];
                     }
                     else
                     {
@@ -266,13 +423,17 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         public static async Task<Dictionary<string, int>> DistributeAndSubmit(
             IReadOnlyList<JObject> jobs,
             CancellationToken cancellationToken,
-            bool transcribe = false)
+            string? capability = null)
         {
             var workers = GetWorkers();
             if (workers.Count == 0)
             {
                 throw new InvalidOperationException("No workers configured.");
             }
+
+            // Refresh every worker's peer list so idle machines can steal
+            // from busy ones during this run.
+            await PushPeers(cancellationToken).ConfigureAwait(false);
 
             var health = await Task.WhenAll(workers.Select(w => GetHealth(w, cancellationToken))).ConfigureAwait(false);
 
@@ -281,14 +442,22 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             // online, exclusively to CUDA machines (a 3080 outruns a CPU
             // worker by an order of magnitude AND uses the better model, so
             // mixing them just produces slower, worse subtitles).
+            // Translation jobs only go to workers with the NLLB model.
             var eligible = new bool[workers.Count];
-            if (transcribe)
+            if (capability == "transcribe")
             {
                 var anyCuda = health.Any(h => h.Online && h.Transcribe == "cuda");
                 for (var i = 0; i < workers.Count; i++)
                 {
                     eligible[i] = health[i].Online && health[i].Transcribe != null
                         && (!anyCuda || health[i].Transcribe == "cuda");
+                }
+            }
+            else if (capability == "translate")
+            {
+                for (var i = 0; i < workers.Count; i++)
+                {
+                    eligible[i] = health[i].Online && health[i].Translate;
                 }
             }
             else
@@ -301,8 +470,8 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
 
             if (!eligible.Any(e => e))
             {
-                throw new InvalidOperationException(transcribe
-                    ? "No transcription-capable workers online."
+                throw new InvalidOperationException(capability != null
+                    ? $"No {capability}-capable workers online."
                     : "No workers online.");
             }
 
@@ -379,6 +548,41 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Tells every worker who its peers are (url + key), enabling
+        /// work-stealing: an idle worker pulls jobs from the peer with the
+        /// deepest queue. Failures are ignored - a worker without a peer
+        /// list simply doesn't steal.
+        /// </summary>
+        public static async Task PushPeers(CancellationToken cancellationToken)
+        {
+            var workers = GetWorkers();
+            if (workers.Count < 2)
+            {
+                return;
+            }
+
+            await Task.WhenAll(workers.Select(async w =>
+            {
+                try
+                {
+                    var others = new JArray(workers
+                        .Where(o => !string.Equals(o.Url, w.Url, StringComparison.OrdinalIgnoreCase))
+                        .Select(o => new JObject { ["url"] = o.Url, ["api_key"] = o.ApiKey })
+                        .Cast<object>());
+                    using var request = new HttpRequestMessage(HttpMethod.Post, w.Url + "/peers");
+                    request.Headers.Add("X-Api-Key", w.ApiKey);
+                    request.Content = new StringContent(
+                        new JObject { ["peers"] = others }.ToString(), Encoding.UTF8, "application/json");
+                    using var response = await HealthHttp.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // offline or old worker version - fine
+                }
+            })).ConfigureAwait(false);
         }
 
         /// <summary>Relays a control action (pause/resume/clear) to one worker.</summary>

@@ -58,6 +58,11 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!SyncWorker.ItemIncluded(item))
+                {
+                    continue;
+                }
+
                 jobs.AddRange(SyncWorker.CollectJobs(item));
             }
 
