@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.3.0.0",
+        "changelog": "Whisper transcription (Phase B). Workers can now generate subtitles: they advertise a transcription capability (CUDA large-v3 or CPU small, auto-detected - re-run the installer on each worker to add Whisper support; it now keeps the existing enrollment code). New scheduled task 'Generate missing subtitles' (default 01:00) queues every item without a text subtitle in the target languages (default da,en) - jobs go only to Whisper-capable workers, exclusively to GPU workers when one is online, and the run skips gracefully when none are up. 'Generér undertekster' button on item pages. Output written as <name>.<lang>.srt next to the media; existing subtitle files are never overwritten. Worker list shows each machine's Whisper capability. Limitation: Whisper transcribes the spoken language (English movies get English subs); Danish translation is a possible future phase.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.3.0.0/subtitleguard_1.3.0.0.zip",
+        "checksum": "52cdbce38e1a6d21a50a18d622ba1fbf",
+        "timestamp": "2026-07-12T08:20:00Z"
+      },
+      {
         "version": "1.2.2.0",
         "changelog": "Fix: the plugin frontend could crash at page load and take everything with it - subtitle sizing, the rendering watchdog, and the settings-page wiring ('Tilføj worker' did nothing). Root cause: the script asked for window.ApiClient before Jellyfin's bootstrap had created it; losing that race threw an error that prevented the plugin's page-watcher from ever being installed. Everything now waits for ApiClient readiness and the watcher installs unconditionally and crash-proof, so the settings page wires itself reliably on every load.",
         "targetAbi": "10.11.0.0",
