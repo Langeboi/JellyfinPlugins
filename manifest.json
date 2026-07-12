@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.0.0",
+        "changelog": "The big overhaul. Seneste rettelser rollback menu (last 5 rewritten subs with offset/time/worker and one-click Fortryd rettelse restoring the .bak - rollbacks are remembered so the nightly task won't undo them). Library scoping via 'Included libraries' (e.g. /Media/Movies,/Media/Shows - Standup/Western stay untouched). Danish translation: NLLB-200 distilled-1.3B on GPU workers translates English subs (external or embedded, ffmpeg-extracted) to .da.srt with original timings, nightly at 02:00. Subtitle-menu cleanup: hides non-da/en tracks, SDH/CC variants, and duplicate languages in the player - one clean choice per language. Live per-job activity per worker (Synkroniserer/Transskriberer/Oversætter: <navn>). New indicators: glowing green idle, spinning ring working, pause bars, red offline. Settings reorganized into tabs. Work stealing: idle workers pull from the deepest peer queue (capability-aware). Pool totals in Status tab; pause survives worker reboots. Update workers with the installer one-liner (GPU machine downloads the NLLB model once, ~6GB; enrollment codes preserved).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.4.0.0/subtitleguard_1.4.0.0.zip",
+        "checksum": "3e8196a6c9b2f124da708bf6b5a23baf",
+        "timestamp": "2026-07-12T13:30:00Z"
+      },
+      {
         "version": "1.3.1.0",
         "changelog": "Sync throughput + pool coordination + controls. Parallel sync: workers run several jobs at once (default min(4, cores-1); transcriptions stay one-at-a-time for GPU memory) - tune with SUBWORKER_SYNC_CONCURRENCY, which doubles as a bandwidth cap since each job streams a full media file. Pool-wide dedupe: the plugin merges every worker's completed-work ledger before distributing, so a freshly-enrolled worker no longer redoes files others already finished (mtime-verified, so re-downloaded subs still get redone). Per-worker Pause/Fortsæt and Ryd kø buttons in settings; paused workers show grey with waiting count; multi-file activity display. Update each worker with the usual installer one-liner (enrollment codes preserved).",
         "targetAbi": "10.11.0.0",
