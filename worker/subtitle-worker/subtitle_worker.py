@@ -34,6 +34,10 @@ DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.
 # Offsets smaller than this are considered "already in sync" - the original
 # file is left completely untouched.
 MIN_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MIN_OFFSET", "0.4"))
+# Offsets LARGER than this are almost always a mis-alignment (ffsubsync
+# latched onto the wrong audio) rather than a real drift - applying them is
+# what produced "way off" subtitles. Reject and keep the original instead.
+MAX_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MAX_OFFSET", "60"))
 
 
 def _resolve_ffsubsync() -> str:
@@ -440,7 +444,7 @@ def db():
 # error) must NOT block a later retry - otherwise a transient problem (like
 # the ffsubsync-not-found bug) would poison every affected subtitle forever,
 # since the nightly task would keep skipping them.
-SUCCESS_STATUSES = ("fixed", "in-sync", "already-has-sub", "rolled-back", "translated")
+SUCCESS_STATUSES = ("fixed", "in-sync", "already-has-sub", "rolled-back", "translated", "suspect-offset")
 
 
 def already_processed(sub_path: str, mtime: float) -> bool:
@@ -512,6 +516,16 @@ def process_job(job: dict):
             # Already in sync - leave the original untouched, remember that
             # this version was checked.
             record(sub, mtime, offset, "in-sync")
+            with state_lock:
+                state["done"] += 1
+            return
+
+        if offset is not None and abs(offset) > MAX_OFFSET_SECONDS:
+            # Implausibly large shift - almost certainly a mis-align, not a
+            # real drift. Keep the original rather than corrupting a good
+            # subtitle. Recorded as resolved so it isn't retried forever
+            # (ffsubsync would report the same bad offset next time).
+            record(sub, mtime, offset, "suspect-offset")
             with state_lock:
                 state["done"] += 1
             return

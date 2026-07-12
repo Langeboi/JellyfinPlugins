@@ -15,6 +15,29 @@ echo "== Creating service user and directories =="
 id -u "$SERVICE_USER" >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin "$SERVICE_USER"
 mkdir -p "$INSTALL_DIR"
 
+# Models are cached INSIDE the install dir. The service user is a system
+# user with no real home, so the default ~/.cache/huggingface path isn't
+# writable for it - which is exactly why runtime downloads never stuck and
+# hammered HuggingFace into 429 rate-limits. A fixed, service-user-owned
+# cache (pre-filled below) means the runtime never contacts HuggingFace.
+HF_CACHE_DIR="$INSTALL_DIR/hf-cache"
+mkdir -p "$HF_CACHE_DIR"
+export HF_HOME="$HF_CACHE_DIR"
+
+# HuggingFace pulls get rate-limited (429) when several fire at once, so
+# retry with a long backoff during install rather than failing outright.
+hf_retry() {
+  local n=0
+  until "$@"; do
+    n=$((n + 1))
+    if [ "$n" -ge 5 ]; then
+      return 1
+    fi
+    echo "  (HuggingFace download failed - backing off 60s, attempt $n/5)"
+    sleep 60
+  done
+}
+
 # Works both ways: run from a checkout (file sits next to this script) or
 # piped straight from GitHub (curl -sL .../install.sh | sudo bash), in which
 # case the worker script is fetched from the repo.
@@ -34,6 +57,9 @@ echo "== Whisper transcription support =="
 "$INSTALL_DIR/venv/bin/pip" install faster-whisper
 WHISPER_NOTE="CPU (model: small)"
 TRANSLATE_NOTE="not installed (CPU machine)"
+WHISPER_MODEL=small
+WHISPER_DEV=cpu
+WHISPER_CT=int8
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected - installing CUDA runtime libraries"
   "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
@@ -45,6 +71,9 @@ print(os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib") + ":" +
 PYEOF
 )
   WHISPER_NOTE="CUDA (model: large-v3)"
+  WHISPER_MODEL=large-v3
+  WHISPER_DEV=cuda
+  WHISPER_CT=float16
 
   # English->Danish translation (NLLB-200 distilled 1.3B, quality-first
   # choice). Converted once to CTranslate2 format; the download+conversion
@@ -58,10 +87,14 @@ PYEOF
       echo "== Installing NLLB translation (this downloads ~6GB, be patient) =="
       "$INSTALL_DIR/venv/bin/pip" install transformers sentencepiece
       "$INSTALL_DIR/venv/bin/pip" install torch --index-url https://download.pytorch.org/whl/cpu
-      if "$INSTALL_DIR/venv/bin/ct2-transformers-converter" \
+      if hf_retry "$INSTALL_DIR/venv/bin/ct2-transformers-converter" \
            --model facebook/nllb-200-distilled-1.3B \
            --output_dir "$INSTALL_DIR/nllb-ct2" \
            --quantization float16 --force; then
+        # The tokenizer is loaded from HuggingFace at RUNTIME too - pre-cache
+        # it now so translation never depends on a live HF call either.
+        hf_retry "$INSTALL_DIR/venv/bin/python" -c \
+          "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-1.3B'); print('nllb tokenizer cached')" || true
         TRANSLATE_NOTE="NLLB-200 1.3B (CUDA)"
       else
         echo "WARNING: NLLB conversion failed - translation disabled on this worker"
@@ -70,6 +103,24 @@ PYEOF
       fi
     fi
   fi
+fi
+
+# Pre-download the Whisper model into the fixed cache so the RUNTIME never
+# contacts HuggingFace (the v1.4.0.0 failure: many jobs each re-downloading
+# the model, hitting a 429 rate limit, all failing). CUDA loads need the
+# runtime libs on LD_LIBRARY_PATH here too.
+echo "== Pre-downloading Whisper model ($WHISPER_MODEL) =="
+if LD_LIBRARY_PATH="${CUDA_LIBS:-}" HF_HOME="$HF_CACHE_DIR" hf_retry \
+     "$INSTALL_DIR/venv/bin/python" - "$WHISPER_MODEL" "$WHISPER_DEV" "$WHISPER_CT" <<'PYEOF'
+import sys
+from faster_whisper import WhisperModel
+WhisperModel(sys.argv[1], device=sys.argv[2], compute_type=sys.argv[3])
+print("whisper model cached")
+PYEOF
+then
+  echo "  Whisper model cached OK"
+else
+  echo "  WARNING: Whisper model pre-download failed - it will retry at runtime"
 fi
 
 # Re-running this installer (e.g. to upgrade) must NOT rotate the API key -
@@ -87,9 +138,13 @@ SUBWORKER_API_KEY=$API_KEY
 SUBWORKER_PORT=8099
 SUBWORKER_MIN_OFFSET=0.4
 SUBWORKER_DB=$INSTALL_DIR/processed.db
+HF_HOME=$HF_CACHE_DIR
 # Parallel sync jobs (default: min(4, cores-1)). Each job streams a full
 # media file over the network - lower this to cap bandwidth usage.
 # SUBWORKER_SYNC_CONCURRENCY=2
+# Reject ffsubsync results whose offset exceeds this many seconds - such a
+# large shift is almost always a mis-alignment, so the original is kept.
+# SUBWORKER_MAX_OFFSET=60
 EOF
 if [ -n "${CUDA_LIBS:-}" ]; then
   echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"

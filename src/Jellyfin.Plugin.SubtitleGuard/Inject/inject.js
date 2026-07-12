@@ -572,7 +572,9 @@
       if (!poolSummary) {
         return;
       }
-      var totals = { fixed: 0, insync: 0, transcribed: 0, translated: 0, failed: 0 };
+      var totals = { fixed: 0, insync: 0, transcribed: 0, translated: 0, suspect: 0, failed: 0 };
+      // Statuses that mean "resolved, nothing wrong" - never counted as failures.
+      var benign = { 'already-has-sub': 1, 'rolled-back': 1, 'suspect-offset': 1 };
       workers.forEach(function (s) {
         var o = s.outcomes || {};
         Object.keys(o).forEach(function (k) {
@@ -580,13 +582,15 @@
           else if (k === 'in-sync') { totals.insync += o[k]; }
           else if (k.indexOf('transcribed:') === 0) { totals.transcribed += o[k]; }
           else if (k === 'translated') { totals.translated += o[k]; }
-          else if (k !== 'already-has-sub' && k !== 'rolled-back') { totals.failed += o[k]; }
+          else if (k === 'suspect-offset') { totals.suspect += o[k]; }
+          else if (!benign[k]) { totals.failed += o[k]; }
         });
       });
       poolSummary.textContent =
         'I alt på tværs af workers: ' + totals.fixed + ' undertekster rettet · ' +
         totals.insync + ' var allerede i sync · ' + totals.transcribed + ' genereret (Whisper) · ' +
-        totals.translated + ' oversat til dansk · ' + totals.failed + ' fejlet';
+        totals.translated + ' oversat til dansk · ' + totals.suspect + ' sprunget over (for skæve) · ' +
+        totals.failed + ' fejlet';
     }
 
     function renderRecentFixes() {
