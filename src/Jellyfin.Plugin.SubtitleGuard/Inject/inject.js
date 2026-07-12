@@ -216,30 +216,54 @@
     var buttons = page.querySelector('.mainDetailButtons');
     var existing = buttons.querySelector('.subtitleGuard-syncBtn');
     if (existing) {
+      // Page instance reused for a different item: repoint both buttons.
       if (existing.getAttribute('data-item-id') !== itemId) {
-        existing.setAttribute('data-item-id', itemId);
-        existing.querySelector('span:last-child').textContent = 'Fix undertekst-sync';
-        existing.disabled = false;
+        var labels = { 'subtitleGuard-syncBtn': 'Fix undertekst-sync', 'subtitleGuard-transcribeBtn': 'Generér undertekster' };
+        Object.keys(labels).forEach(function (cls) {
+          var b = buttons.querySelector('.' + cls);
+          if (b) {
+            b.setAttribute('data-item-id', itemId);
+            b.querySelector('.subtitleGuard-btnLabel').textContent = labels[cls];
+            b.disabled = false;
+          }
+        });
       }
       return;
     }
 
+    makeDetailButton(buttons, itemId, {
+      cls: 'subtitleGuard-syncBtn',
+      icon: 'subtitles',
+      label: 'Fix undertekst-sync',
+      title: 'Synkroniser underteksterne til lyden',
+      endpoint: 'SubtitleGuard/sync/'
+    });
+    makeDetailButton(buttons, itemId, {
+      cls: 'subtitleGuard-transcribeBtn',
+      icon: 'mic',
+      label: 'Generér undertekster',
+      title: 'Transskribér undertekster med Whisper (GPU-worker)',
+      endpoint: 'SubtitleGuard/transcribe/'
+    });
+  }
+
+  function makeDetailButton(container, itemId, opts) {
     var btn = document.createElement('button');
     btn.setAttribute('is', 'emby-button');
     btn.type = 'button';
-    btn.className = 'button-flat btnSubtitleGuardSync detailButton emby-button subtitleGuard-syncBtn';
+    btn.className = 'button-flat detailButton emby-button ' + opts.cls;
     btn.setAttribute('data-item-id', itemId);
-    btn.title = 'Synkroniser underteksterne til lyden';
-    btn.innerHTML = '<span class="material-icons detailButton-icon subtitles" aria-hidden="true"></span>' +
-      '<span class="subtitleGuard-syncLabel">Fix undertekst-sync</span>';
-    buttons.appendChild(btn);
+    btn.title = opts.title;
+    btn.innerHTML = '<span class="material-icons detailButton-icon ' + opts.icon + '" aria-hidden="true"></span>' +
+      '<span class="subtitleGuard-btnLabel">' + opts.label + '</span>';
+    container.appendChild(btn);
 
     btn.addEventListener('click', function () {
       var apiClient = window.ApiClient;
-      var label = btn.querySelector('.subtitleGuard-syncLabel');
+      var label = btn.querySelector('.subtitleGuard-btnLabel');
       btn.disabled = true;
       label.textContent = 'Sender...';
-      fetch(apiClient.getUrl('SubtitleGuard/sync/' + btn.getAttribute('data-item-id')), {
+      fetch(apiClient.getUrl(opts.endpoint + btn.getAttribute('data-item-id')), {
         method: 'POST',
         headers: { 'X-Emby-Token': apiClient.accessToken() }
       })
@@ -251,8 +275,8 @@
             return;
           }
           label.textContent = r.data.queued > 0
-            ? 'I kø (' + r.data.queued + ') ✓'
-            : (r.data.message || 'Ingen undertekster');
+            ? 'I kø ✓'
+            : (r.data.message || 'Intet at gøre');
         })
         .catch(function () {
           label.textContent = 'Fejl - prøv igen';
@@ -282,6 +306,7 @@
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
     var mapFromInput = page.querySelector('#SgPathMapFrom');
     var mapToInput = page.querySelector('#SgPathMapTo');
+    var langInput = page.querySelector('#SgTranscribeLanguages');
     var workerList = page.querySelector('#SgWorkerList');
 
     // Worker pool state, kept in sync with cfg.WorkersJson.
@@ -312,6 +337,10 @@
           detail = st.queue_depth > 0 ? ' - online, ' + st.queue_depth + ' i kø' : ' - online, ledig';
           if (st.done > 0 || st.failed > 0) {
             detail += ' · ' + st.done + ' klaret' + (st.failed > 0 ? ', ' + st.failed + ' fejlet' : '');
+          }
+          if (st.transcribe) {
+            detail += ' · Whisper: ' + (st.transcribe === 'cuda' ? 'GPU' : 'CPU') +
+              (st.whisper_model ? ' (' + st.whisper_model + ')' : '');
           }
         } else if (st) {
           detail = ' - offline' + (st.error ? ' (' + st.error + ')' : '');
@@ -374,6 +403,9 @@
       if (mapFromInput) {
         mapFromInput.value = cfg.PathMapFrom || '';
         mapToInput.value = cfg.PathMapTo || '';
+      }
+      if (langInput) {
+        langInput.value = cfg.TranscribeLanguages || 'da,en';
       }
       try {
         workers = cfg.WorkersJson ? JSON.parse(cfg.WorkersJson) : [];
@@ -450,6 +482,9 @@
         if (mapFromInput) {
           cfg.PathMapFrom = mapFromInput.value.trim();
           cfg.PathMapTo = mapToInput.value.trim();
+        }
+        if (langInput) {
+          cfg.TranscribeLanguages = langInput.value.trim() || 'da,en';
         }
         apiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {
           config = null;

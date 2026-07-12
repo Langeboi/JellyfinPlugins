@@ -95,6 +95,55 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             }
         }
 
+        // Backs the "Generér undertekster" button: queue this one item for
+        // Whisper transcription. Deliberately submits even when subtitles
+        // exist (an explicit user request beats the nightly task's rules) -
+        // the worker itself refuses to overwrite an existing .srt for the
+        // detected language, so nothing real can be clobbered.
+        [Authorize]
+        [HttpPost("transcribe/{itemId}")]
+        public async Task<ActionResult> TranscribeItem(string itemId, CancellationToken cancellationToken)
+        {
+            if (!SyncWorker.IsConfigured)
+            {
+                return Json(new JObject { ["error"] = "Ingen workers konfigureret." }, 503);
+            }
+
+            if (!Guid.TryParse(itemId, out var guid))
+            {
+                return BadRequest();
+            }
+
+            var item = _libraryManager.GetItemById(guid);
+            if (item == null || string.IsNullOrEmpty(item.Path))
+            {
+                return NotFound();
+            }
+
+            var job = new JObject
+            {
+                ["type"] = "transcribe",
+                ["media_path"] = SyncWorker.MapPath(item.Path)
+            };
+
+            try
+            {
+                await SyncWorker.DistributeAndSubmit(new[] { job }, cancellationToken, transcribe: true).ConfigureAwait(false);
+                return Json(new JObject { ["queued"] = 1 });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Json(new JObject { ["error"] = ex.Message.Contains("capable", StringComparison.OrdinalIgnoreCase)
+                    ? "Ingen transskriptions-workere online (tænd GPU-maskinen)."
+                    : "Ingen workers online." }, 502);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SubtitleGuard: transcribe submit failed");
+                return Json(new JObject { ["error"] = "Kunne ikke nå workerne." }, 502);
+            }
+        }
+
         // Per-worker online/queue status for the config page.
         [Authorize]
         [HttpGet("workers/status")]

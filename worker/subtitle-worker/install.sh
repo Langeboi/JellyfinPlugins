@@ -30,14 +30,41 @@ python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install fastapi uvicorn ffsubsync
 
-echo "== Generating API key =="
-API_KEY=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+echo "== Whisper transcription support =="
+"$INSTALL_DIR/venv/bin/pip" install faster-whisper
+WHISPER_NOTE="CPU (model: small)"
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+  echo "NVIDIA GPU detected - installing CUDA runtime libraries"
+  "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
+  CUDA_LIBS=$("$INSTALL_DIR/venv/bin/python" - <<'PYEOF'
+import os
+import nvidia.cublas, nvidia.cudnn
+print(os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib") + ":" +
+      os.path.join(os.path.dirname(nvidia.cudnn.__file__), "lib"))
+PYEOF
+)
+  WHISPER_NOTE="CUDA (model: large-v3)"
+fi
+
+# Re-running this installer (e.g. to upgrade) must NOT rotate the API key -
+# that would silently break the worker's enrollment in the plugin.
+if [ -f "$INSTALL_DIR/env" ] && grep -q '^SUBWORKER_API_KEY=' "$INSTALL_DIR/env"; then
+  echo "== Keeping existing API key =="
+  API_KEY=$(grep '^SUBWORKER_API_KEY=' "$INSTALL_DIR/env" | cut -d= -f2-)
+else
+  echo "== Generating API key =="
+  API_KEY=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+fi
+
 cat > "$INSTALL_DIR/env" <<EOF
 SUBWORKER_API_KEY=$API_KEY
 SUBWORKER_PORT=8099
 SUBWORKER_MIN_OFFSET=0.4
 SUBWORKER_DB=$INSTALL_DIR/processed.db
 EOF
+if [ -n "${CUDA_LIBS:-}" ]; then
+  echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"
+fi
 chmod 600 "$INSTALL_DIR/env"
 
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
@@ -68,6 +95,7 @@ echo "Done. The worker is running and enrolled at:"
 echo ""
 echo "  Worker URL:      http://${IP_ADDR:-<this-machines-ip>}:8099"
 echo "  Enrollment code: $API_KEY"
+echo "  Transcription:   $WHISPER_NOTE"
 echo ""
 echo "Paste both into Jellyfin > Dashboard > Plugins > Subtitle Guard"
 echo "under 'Tilføj worker'."

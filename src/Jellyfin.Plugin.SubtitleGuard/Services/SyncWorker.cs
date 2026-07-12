@@ -125,18 +125,83 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             return jobs;
         }
 
-        public static async Task<bool> IsOnline(WorkerEntry worker, CancellationToken cancellationToken)
+        public sealed class WorkerHealth
+        {
+            public bool Online { get; set; }
+
+            /// <summary>"cuda", "cpu", or null when the worker can't transcribe.</summary>
+            public string? Transcribe { get; set; }
+        }
+
+        public static async Task<WorkerHealth> GetHealth(WorkerEntry worker, CancellationToken cancellationToken)
         {
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, worker.Url + "/health");
                 using var response = await HealthHttp.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                return response.IsSuccessStatusCode;
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new WorkerHealth { Online = false };
+                }
+
+                var body = JObject.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                var transcribe = body["capabilities"]?["transcribe"];
+                return new WorkerHealth
+                {
+                    Online = true,
+                    Transcribe = transcribe == null || transcribe.Type == JTokenType.Null ? null : transcribe.ToString()
+                };
             }
             catch
             {
-                return false;
+                return new WorkerHealth { Online = false };
             }
+        }
+
+        // Jellyfin tags streams with ISO 639-2 codes ("eng", "dan"); the
+        // plugin config uses the friendlier two-letter forms.
+        private static string NormalizeLang(string lang)
+        {
+            var l = lang.Trim().ToLowerInvariant();
+            return l switch
+            {
+                "eng" => "en",
+                "dan" => "da",
+                _ => l.Length > 2 ? l.Substring(0, 2) : l
+            };
+        }
+
+        /// <summary>
+        /// One transcription job for the item, or null when the item already
+        /// has a text subtitle in one of the target languages (or an
+        /// untagged text subtitle, which is assumed to satisfy the need -
+        /// better to skip than to generate duplicates).
+        /// </summary>
+        public static JObject? CollectTranscribeJob(BaseItem item, ISet<string> targetLangs)
+        {
+            if (string.IsNullOrEmpty(item.Path))
+            {
+                return null;
+            }
+
+            foreach (var stream in item.GetMediaStreams())
+            {
+                if (stream.Type != MediaStreamType.Subtitle || !TextCodec.IsMatch(stream.Codec ?? string.Empty))
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(stream.Language) || targetLangs.Contains(NormalizeLang(stream.Language)))
+                {
+                    return null;
+                }
+            }
+
+            return new JObject
+            {
+                ["type"] = "transcribe",
+                ["media_path"] = MapPath(item.Path)
+            };
         }
 
         /// <summary>
@@ -162,6 +227,8 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["done"] = body["done"];
                         entry["failed"] = body["failed"];
                         entry["processing"] = body["processing"];
+                        entry["transcribe"] = body["capabilities"]?["transcribe"];
+                        entry["whisper_model"] = body["whisper_model"];
                     }
                     else
                     {
@@ -195,7 +262,8 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         /// </summary>
         public static async Task<Dictionary<string, int>> DistributeAndSubmit(
             IReadOnlyList<JObject> jobs,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool transcribe = false)
         {
             var workers = GetWorkers();
             if (workers.Count == 0)
@@ -203,18 +271,45 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                 throw new InvalidOperationException("No workers configured.");
             }
 
-            var onlineFlags = await Task.WhenAll(workers.Select(w => IsOnline(w, cancellationToken))).ConfigureAwait(false);
-            if (!onlineFlags.Any(o => o))
+            var health = await Task.WhenAll(workers.Select(w => GetHealth(w, cancellationToken))).ConfigureAwait(false);
+
+            // Sync jobs go to any online worker. Transcription jobs only go
+            // to Whisper-capable workers - and when any CUDA machine is
+            // online, exclusively to CUDA machines (a 3080 outruns a CPU
+            // worker by an order of magnitude AND uses the better model, so
+            // mixing them just produces slower, worse subtitles).
+            var eligible = new bool[workers.Count];
+            if (transcribe)
             {
-                throw new InvalidOperationException("No workers online.");
+                var anyCuda = health.Any(h => h.Online && h.Transcribe == "cuda");
+                for (var i = 0; i < workers.Count; i++)
+                {
+                    eligible[i] = health[i].Online && health[i].Transcribe != null
+                        && (!anyCuda || health[i].Transcribe == "cuda");
+                }
+            }
+            else
+            {
+                for (var i = 0; i < workers.Count; i++)
+                {
+                    eligible[i] = health[i].Online;
+                }
+            }
+
+            if (!eligible.Any(e => e))
+            {
+                throw new InvalidOperationException(transcribe
+                    ? "No transcription-capable workers online."
+                    : "No workers online.");
             }
 
             var buckets = workers.Select(_ => new List<JObject>()).ToArray();
             foreach (var job in jobs)
             {
-                var start = (int)(StableHash(job["subtitle_path"]?.ToString() ?? string.Empty) % (uint)workers.Count);
+                var hashKey = job["subtitle_path"]?.ToString() ?? job["media_path"]?.ToString() ?? string.Empty;
+                var start = (int)(StableHash(hashKey) % (uint)workers.Count);
                 var idx = start;
-                while (!onlineFlags[idx])
+                while (!eligible[idx])
                 {
                     idx = (idx + 1) % workers.Count;
                 }

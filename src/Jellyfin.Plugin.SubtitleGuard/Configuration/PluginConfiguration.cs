@@ -49,5 +49,12 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
 
         /// <summary>Path prefix as the worker machine sees the media.</summary>
         public string PathMapTo { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Comma-separated two-letter language codes. Items lacking a text
+        /// subtitle in ANY of these languages get queued for Whisper
+        /// transcription by the nightly task.
+        /// </summary>
+        public string TranscribeLanguages { get; set; } = "da,en";
     }
 }

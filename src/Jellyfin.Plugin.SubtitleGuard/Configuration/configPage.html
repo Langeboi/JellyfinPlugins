@@ -73,6 +73,17 @@
           <div class="fieldDescription">The same location as seen from the worker machine.</div>
         </div>
 
+        <div class="verticalSection">
+          <h2>Transskription (Whisper)</h2>
+          <p>The nightly "Generate missing subtitles" task queues items lacking a subtitle in these languages for Whisper transcription on GPU/CPU-capable workers. Whisper writes subtitles in the language actually spoken (it cannot translate to Danish - an English movie gets English subtitles).</p>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Target languages</label>
+          <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
+          <div class="fieldDescription">Comma-separated two-letter codes. Items that already have a text subtitle in any of these are skipped.</div>
+        </div>
+
         <div style="margin-top:1.5em;">
           <button is="emby-button" type="button" id="SubtitleGuardSaveButton" class="raised button-submit block emby-button">
             <span>Save</span>
