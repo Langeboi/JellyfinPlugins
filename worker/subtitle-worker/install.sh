@@ -37,11 +37,26 @@ TRANSLATE_NOTE="not installed (CPU machine)"
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected - installing CUDA runtime libraries"
   "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
-  CUDA_LIBS=$("$INSTALL_DIR/venv/bin/python" - <<'PYEOF'
-import os
-import nvidia.cublas, nvidia.cudnn
-print(os.path.join(os.path.dirname(nvidia.cublas.__file__), "lib") + ":" +
-      os.path.join(os.path.dirname(nvidia.cudnn.__file__), "lib"))
+CUDA_LIBS=$("$INSTALL_DIR/venv/bin/python" - <<'PYEOF'
+from pathlib import Path
+import nvidia.cublas
+import nvidia.cudnn
+
+def package_lib_dir(package):
+    for package_dir in package.__path__:
+        lib_dir = Path(package_dir) / "lib"
+        if lib_dir.is_dir():
+            return str(lib_dir)
+
+    raise RuntimeError(
+        f"Could not find the library directory for {package.__name__}"
+    )
+
+print(
+    package_lib_dir(nvidia.cublas)
+    + ":"
+    + package_lib_dir(nvidia.cudnn)
+)
 PYEOF
 )
   WHISPER_NOTE="CUDA (model: large-v3)"
