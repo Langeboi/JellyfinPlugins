@@ -84,6 +84,21 @@ WHISPER_MODEL_NAME = os.environ.get("SUBWORKER_WHISPER_MODEL") or (
 )
 TRANSCRIBE_CAPABILITY = WHISPER_DEVICE if _HAS_WHISPER else None
 
+# Transcription thoroughness (slower = fewer missed words). Two levers:
+#  - The VAD filter trims quiet/edge speech before Whisper ever sees it, which
+#    is the usual cause of "missed a word here and there". A gentler threshold
+#    (0.35 vs the 0.5 default) keeps quieter speech, and edge-padding stops
+#    words at the start/end of a phrase getting clipped.
+#  - A wider beam search recovers words the decoder was unsure about, at a
+#    roughly linear time cost (beam 8 ~ 1.5x beam 5).
+# All overridable via env if you want to push further (e.g. BEAM=10, or set
+# VAD=0 to disable filtering entirely - most thorough, but large-v3 can then
+# hallucinate a line over music/silence).
+WHISPER_BEAM = int(os.environ.get("SUBWORKER_WHISPER_BEAM", "8"))
+WHISPER_VAD = os.environ.get("SUBWORKER_WHISPER_VAD", "1") != "0"
+WHISPER_VAD_THRESHOLD = float(os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD", "0.35"))
+WHISPER_VAD_PAD_MS = int(os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS", "400"))
+
 _whisper_model = None
 _whisper_lock = threading.Lock()
 
@@ -688,9 +703,18 @@ def process_transcribe_job(job: dict):
         # per-word timing so write_srt can tighten each cue to real speech.
         segments, info = model.transcribe(
             media,
-            vad_filter=True,
-            word_timestamps=True,
             language=job.get("language") or None,
+            word_timestamps=True,
+            # Thoroughness knobs - see WHISPER_* above.
+            beam_size=WHISPER_BEAM,
+            best_of=WHISPER_BEAM,
+            patience=1.5,
+            condition_on_previous_text=True,
+            vad_filter=WHISPER_VAD,
+            vad_parameters=(
+                {"threshold": WHISPER_VAD_THRESHOLD, "speech_pad_ms": WHISPER_VAD_PAD_MS}
+                if WHISPER_VAD else None
+            ),
         )
 
         base = os.path.splitext(media)[0]
