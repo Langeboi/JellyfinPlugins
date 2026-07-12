@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.1.0",
+        "changelog": "Stability fixes (no new features). Transcription/translation were failing on every job because the v1.4.0.0 installer never gave the service user a writable model cache - each job re-downloaded the model from HuggingFace and hit a 429 rate limit. The installer now sets a fixed HF_HOME in the install dir and pre-downloads the Whisper model + NLLB tokenizer during install (with retry), so runtime never contacts HuggingFace; re-run the installer on each worker to apply. Added an ffsubsync sanity clamp: results with an implausibly large offset (>60s, SUBWORKER_MAX_OFFSET) are rejected and the original kept, preventing 'way off' corruptions (shown as 'sprunget over' in the pool summary). Note: 'Permission denied' sync failures are a filesystem-permissions issue (give the worker's service user write access to those media folders).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v1.4.1.0/subtitleguard_1.4.1.0.zip",
+        "checksum": "0098ecee88ae513dab88a8dc4a81605f",
+        "timestamp": "2026-07-12T15:10:00Z"
+      },
+      {
         "version": "1.4.0.0",
         "changelog": "The big overhaul. Seneste rettelser rollback menu (last 5 rewritten subs with offset/time/worker and one-click Fortryd rettelse restoring the .bak - rollbacks are remembered so the nightly task won't undo them). Library scoping via 'Included libraries' (e.g. /Media/Movies,/Media/Shows - Standup/Western stay untouched). Danish translation: NLLB-200 distilled-1.3B on GPU workers translates English subs (external or embedded, ffmpeg-extracted) to .da.srt with original timings, nightly at 02:00. Subtitle-menu cleanup: hides non-da/en tracks, SDH/CC variants, and duplicate languages in the player - one clean choice per language. Live per-job activity per worker (Synkroniserer/Transskriberer/Oversætter: <navn>). New indicators: glowing green idle, spinning ring working, pause bars, red offline. Settings reorganized into tabs. Work stealing: idle workers pull from the deepest peer queue (capability-aware). Pool totals in Status tab; pause survives worker reboots. Update workers with the installer one-liner (GPU machine downloads the NLLB model once, ~6GB; enrollment codes preserved).",
         "targetAbi": "10.11.0.0",
