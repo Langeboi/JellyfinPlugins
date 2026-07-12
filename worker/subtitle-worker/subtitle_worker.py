@@ -19,6 +19,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 import queue
@@ -33,7 +34,22 @@ DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.
 # Offsets smaller than this are considered "already in sync" - the original
 # file is left completely untouched.
 MIN_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MIN_OFFSET", "0.4"))
-FFSUBSYNC = os.environ.get("SUBWORKER_FFSUBSYNC", "ffsubsync")
+
+
+def _resolve_ffsubsync() -> str:
+    """ffsubsync is installed INTO this venv, but the systemd unit launches
+    venv/bin/python directly - which does NOT put venv/bin on PATH for the
+    subprocesses we spawn. Calling bare 'ffsubsync' therefore fails with
+    'No such file or directory'. Resolve it next to the running interpreter
+    (venv/bin/ffsubsync) so it's found regardless of PATH."""
+    override = os.environ.get("SUBWORKER_FFSUBSYNC")
+    if override:
+        return override
+    candidate = os.path.join(os.path.dirname(sys.executable), "ffsubsync")
+    return candidate if os.path.exists(candidate) else "ffsubsync"
+
+
+FFSUBSYNC = _resolve_ffsubsync()
 
 app = FastAPI(title="subtitle-sync-worker")
 
@@ -62,13 +78,23 @@ def db():
     return conn
 
 
+# Only a SUCCESSFUL check on the current version of a file counts as "done".
+# A previously-recorded failure (missing-file, ffsubsync-failed, timeout,
+# error) must NOT block a later retry - otherwise a transient problem (like
+# the ffsubsync-not-found bug) would poison every affected subtitle forever,
+# since the nightly task would keep skipping them.
+SUCCESS_STATUSES = ("fixed", "in-sync")
+
+
 def already_processed(sub_path: str, mtime: float) -> bool:
     conn = db()
     try:
         row = conn.execute(
-            "SELECT mtime FROM processed WHERE sub_path = ?", (sub_path,)
+            "SELECT mtime, status FROM processed WHERE sub_path = ?", (sub_path,)
         ).fetchone()
-        return row is not None and abs(row[0] - mtime) < 1e-6
+        if row is None:
+            return False
+        return row[1] in SUCCESS_STATUSES and abs(row[0] - mtime) < 1e-6
     finally:
         conn.close()
 
@@ -210,6 +236,19 @@ def status(x_api_key: str = Header(default="")):
     with state_lock:
         snapshot = dict(state)
     snapshot["queue_depth"] = job_queue.qsize()
+    # Persisted outcome breakdown so problems are visible without opening
+    # the database by hand (e.g. a wall of "ffsubsync-failed" is a very
+    # different problem from "missing-file").
+    conn = db()
+    try:
+        snapshot["outcomes"] = {
+            row[0]: row[1]
+            for row in conn.execute("SELECT status, count(*) FROM processed GROUP BY status")
+        }
+    except Exception:  # noqa: BLE001
+        snapshot["outcomes"] = {}
+    finally:
+        conn.close()
     return snapshot
 
 
