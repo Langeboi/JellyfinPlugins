@@ -1213,7 +1213,10 @@
   var MOVIES_LIB_ATTR = 'data-newbadges-movies-lib';
   var MOVIES_PENDING_ATTR = 'data-newbadges-movies-pending';
   var MOVIES_PAGE_SIZE = 48;
-  var RECS_CACHE_TTL_MS = 10 * 60 * 1000;
+  // A day-long cache turns "recompute on every Movies-tab visit" (several
+  // parallel Items/{id}/Similar lookups) into a once-a-day cost - watch
+  // history driving these recs doesn't change minute to minute anyway.
+  var RECS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
   function getTopParentIdFromHash() {
     var m = location.hash.match(/[?&]topParentId=([a-f0-9-]+)/i);

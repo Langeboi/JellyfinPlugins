@@ -693,8 +693,14 @@
       '.heroBar-overview{opacity:.85;font-size:.9em;line-height:1.4;' +
       'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
       '.heroBar-buttons{display:flex;gap:.7em;margin-top:1em;align-items:center;}' +
+      // The Info button is an <a>, Play/Fav are real <button>s - without an
+      // explicit reset each element type falls back to its own UA-default
+      // font/appearance, so despite sharing this class Info rendered
+      // visibly "fluffier" than its siblings. font-family/line-height and
+      // stripping native button chrome make all three pixel-consistent.
       '.heroBar-btn{display:inline-flex;align-items:center;gap:.35em;border:none;' +
       'border-radius:999px;padding:.55em 1.3em;font-weight:700;font-size:.9em;cursor:pointer;' +
+      'font-family:inherit;line-height:normal;-webkit-appearance:none;appearance:none;' +
       'text-decoration:none;white-space:nowrap;transition:background .15s,transform .15s;}' +
       '.heroBar-btn-play{background:#fff;color:#111;}' +
       '.heroBar-btn-play:hover{background:#e2e2e2;transform:scale(1.05);}' +

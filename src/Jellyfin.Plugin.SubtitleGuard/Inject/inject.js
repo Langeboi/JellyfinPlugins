@@ -71,6 +71,26 @@
     document.head.appendChild(style);
   }
 
+  // ---- Detail-button styling ----
+  // The label span had no CSS of its own, so it inherited the page's default
+  // button font-size (much larger than native icon buttons like Favorite),
+  // which both looked oversized and widened .mainDetailButtons enough to
+  // crowd the logo/release-date row at narrower (half-window) widths. Fix:
+  // a small, explicit label size, and icon-only (matching native buttons,
+  // tooltip still shows the label via title=) below that width.
+  function injectDetailButtonStyle() {
+    if (document.getElementById('subtitleGuard-detailBtn-style')) {
+      return;
+    }
+    var style = document.createElement('style');
+    style.id = 'subtitleGuard-detailBtn-style';
+    style.textContent =
+      '.subtitleGuard-syncBtn,.subtitleGuard-transcribeBtn{white-space:nowrap;}' +
+      '.subtitleGuard-btnLabel{font-size:.8em;margin-left:.35em;vertical-align:middle;}' +
+      '@media (max-width:1000px){.subtitleGuard-btnLabel{display:none;}}';
+    document.head.appendChild(style);
+  }
+
   // ---- Rendering watchdog ----
   // Detects the "subtitles selected but nothing is shown" failure users hit
   // (reproduced live on this server: PlayState.SubtitleStreamIndex was set
@@ -818,6 +838,8 @@
   }
 
   function init() {
+    injectDetailButtonStyle();
+
     // The observer goes in FIRST and unconditionally - everything it calls
     // guards its own prerequisites, so a not-ready tick is a no-op instead
     // of a crash.

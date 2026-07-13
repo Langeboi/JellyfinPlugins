@@ -437,20 +437,18 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
 
             var health = await Task.WhenAll(workers.Select(w => GetHealth(w, cancellationToken))).ConfigureAwait(false);
 
-            // Sync jobs go to any online worker. Transcription jobs only go
-            // to Whisper-capable workers - and when any CUDA machine is
-            // online, exclusively to CUDA machines (a 3080 outruns a CPU
-            // worker by an order of magnitude AND uses the better model, so
-            // mixing them just produces slower, worse subtitles).
+            // Sync jobs go to any online worker. Transcription is CUDA-only,
+            // full stop - CPU workers (small model) produced noticeably less
+            // accurate transcriptions, so there is no CPU fallback even when
+            // no CUDA worker is online. Better to queue nothing than to
+            // silently degrade quality.
             // Translation jobs only go to workers with the NLLB model.
             var eligible = new bool[workers.Count];
             if (capability == "transcribe")
             {
-                var anyCuda = health.Any(h => h.Online && h.Transcribe == "cuda");
                 for (var i = 0; i < workers.Count; i++)
                 {
-                    eligible[i] = health[i].Online && health[i].Transcribe != null
-                        && (!anyCuda || health[i].Transcribe == "cuda");
+                    eligible[i] = health[i].Online && health[i].Transcribe == "cuda";
                 }
             }
             else if (capability == "translate")

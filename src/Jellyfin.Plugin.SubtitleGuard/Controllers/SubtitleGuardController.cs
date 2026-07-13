@@ -124,7 +124,11 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             var job = new JObject
             {
                 ["type"] = "transcribe",
-                ["media_path"] = SyncWorker.MapPath(item.Path)
+                ["media_path"] = SyncWorker.MapPath(item.Path),
+                // Per-item button is an explicit "re-transcribe this" - force
+                // a re-run even if we already produced a subtitle before, so
+                // tuning improvements can be re-applied with one click.
+                ["force"] = true
             };
 
             try
