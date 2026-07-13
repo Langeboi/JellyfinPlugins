@@ -151,6 +151,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.6.2.0",
+        "changelog": "Instant search overlay. Typing in the drawer search field (or clicking the header magnifier) opens a full-screen as-you-type search: media results on top, and the focused result auto-enriches below with its cast strip (Medvirkende) and a 'Mere fra <instruktør>' row of the director's other films/series. Click a cast face to open that actor, a poster to open that title; arrow keys move focus, Enter opens, Esc closes. Built for speed - 160ms debounce plus AbortController so only the latest keystroke's request survives, LRU caches for both results and per-item cast/director (instant on backspace/re-type), and hover-prefetch so clicking a result is immediate. Replaces the old drawer behaviour of bouncing to Jellyfin's native search page. Note: the 'Mere fra' row needs a Director in the item's People, so it may not appear for TV series (episodes carry the directors, not the series).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.6.2.0/newbadges_1.6.2.0.zip",
+        "checksum": "d628362e181855f721fac0bce83dac36",
+        "timestamp": "2026-07-13T13:30:00Z"
+      },
+      {
         "version": "1.6.1.0",
         "changelog": "Movies page 'Anbefalet til dig' was recomputing on every single tab visit - several parallel Items/{id}/Similar lookups plus the seed queries, real load for data (watch history) that doesn't meaningfully change minute to minute. The cache is now 24 hours instead of 10 minutes, so it's a once-a-day cost rather than every visit.",
         "targetAbi": "10.11.0.0",
