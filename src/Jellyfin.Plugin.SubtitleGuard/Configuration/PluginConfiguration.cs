@@ -13,9 +13,22 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// <summary>
         /// Scale of the standardized size, in percent (50-200). 100 gives
         /// roughly 28px on desktop and a comfortable viewport-relative size
-        /// on phones.
+        /// on phones. The actual pixel size is computed live from the player's
+        /// rendered height, so it scales with the player, not just the window.
         /// </summary>
         public int SubtitleSizePercent { get; set; } = 100;
+
+        /// <summary>
+        /// CSS font-family applied to subtitles (both the native cue renderer
+        /// and Jellyfin's HTML overlay). Empty = leave the player's own font.
+        /// </summary>
+        public string SubtitleFontFamily { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Width in px of the black outline drawn around subtitle text for
+        /// legibility against bright backgrounds (0-4, 0 = none).
+        /// </summary>
+        public int SubtitleOutlineWidth { get; set; } = 2;
 
         /// <summary>
         /// Watch active playback and re-apply the selected subtitle stream

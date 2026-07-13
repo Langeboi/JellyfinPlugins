@@ -4,7 +4,7 @@
   <title>Subtitle Guard</title>
 </head>
 <body>
-  <div id="SubtitleGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+  <div id="SubtitleGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
     <div data-role="content">
       <div class="content-primary">
         <div class="verticalSection">
@@ -90,7 +90,26 @@
           <div class="inputContainer">
             <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Size (percent)</label>
             <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
-            <div class="fieldDescription">100 = the standard size (50-200).</div>
+            <div class="fieldDescription">100 = the standard size (50-200). The actual size is computed from the player's height, so it scales with the player on desktop, mobile and TV-web.</div>
+          </div>
+
+          <div class="selectContainer">
+            <label class="selectLabel" for="SgFontFamily">Skrifttype</label>
+            <select id="SgFontFamily" is="emby-select">
+              <option value="">Standard (afspillerens egen)</option>
+              <option value="Roboto, Arial, sans-serif">Roboto / sans-serif</option>
+              <option value="Arial, Helvetica, sans-serif">Arial</option>
+              <option value="Verdana, Geneva, sans-serif">Verdana (bred, læsevenlig)</option>
+              <option value="Georgia, 'Times New Roman', serif">Georgia (serif)</option>
+              <option value="'Courier New', monospace">Monospace</option>
+            </select>
+            <div class="fieldDescription">Anvendes på alle undertekster, på tværs af enheder.</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SgOutlineWidth">Kantlinje (px)</label>
+            <input id="SgOutlineWidth" type="number" is="emby-input" min="0" max="4" step="1" />
+            <div class="fieldDescription">Sort kant rundt om teksten for læsbarhed mod lyse baggrunde. 0 = ingen.</div>
           </div>
 
           <div class="checkboxContainer checkboxContainer-withDescription">

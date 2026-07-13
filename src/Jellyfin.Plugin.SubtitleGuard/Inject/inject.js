@@ -22,6 +22,8 @@
         config = {
           EnableStandardSize: data.EnableStandardSize !== false,
           SubtitleSizePercent: Math.min(200, Math.max(50, data.SubtitleSizePercent || 100)),
+          SubtitleFontFamily: data.SubtitleFontFamily || '',
+          SubtitleOutlineWidth: Math.min(4, Math.max(0, typeof data.SubtitleOutlineWidth === 'number' ? data.SubtitleOutlineWidth : 2)),
           EnableWatchdog: data.EnableWatchdog !== false,
           EnableTrackFilter: data.EnableTrackFilter !== false,
           VisibleSubtitleLanguages: data.VisibleSubtitleLanguages || 'da,en'
@@ -32,6 +34,8 @@
         config = {
           EnableStandardSize: true,
           SubtitleSizePercent: 100,
+          SubtitleFontFamily: '',
+          SubtitleOutlineWidth: 2,
           EnableWatchdog: true,
           EnableTrackFilter: true,
           VisibleSubtitleLanguages: 'da,en'
@@ -48,27 +52,86 @@
   // when custom text styling is active). Cover both with the same
   // viewport-scaled size so phones, tablets, and desktops all get a
   // consistent, readable size regardless of per-device player defaults.
+  // Black outline of width w (px) built from 8-direction text-shadows - the
+  // ::cue pseudo allows text-shadow but not -webkit-text-stroke, so shadows
+  // are the portable way to get a readable edge on both render paths.
+  function outlineShadow(w) {
+    if (!w || w < 1) { return 'none'; }
+    var d = [[w, 0], [-w, 0], [0, w], [0, -w], [w, w], [w, -w], [-w, w], [-w, -w]];
+    return d.map(function (p) { return p[0] + 'px ' + p[1] + 'px 0 #000'; }).join(',');
+  }
+
+  var lastSubCfg = null;
+
+  // Compute the subtitle size from the ACTIVE PLAYER's rendered height (not
+  // the window), so subs stay proportional whether the player is windowed,
+  // fullscreen, on a phone or a TV. Published as a CSS var the stylesheet
+  // consumes; when no video is present we clear it and the stylesheet falls
+  // back to its viewport clamp.
+  function updateSubtitleScale(cfg) {
+    cfg = cfg || lastSubCfg;
+    if (!cfg || !cfg.EnableStandardSize) { return; }
+    lastSubCfg = cfg;
+    var video = document.querySelector('video.htmlvideoplayer') ||
+      document.querySelector('.videoPlayerContainer video') ||
+      document.querySelector('video');
+    var h = video ? video.clientHeight : 0;
+    if (!h) {
+      document.documentElement.style.removeProperty('--sg-sub-size');
+      return;
+    }
+    // ~4.4% of player height at 100% is a comfortable, cinema-like size.
+    var px = Math.round(h * 0.044 * (cfg.SubtitleSizePercent / 100));
+    px = Math.max(13, Math.min(72, px));
+    document.documentElement.style.setProperty('--sg-sub-size', px + 'px');
+  }
+
+  var _subScaleWired = false;
+  function wireSubtitleScaling() {
+    if (_subScaleWired) { return; }
+    _subScaleWired = true;
+    var raf = null;
+    function onResize() {
+      if (raf) { return; }
+      raf = requestAnimationFrame(function () { raf = null; updateSubtitleScale(); });
+    }
+    window.addEventListener('resize', onResize, { passive: true });
+    document.addEventListener('fullscreenchange', function () { updateSubtitleScale(); });
+    document.addEventListener('webkitfullscreenchange', function () { updateSubtitleScale(); });
+    window.addEventListener('orientationchange', function () { setTimeout(updateSubtitleScale, 250); });
+  }
+
   function injectSizeStyle(cfg) {
     var existing = document.getElementById('subtitleGuard-style');
     if (existing) {
       existing.remove();
     }
     if (!cfg.EnableStandardSize) {
+      document.documentElement.style.removeProperty('--sg-sub-size');
       return;
     }
+    // Viewport-relative FALLBACK, used until updateSubtitleScale() sets the
+    // player-derived --sg-sub-size (covers the brief moment before a <video>
+    // exists, and any player we can't measure).
     var s = cfg.SubtitleSizePercent / 100;
-    var minPx = Math.round(16 * s);
-    var vw = (2.6 * s).toFixed(2);
-    var maxPx = Math.round(34 * s);
-    var sizeExpr = 'clamp(' + minPx + 'px,' + vw + 'vw,' + maxPx + 'px)';
+    var fallback = 'clamp(' + Math.round(16 * s) + 'px,' + (2.6 * s).toFixed(2) + 'vw,' + Math.round(34 * s) + 'px)';
+    var sizeExpr = 'var(--sg-sub-size,' + fallback + ')';
+
+    var fam = (cfg.SubtitleFontFamily || '').trim();
+    var famDecl = fam ? 'font-family:' + fam + '!important;' : '';
+    var shadowDecl = 'text-shadow:' + outlineShadow(cfg.SubtitleOutlineWidth) + '!important;';
 
     var style = document.createElement('style');
     style.id = 'subtitleGuard-style';
     style.textContent =
-      'video::cue{font-size:' + sizeExpr + '!important;line-height:1.35;}' +
+      'video::cue{font-size:' + sizeExpr + '!important;line-height:1.35;' + famDecl + shadowDecl + '}' +
       '.videoSubtitles,.videoSubtitlesInner,.htmlVideoPlayerSubtitles{' +
-      'font-size:' + sizeExpr + '!important;line-height:1.35!important;}';
+      'font-size:' + sizeExpr + '!important;line-height:1.35!important;' + famDecl + shadowDecl + '}';
     document.head.appendChild(style);
+
+    lastSubCfg = cfg;
+    wireSubtitleScaling();
+    updateSubtitleScale(cfg);
   }
 
   // ---- Detail-button styling ----
@@ -414,6 +477,8 @@
     var apiClient = window.ApiClient;
     var sizeCheckbox = page.querySelector('#SgEnableStandardSize');
     var percentInput = page.querySelector('#SgSizePercent');
+    var fontFamilySelect = page.querySelector('#SgFontFamily');
+    var outlineWidthInput = page.querySelector('#SgOutlineWidth');
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
     var trackFilterCheckbox = page.querySelector('#SgEnableTrackFilter');
     var visibleLangsInput = page.querySelector('#SgVisibleLanguages');
@@ -697,6 +762,10 @@
     apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
       sizeCheckbox.checked = cfg.EnableStandardSize !== false;
       percentInput.value = cfg.SubtitleSizePercent || 100;
+      if (fontFamilySelect) { fontFamilySelect.value = cfg.SubtitleFontFamily || ''; }
+      if (outlineWidthInput) {
+        outlineWidthInput.value = typeof cfg.SubtitleOutlineWidth === 'number' ? cfg.SubtitleOutlineWidth : 2;
+      }
       watchdogCheckbox.checked = cfg.EnableWatchdog !== false;
       if (trackFilterCheckbox) {
         trackFilterCheckbox.checked = cfg.EnableTrackFilter !== false;
@@ -794,6 +863,10 @@
       apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
         cfg.EnableStandardSize = sizeCheckbox.checked;
         cfg.SubtitleSizePercent = parseInt(percentInput.value, 10) || 100;
+        if (fontFamilySelect) { cfg.SubtitleFontFamily = fontFamilySelect.value; }
+        if (outlineWidthInput) {
+          cfg.SubtitleOutlineWidth = Math.min(4, Math.max(0, parseInt(outlineWidthInput.value, 10) || 0));
+        }
         cfg.EnableWatchdog = watchdogCheckbox.checked;
         if (trackFilterCheckbox) {
           cfg.EnableTrackFilter = trackFilterCheckbox.checked;
@@ -849,6 +922,9 @@
           wireConfigPageIfPresent();
           renderSyncButton();
           filterSubtitleSheet();
+          // Catches the <video> appearing on playback start (not a resize),
+          // so the player-relative size is set as soon as there's a player.
+          updateSubtitleScale();
           return;
         }
       }
