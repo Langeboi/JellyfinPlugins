@@ -1065,35 +1065,19 @@
   function wireDrawerPlus(block) {
     var searchInput = block.querySelector('.newBadges-drawerSearch');
 
-    function goSearch() {
-      var query = searchInput.value.trim();
-      if (!query) {
-        return;
-      }
+    // The drawer field is now a launcher for the instant-search overlay:
+    // focusing or typing hands off to the roomy overlay (with cast/director
+    // enrichment) instead of bouncing to Jellyfin's native search page.
+    function launchSearch(seed) {
       closeDrawer();
-      location.hash = '#/search?query=' + encodeURIComponent(query);
-      // The search page doesn't always pick the query up from the URL -
-      // poll briefly for its input and fill it directly (dispatching input
-      // so its own live-search wiring reacts).
-      var tries = 0;
-      var poll = setInterval(function () {
-        var nativeInput = document.querySelector('#searchTextInput');
-        if (nativeInput) {
-          clearInterval(poll);
-          nativeInput.value = query;
-          nativeInput.dispatchEvent(new Event('input', { bubbles: true }));
-        } else if (++tries > 20) {
-          clearInterval(poll);
-        }
-      }, 150);
+      openSearchOverlay(seed || '');
       searchInput.value = '';
     }
 
+    searchInput.addEventListener('focus', function () { launchSearch(''); });
+    searchInput.addEventListener('input', function () { launchSearch(searchInput.value); });
     searchInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        goSearch();
-      }
+      if (e.key === 'Enter') { e.preventDefault(); launchSearch(searchInput.value); }
       // Keep keystrokes inside the field - the drawer/page has global key
       // handlers (e.g. backspace-as-back) that must not see these.
       e.stopPropagation();
@@ -1584,16 +1568,425 @@
       renderContinueIfHome();
       renderMoviesRedesignIfPresent();
       renderDrawerPlus();
+      hookHeaderSearch();
     }, 400);
+  }
+
+  // ==================================================================
+  //  Instant search overlay
+  //  Full-screen, as-you-type. Media results on top; the focused result
+  //  auto-enriches with its cast + "more from the director". Built for
+  //  speed: debounce + AbortController (only the latest keystroke's
+  //  request survives), LRU caches for both results and per-item
+  //  enrichment (so backspacing/re-typing is instant and hovering a
+  //  result prefetches its cast/director before you click).
+  // ==================================================================
+  var SEARCH_DEBOUNCE_MS = 160;
+  var SEARCH_LIMIT = 8;
+  var SEARCH_CAST_LIMIT = 20;
+  var SEARCH_DIR_LIMIT = 12;
+
+  function LruCache(max) { this.max = max; this.map = new Map(); }
+  LruCache.prototype.get = function (k) {
+    if (!this.map.has(k)) { return undefined; }
+    var v = this.map.get(k);
+    this.map.delete(k); this.map.set(k, v); // bump to most-recent
+    return v;
+  };
+  LruCache.prototype.set = function (k, v) {
+    if (this.map.has(k)) { this.map.delete(k); }
+    this.map.set(k, v);
+    if (this.map.size > this.max) { this.map.delete(this.map.keys().next().value); }
+  };
+
+  var searchOverlay = null;
+  var searchState = {
+    query: '',
+    debounceTimer: null,
+    abort: null,
+    results: [],
+    focused: -1,
+    enrichReqId: 0,
+    resultCache: new LruCache(40),   // lowercased query -> items[]
+    enrichCache: new LruCache(60)    // itemId -> {actors, director, works}
+  };
+
+  function injectSearchStyle() {
+    if (document.getElementById('newBadges-searchStyle')) { return; }
+    var s = document.createElement('style');
+    s.id = 'newBadges-searchStyle';
+    s.textContent =
+      '.newBadges-searchOverlay{position:fixed;inset:0;z-index:1200;display:flex;justify-content:center;' +
+      'align-items:flex-start;background:rgba(10,12,16,.72);backdrop-filter:blur(8px);' +
+      '-webkit-backdrop-filter:blur(8px);opacity:0;visibility:hidden;transition:opacity .18s ease;' +
+      'padding:6vh 4vw;overflow-y:auto;}' +
+      '.newBadges-searchOverlay.is-open{opacity:1;visibility:visible;}' +
+      '.newBadges-searchPanel{width:100%;max-width:820px;transform:translateY(-8px);transition:transform .2s ease;}' +
+      '.newBadges-searchOverlay.is-open .newBadges-searchPanel{transform:translateY(0);}' +
+      '.newBadges-searchBar{display:flex;align-items:center;gap:.6em;background:rgba(255,255,255,.1);' +
+      'border-radius:14px;padding:.7em 1em;box-shadow:0 8px 40px rgba(0,0,0,.45);}' +
+      '.newBadges-searchBar .material-icons.search{opacity:.7;font-size:24px;}' +
+      '.newBadges-searchInput{flex:1;background:transparent;border:none;outline:none;color:#fff;' +
+      'font-size:20px;font-weight:500;min-width:0;}' +
+      '.newBadges-searchInput::placeholder{color:rgba(255,255,255,.4);}' +
+      '.newBadges-searchClose{background:transparent;border:none;color:rgba(255,255,255,.6);cursor:pointer;' +
+      'display:flex;padding:.2em;border-radius:8px;}' +
+      '.newBadges-searchClose:hover{background:rgba(255,255,255,.12);color:#fff;}' +
+      '.newBadges-searchBody{margin-top:1em;}' +
+      '.newBadges-searchHint{padding:1.2em;text-align:center;color:rgba(255,255,255,.45);font-size:.95em;}' +
+      '.newBadges-searchResults{display:flex;flex-direction:column;gap:2px;}' +
+      '.newBadges-searchResult{display:flex;align-items:center;gap:.9em;width:100%;text-align:left;' +
+      'background:transparent;border:none;color:inherit;cursor:pointer;padding:.5em .7em;border-radius:10px;}' +
+      '.newBadges-searchResult:hover,.newBadges-searchResult.is-focused{background:rgba(255,255,255,.1);}' +
+      '.newBadges-searchThumb{flex:0 0 46px;height:66px;border-radius:6px;background-size:cover;' +
+      'background-position:center;background-color:rgba(255,255,255,.08);}' +
+      '.newBadges-searchThumbEmpty{display:flex;align-items:center;justify-content:center;}' +
+      '.newBadges-searchThumbEmpty .material-icons{opacity:.4;}' +
+      '.newBadges-searchResultText{display:flex;flex-direction:column;min-width:0;gap:2px;}' +
+      '.newBadges-searchResultTitle{font-size:1.05em;font-weight:600;white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis;}' +
+      '.newBadges-searchResultMeta{font-size:.82em;opacity:.55;}' +
+      '.newBadges-searchEnrich{margin-top:1.4em;display:flex;flex-direction:column;gap:1.4em;}' +
+      '.newBadges-searchSectionTitle{font-size:1em;font-weight:700;margin:0 0 .6em;opacity:.9;}' +
+      '.newBadges-searchCast,.newBadges-searchDirRow{display:flex;gap:.9em;overflow-x:auto;' +
+      'padding-bottom:.5em;scrollbar-width:thin;}' +
+      '.newBadges-searchActor{flex:0 0 84px;display:flex;flex-direction:column;align-items:center;gap:.35em;' +
+      'background:transparent;border:none;color:inherit;cursor:pointer;text-align:center;}' +
+      '.newBadges-searchActorImg{width:72px;height:72px;border-radius:50%;background-size:cover;' +
+      'background-position:center;background-color:rgba(255,255,255,.08);transition:transform .12s;}' +
+      '.newBadges-searchActor:hover .newBadges-searchActorImg{transform:scale(1.06);}' +
+      '.newBadges-searchActorImgEmpty{display:flex;align-items:center;justify-content:center;}' +
+      '.newBadges-searchActorImgEmpty .material-icons{opacity:.4;font-size:34px;}' +
+      '.newBadges-searchActorName{font-size:.78em;font-weight:600;line-height:1.2;' +
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
+      '.newBadges-searchActorRole{font-size:.72em;opacity:.5;line-height:1.2;' +
+      'display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;}' +
+      '.newBadges-searchDirCard{flex:0 0 110px;display:flex;flex-direction:column;gap:.35em;' +
+      'background:transparent;border:none;color:inherit;cursor:pointer;text-align:left;}' +
+      '.newBadges-searchDirPoster{width:110px;height:165px;border-radius:8px;background-size:cover;' +
+      'background-position:center;background-color:rgba(255,255,255,.08);transition:transform .12s;}' +
+      '.newBadges-searchDirCard:hover .newBadges-searchDirPoster{transform:scale(1.04);}' +
+      '.newBadges-searchDirTitle{font-size:.82em;font-weight:600;white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis;}' +
+      '.newBadges-searchDirYear{font-size:.75em;opacity:.5;}' +
+      'body.newBadges-searchOpen{overflow:hidden;}' +
+      '@media (max-width:600px){.newBadges-searchOverlay{padding:0;}' +
+      '.newBadges-searchPanel{max-width:100%;min-height:100%;background:rgba(16,18,22,.98);padding:1em;}' +
+      '.newBadges-searchInput{font-size:17px;}}';
+    document.head.appendChild(s);
+  }
+
+  function buildSearchOverlay() {
+    if (searchOverlay) { return searchOverlay; }
+    var el = document.createElement('div');
+    el.className = 'newBadges-searchOverlay';
+    el.innerHTML =
+      '<div class="newBadges-searchPanel">' +
+        '<div class="newBadges-searchBar">' +
+          '<span class="material-icons search" aria-hidden="true"></span>' +
+          '<input type="text" class="newBadges-searchInput" placeholder="Søg film, serier, skuespillere..." ' +
+            'autocomplete="off" autocorrect="off" spellcheck="false" />' +
+          '<button type="button" class="newBadges-searchClose" title="Luk (Esc)">' +
+            '<span class="material-icons close" aria-hidden="true"></span></button>' +
+        '</div>' +
+        '<div class="newBadges-searchBody">' +
+          '<div class="newBadges-searchResults"></div>' +
+          '<div class="newBadges-searchEnrich"></div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(el);
+    searchOverlay = el;
+
+    var input = el.querySelector('.newBadges-searchInput');
+    input.addEventListener('input', function () { onSearchInput(input.value); });
+    input.addEventListener('keydown', onSearchKeydown);
+    el.querySelector('.newBadges-searchClose').addEventListener('click', closeSearchOverlay);
+    el.addEventListener('mousedown', function (e) { if (e.target === el) { closeSearchOverlay(); } });
+
+    var results = el.querySelector('.newBadges-searchResults');
+    results.addEventListener('click', function (e) {
+      var row = e.target.closest ? e.target.closest('.newBadges-searchResult') : null;
+      if (row) { navigateToItem(row.getAttribute('data-id')); }
+    });
+    results.addEventListener('mouseover', function (e) {
+      var row = e.target.closest ? e.target.closest('.newBadges-searchResult') : null;
+      if (row) {
+        var idx = parseInt(row.getAttribute('data-idx'), 10);
+        if (!isNaN(idx) && searchState.results[idx]) { fetchEnrichData(searchState.results[idx]); }
+      }
+    });
+    el.querySelector('.newBadges-searchEnrich').addEventListener('click', function (e) {
+      var nav = e.target.closest ? e.target.closest('[data-nav-id]') : null;
+      if (nav) { navigateToItem(nav.getAttribute('data-nav-id')); }
+    });
+    return el;
+  }
+
+  function openSearchOverlay(seed) {
+    if (!window.ApiClient) { return; }
+    injectSearchStyle();
+    buildSearchOverlay();
+    searchOverlay.classList.add('is-open');
+    document.body.classList.add('newBadges-searchOpen');
+    var input = searchOverlay.querySelector('.newBadges-searchInput');
+    input.value = seed || '';
+    setTimeout(function () { input.focus(); if (seed) { input.select(); } }, 30);
+    if (seed && seed.trim()) { onSearchInput(seed); } else { clearSearchResults(); }
+  }
+
+  function closeSearchOverlay() {
+    if (!searchOverlay) { return; }
+    searchOverlay.classList.remove('is-open');
+    document.body.classList.remove('newBadges-searchOpen');
+    if (searchState.abort) { try { searchState.abort.abort(); } catch (e) { /* noop */ } }
+    clearTimeout(searchState.debounceTimer);
+  }
+
+  function clearSearchResults() {
+    searchState.results = [];
+    searchState.focused = -1;
+    if (searchOverlay) {
+      searchOverlay.querySelector('.newBadges-searchResults').innerHTML =
+        '<div class="newBadges-searchHint">Skriv for at søge…</div>';
+      searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
+    }
+  }
+
+  function onSearchInput(value) {
+    var q = (value || '').trim();
+    searchState.query = q;
+    clearTimeout(searchState.debounceTimer);
+    if (!q) { clearSearchResults(); return; }
+    var cached = searchState.resultCache.get(q.toLowerCase());
+    if (cached) { renderSearchResults(cached); return; }   // instant, no network
+    searchState.debounceTimer = setTimeout(function () { runSearch(q); }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function runSearch(q) {
+    var apiClient = window.ApiClient;
+    if (!apiClient) { return; }
+    if (searchState.abort) { try { searchState.abort.abort(); } catch (e) { /* noop */ } }
+    var ac = ('AbortController' in window) ? new AbortController() : null;
+    searchState.abort = ac;
+    var url = apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', {
+      searchTerm: q,
+      IncludeItemTypes: 'Movie,Series',
+      Recursive: true,
+      Limit: SEARCH_LIMIT,
+      Fields: 'ProductionYear',
+      EnableImages: true,
+      ImageTypeLimit: 1,
+      EnableImageTypes: 'Primary',
+      EnableTotalRecordCount: false
+    });
+    fetch(url, {
+      headers: { 'X-Emby-Token': apiClient.accessToken() },
+      signal: ac ? ac.signal : undefined
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var items = (data && data.Items) || [];
+        searchState.resultCache.set(q.toLowerCase(), items);
+        if (searchState.query === q) { renderSearchResults(items); }  // ignore stale
+      })
+      .catch(function () { /* aborted or network error - ignore */ });
+  }
+
+  function renderSearchResults(items) {
+    searchState.results = items;
+    if (!searchOverlay) { return; }
+    var box = searchOverlay.querySelector('.newBadges-searchResults');
+    if (!items.length) {
+      box.innerHTML = '<div class="newBadges-searchHint">Ingen resultater</div>';
+      searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
+      searchState.focused = -1;
+      return;
+    }
+    box.innerHTML = items.map(buildSearchResultHtml).join('');
+    setSearchFocus(0);   // auto-enrich the best match
+  }
+
+  function buildSearchResultHtml(item, idx) {
+    var apiClient = window.ApiClient;
+    var thumb;
+    if (item.ImageTags && item.ImageTags.Primary) {
+      var u = apiClient.getScaledImageUrl(item.Id, { type: 'Primary', tag: item.ImageTags.Primary, maxWidth: 90 });
+      thumb = '<span class="newBadges-searchThumb" style="background-image:url(&quot;' + u + '&quot;)"></span>';
+    } else {
+      thumb = '<span class="newBadges-searchThumb newBadges-searchThumbEmpty"><span class="material-icons">' +
+        (item.Type === 'Series' ? 'live_tv' : 'movie') + '</span></span>';
+    }
+    var typeLabel = item.Type === 'Series' ? 'Serie' : 'Film';
+    return '<button type="button" class="newBadges-searchResult" data-id="' + item.Id + '" data-idx="' + idx + '">' +
+      thumb +
+      '<span class="newBadges-searchResultText">' +
+        '<span class="newBadges-searchResultTitle"><bdi>' + escapeHtml(item.Name) + '</bdi></span>' +
+        '<span class="newBadges-searchResultMeta">' + typeLabel +
+          (item.ProductionYear ? ' · ' + item.ProductionYear : '') + '</span>' +
+      '</span>' +
+    '</button>';
+  }
+
+  function setSearchFocus(idx) {
+    if (idx < 0 || idx >= searchState.results.length) { return; }
+    searchState.focused = idx;
+    var rows = searchOverlay.querySelectorAll('.newBadges-searchResult');
+    for (var i = 0; i < rows.length; i++) { rows[i].classList.toggle('is-focused', i === idx); }
+    if (rows[idx] && rows[idx].scrollIntoView) { rows[idx].scrollIntoView({ block: 'nearest' }); }
+    enrichFocusedResult(searchState.results[idx]);
+  }
+
+  // Fetch (and cache) an item's cast + director + the director's other work.
+  // Returns a promise; safe to call for prefetch (hover) without rendering.
+  function fetchEnrichData(item) {
+    var cached = searchState.enrichCache.get(item.Id);
+    if (cached) { return Promise.resolve(cached); }
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+    return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/' + item.Id, { Fields: 'People' }))
+      .then(function (detail) {
+        var people = (detail && detail.People) || [];
+        var actors = people.filter(function (p) { return p.Type === 'Actor'; }).slice(0, SEARCH_CAST_LIMIT);
+        var director = people.filter(function (p) { return p.Type === 'Director'; })[0] || null;
+        if (!director) {
+          var noDir = { actors: actors, director: null, works: [] };
+          searchState.enrichCache.set(item.Id, noDir);
+          return noDir;
+        }
+        return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items', {
+          PersonIds: director.Id,
+          IncludeItemTypes: 'Movie,Series',
+          Recursive: true,
+          SortBy: 'PremiereDate',
+          SortOrder: 'Descending',
+          Limit: SEARCH_DIR_LIMIT + 2,
+          ExcludeItemIds: item.Id,
+          Fields: 'ProductionYear',
+          EnableImages: true, ImageTypeLimit: 1, EnableImageTypes: 'Primary',
+          EnableTotalRecordCount: false
+        })).then(function (res) {
+          var works = ((res && res.Items) || []).filter(function (w) { return w.Id !== item.Id; }).slice(0, SEARCH_DIR_LIMIT);
+          var data = { actors: actors, director: director, works: works };
+          searchState.enrichCache.set(item.Id, data);
+          return data;
+        }).catch(function () {
+          var partial = { actors: actors, director: director, works: [] };
+          searchState.enrichCache.set(item.Id, partial);
+          return partial;
+        });
+      });
+  }
+
+  function enrichFocusedResult(item) {
+    if (!item) { return; }
+    var panel = searchOverlay.querySelector('.newBadges-searchEnrich');
+    var reqId = ++searchState.enrichReqId;
+    var cached = searchState.enrichCache.get(item.Id);
+    if (cached) { renderEnrich(cached); return; }   // instant
+    panel.innerHTML = '<div class="newBadges-searchHint">Henter medvirkende…</div>';
+    fetchEnrichData(item).then(function (data) {
+      if (reqId === searchState.enrichReqId) { renderEnrich(data); }  // a newer focus wins
+    }).catch(function () {
+      if (reqId === searchState.enrichReqId) { panel.innerHTML = ''; }
+    });
+  }
+
+  function renderEnrich(data) {
+    var apiClient = window.ApiClient;
+    var html = '';
+    if (data.actors && data.actors.length) {
+      html += '<div class="newBadges-searchSection">' +
+        '<h3 class="newBadges-searchSectionTitle">Medvirkende</h3>' +
+        '<div class="newBadges-searchCast">' +
+        data.actors.map(function (p) {
+          var img = p.PrimaryImageTag
+            ? '<span class="newBadges-searchActorImg" style="background-image:url(&quot;' +
+                apiClient.getScaledImageUrl(p.Id, { type: 'Primary', tag: p.PrimaryImageTag, maxWidth: 100 }) + '&quot;)"></span>'
+            : '<span class="newBadges-searchActorImg newBadges-searchActorImgEmpty"><span class="material-icons">person</span></span>';
+          return '<button type="button" class="newBadges-searchActor" data-nav-id="' + p.Id + '" ' +
+            'title="' + escapeHtml(p.Name) + (p.Role ? ' — ' + escapeHtml(p.Role) : '') + '">' +
+            img +
+            '<span class="newBadges-searchActorName"><bdi>' + escapeHtml(p.Name) + '</bdi></span>' +
+            (p.Role ? '<span class="newBadges-searchActorRole"><bdi>' + escapeHtml(p.Role) + '</bdi></span>' : '') +
+          '</button>';
+        }).join('') +
+        '</div></div>';
+    }
+    if (data.director && data.works && data.works.length) {
+      html += '<div class="newBadges-searchSection">' +
+        '<h3 class="newBadges-searchSectionTitle">Mere fra ' + escapeHtml(data.director.Name) + '</h3>' +
+        '<div class="newBadges-searchDirRow">' +
+        data.works.map(function (w) {
+          var bg = (w.ImageTags && w.ImageTags.Primary)
+            ? ' style="background-image:url(&quot;' + apiClient.getScaledImageUrl(w.Id, { type: 'Primary', tag: w.ImageTags.Primary, maxWidth: 220 }) + '&quot;)"'
+            : '';
+          return '<button type="button" class="newBadges-searchDirCard" data-nav-id="' + w.Id + '" title="' + escapeHtml(w.Name) + '">' +
+            '<span class="newBadges-searchDirPoster' + (bg ? '' : ' newBadges-searchThumbEmpty') + '"' + bg + '>' +
+              (bg ? '' : '<span class="material-icons">movie</span>') + '</span>' +
+            '<span class="newBadges-searchDirTitle"><bdi>' + escapeHtml(w.Name) + '</bdi></span>' +
+            (w.ProductionYear ? '<span class="newBadges-searchDirYear">' + w.ProductionYear + '</span>' : '') +
+          '</button>';
+        }).join('') +
+        '</div></div>';
+    }
+    searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = html;
+  }
+
+  function onSearchKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeSearchOverlay(); return; }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault(); e.stopPropagation();
+      setSearchFocus(Math.min(searchState.focused + 1, searchState.results.length - 1));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault(); e.stopPropagation();
+      setSearchFocus(Math.max(searchState.focused - 1, 0));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault(); e.stopPropagation();
+      var item = searchState.results[searchState.focused];
+      if (item) { navigateToItem(item.Id); }
+      return;
+    }
+    // Keep other keystrokes from the app's global handlers (backspace-as-back).
+    e.stopPropagation();
+  }
+
+  function navigateToItem(id) {
+    if (!id) { return; }
+    closeSearchOverlay();
+    location.hash = '#/details?id=' + id;
+  }
+
+  // Turn Jellyfin's own header magnifier into our overlay's trigger.
+  function hookHeaderSearch() {
+    var btn = document.querySelector('.headerSearchButton');
+    if (btn && !btn.getAttribute('data-nb-search')) {
+      btn.setAttribute('data-nb-search', '1');
+      btn.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        openSearchOverlay('');
+      }, true);
+    }
   }
 
   function init() {
     injectBadgeStyle();
+    injectSearchStyle();
     scheduleScan();
 
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
         if (mutations[i].addedNodes.length > 0) {
+          // Ignore the search overlay's own high-frequency innerHTML churn
+          // (results/enrichment repaint on every keystroke) - it would spin
+          // the scan needlessly and never contains anything scan cares about.
+          var t = mutations[i].target;
+          if (t && t.closest && t.closest('.newBadges-searchOverlay')) {
+            continue;
+          }
           scheduleScan();
           return;
         }
