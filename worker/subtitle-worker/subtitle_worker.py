@@ -779,6 +779,15 @@ def process_transcribe_job(job: dict):
         shutil.move(out_path, target)
         out_path = None
         record(key, mtime, None, f"transcribed:{info.language}")
+        # A Whisper transcription is built FROM the audio (word-level
+        # timestamps), so it's already audio-aligned. Record the new subtitle
+        # in the SYNC ledger as in-sync too, so the sync task skips it instead
+        # of streaming the whole media file to "fix" a file that's already
+        # perfect (and risking ffsubsync nudging it out of alignment).
+        try:
+            record(target, os.path.getmtime(target), 0.0, "in-sync")
+        except OSError:
+            pass
         with state_lock:
             state["done"] += 1
     except Exception as exc:  # noqa: BLE001 - keep the worker alive
