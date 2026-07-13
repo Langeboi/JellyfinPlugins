@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.3.0",
+        "changelog": "Transcription is now CUDA-only with no CPU fallback: when the GPU worker is offline, transcribe jobs simply aren't queued anywhere, rather than silently falling back to a CPU worker's less accurate 'small' model as before. Also fixes the detail-page 'Fix undertekst-sync'/'Generér undertekster' buttons, whose label text had no CSS of its own and inherited an oversized default font-size - it widened the button row enough to crowd the logo/release-date at narrower window widths. Labels are now sized to match the rest of the UI and collapse to icon-only (tooltip retained) below 1000px. Carries forward the per-item transcribe button now sending force:true, so re-transcribing an item overwrites its previous output (v1.4.2.0, never released standalone).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.4.3.0/subtitleguard_1.4.3.0.zip",
+        "checksum": "ad0e6d92cfb150c764962217fef4cbbb",
+        "timestamp": "2026-07-13T12:00:00Z"
+      },
+      {
         "version": "1.4.1.0",
         "changelog": "Stability fixes (no new features). Transcription/translation were failing on every job because the v1.4.0.0 installer never gave the service user a writable model cache - each job re-downloaded the model from HuggingFace and hit a 429 rate limit. The installer now sets a fixed HF_HOME in the install dir and pre-downloads the Whisper model + NLLB tokenizer during install (with retry), so runtime never contacts HuggingFace; re-run the installer on each worker to apply. Added an ffsubsync sanity clamp: results with an implausibly large offset (>60s, SUBWORKER_MAX_OFFSET) are rejected and the original kept, preventing 'way off' corruptions (shown as 'sprunget over' in the pool summary). Note: 'Permission denied' sync failures are a filesystem-permissions issue (give the worker's service user write access to those media folders).",
         "targetAbi": "10.11.0.0",
@@ -92,6 +100,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.1.0",
+        "changelog": "Fixes the Info button looking visibly 'fluffier' than the Play/Favorite buttons next to it: Info is an <a> element while the other two are real <button>s, and without an explicit reset each rendered with its own element's default font/appearance despite sharing the same CSS class. Added a font-family/line-height/appearance reset to the shared button style so all three render pixel-consistent.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.1.1.0/herobar_1.1.1.0.zip",
+        "checksum": "204edc3d473d8ba5b8d297a73b5bdd23",
+        "timestamp": "2026-07-13T12:00:00Z"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "Mobile + performance: touch swipe changes hero slides, with touch events contained inside the hero so Jellyfin's tab strip no longer hijacks a hero swipe into a tab switch (the swipe-to-Favoritter bug); vertical scrolling unaffected. Manual slide changes (dots, swipes) share the rotation's slide counter and restart its timer, fixing desynced auto-flips. Tailored phone layout: shorter banner, tighter text/logo sizing, tappable 40px buttons, larger dot hit areas. Performance: recently-added/trending pool cached 10 min in sessionStorage so the hero paints instantly on revisit; resume/next-up state always fetched fresh.",
         "targetAbi": "10.11.0.0",
@@ -134,6 +150,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.6.1.0",
+        "changelog": "Movies page 'Anbefalet til dig' was recomputing on every single tab visit - several parallel Items/{id}/Similar lookups plus the seed queries, real load for data (watch history) that doesn't meaningfully change minute to minute. The cache is now 24 hours instead of 10 minutes, so it's a once-a-day cost rather than every visit.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.6.1.0/newbadges_1.6.1.0.zip",
+        "checksum": "40a29164787c2a03338867155438c697",
+        "timestamp": "2026-07-13T12:00:00Z"
+      },
       {
         "version": "1.6.0.0",
         "changelog": "Drawer quick actions - the burger menu goes from a bare link list to an actually useful panel: quick search (type + Enter lands on the search page with results loading), Fortsæt (three most recent in-progress items with thumbnail/title/progress bar - one click resumes playback instantly), Overrask mig (plays a random unwatched movie), and Tilføj Film/Serie (jumps straight to the Seerr request tab). All additions sit between Hjem and Medier; everything native stays put.",
