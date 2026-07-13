@@ -82,7 +82,16 @@ WHISPER_DEVICE = os.environ.get("SUBWORKER_WHISPER_DEVICE") or ("cuda" if _detec
 WHISPER_MODEL_NAME = os.environ.get("SUBWORKER_WHISPER_MODEL") or (
     "large-v3" if WHISPER_DEVICE == "cuda" else "small"
 )
-TRANSCRIBE_CAPABILITY = WHISPER_DEVICE if _HAS_WHISPER else None
+# A worker can be pinned to sync-only with SUBWORKER_TRANSCRIBE=0 - meant for
+# CPU boxes, whose 'small' model is noticeably less accurate. It then reports
+# NO transcribe capability, which closes every path a transcription could
+# reach it: the plugin won't route one here (/health says null), it won't
+# steal one from a peer's queue (work-stealing is capability-gated via
+# my_capabilities()), and process_transcribe_job refuses outright if one still
+# arrives. Translation is likewise gated by having the NLLB model, so a
+# sync-only CPU box already does sync and nothing else.
+_TRANSCRIBE_ENABLED = os.environ.get("SUBWORKER_TRANSCRIBE", "1") != "0"
+TRANSCRIBE_CAPABILITY = (WHISPER_DEVICE if _HAS_WHISPER else None) if _TRANSCRIBE_ENABLED else None
 
 # Transcription thoroughness (slower = fewer missed words). The safe lever is
 # a WIDER BEAM: it lets the decoder recover words it was unsure about, at a
