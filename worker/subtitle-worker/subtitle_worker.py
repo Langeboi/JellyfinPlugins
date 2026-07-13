@@ -84,20 +84,33 @@ WHISPER_MODEL_NAME = os.environ.get("SUBWORKER_WHISPER_MODEL") or (
 )
 TRANSCRIBE_CAPABILITY = WHISPER_DEVICE if _HAS_WHISPER else None
 
-# Transcription thoroughness (slower = fewer missed words). Two levers:
-#  - The VAD filter trims quiet/edge speech before Whisper ever sees it, which
-#    is the usual cause of "missed a word here and there". A gentler threshold
-#    (0.35 vs the 0.5 default) keeps quieter speech, and edge-padding stops
-#    words at the start/end of a phrase getting clipped.
-#  - A wider beam search recovers words the decoder was unsure about, at a
-#    roughly linear time cost (beam 8 ~ 1.5x beam 5).
-# All overridable via env if you want to push further (e.g. BEAM=10, or set
-# VAD=0 to disable filtering entirely - most thorough, but large-v3 can then
-# hallucinate a line over music/silence).
+# Transcription thoroughness (slower = fewer missed words). The safe lever is
+# a WIDER BEAM: it lets the decoder recover words it was unsure about, at a
+# roughly linear time cost (beam 8 ~ 1.5x beam 5), and if anything it IMPROVES
+# text (better punctuation/sentence structure), never strips it.
+#
+# The VAD-parameter overrides below are OPT-IN only (unset by default). A
+# gentler VAD threshold catches quieter speech, but overriding faster-whisper's
+# default VAD re-chunks the audio in a way that lost all punctuation in
+# testing, so we leave the proven default VAD in place unless you deliberately
+# opt in. Set VAD=0 to disable filtering entirely (most thorough, but large-v3
+# can then hallucinate a line over music/silence).
 WHISPER_BEAM = int(os.environ.get("SUBWORKER_WHISPER_BEAM", "8"))
 WHISPER_VAD = os.environ.get("SUBWORKER_WHISPER_VAD", "1") != "0"
-WHISPER_VAD_THRESHOLD = float(os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD", "0.35"))
-WHISPER_VAD_PAD_MS = int(os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS", "400"))
+# None => use faster-whisper's default VAD tuning (known-good for punctuation).
+WHISPER_VAD_THRESHOLD = os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD")
+WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
+
+
+def _whisper_vad_parameters():
+    """Only override the default VAD tuning when explicitly asked to via env -
+    a partial override re-chunks audio and stripped punctuation in testing."""
+    params = {}
+    if WHISPER_VAD_THRESHOLD is not None:
+        params["threshold"] = float(WHISPER_VAD_THRESHOLD)
+    if WHISPER_VAD_PAD_MS is not None:
+        params["speech_pad_ms"] = int(WHISPER_VAD_PAD_MS)
+    return params or None
 
 _whisper_model = None
 _whisper_lock = threading.Lock()
@@ -105,15 +118,27 @@ _whisper_lock = threading.Lock()
 
 def get_whisper_model():
     """Lazy singleton: the model (~3GB for large-v3) downloads on first use
-    and stays loaded so back-to-back jobs don't pay the load cost again."""
+    and stays loaded so back-to-back jobs don't pay the load cost again.
+
+    Load OFFLINE first (local_files_only): faster-whisper otherwise pings
+    HuggingFace to check the model revision even when it's already cached, and
+    once HF rate-limits the IP (429) that ping fails hard - which took out ALL
+    transcription. Offline load uses the on-disk model and never contacts HF.
+    Only if the model isn't cached yet do we reach out once to fetch it."""
     global _whisper_model  # noqa: PLW0603
+    compute = "float16" if WHISPER_DEVICE == "cuda" else "int8"
     with _whisper_lock:
         if _whisper_model is None:
-            _whisper_model = WhisperModel(
-                WHISPER_MODEL_NAME,
-                device=WHISPER_DEVICE,
-                compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
-            )
+            try:
+                _whisper_model = WhisperModel(
+                    WHISPER_MODEL_NAME, device=WHISPER_DEVICE,
+                    compute_type=compute, local_files_only=True,
+                )
+            except Exception:  # noqa: BLE001 - not cached yet: fetch once
+                _whisper_model = WhisperModel(
+                    WHISPER_MODEL_NAME, device=WHISPER_DEVICE,
+                    compute_type=compute, local_files_only=False,
+                )
         return _whisper_model
 
 
@@ -154,7 +179,15 @@ def get_translator():
         if _translator is None:
             from transformers import AutoTokenizer
 
-            _nllb_tokenizer = AutoTokenizer.from_pretrained(NLLB_TOKENIZER, src_lang="eng_Latn")
+            # Offline-first for the same reason as Whisper: the tokenizer is
+            # pulled from HuggingFace at runtime and a 429 would break every
+            # translation. Use the cached copy; only fetch if truly missing.
+            try:
+                _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                    NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=True)
+            except Exception:  # noqa: BLE001 - not cached yet: fetch once
+                _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                    NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=False)
             _translator = ctranslate2.Translator(
                 NLLB_DIR,
                 device=WHISPER_DEVICE,
@@ -705,16 +738,12 @@ def process_transcribe_job(job: dict):
             media,
             language=job.get("language") or None,
             word_timestamps=True,
-            # Thoroughness knobs - see WHISPER_* above.
+            # Wider beam = fewer missed words, punctuation-safe. VAD tuning is
+            # left at faster-whisper's proven default unless opted in via env
+            # (see WHISPER_* above) - overriding it stripped all punctuation.
             beam_size=WHISPER_BEAM,
-            best_of=WHISPER_BEAM,
-            patience=1.5,
-            condition_on_previous_text=True,
             vad_filter=WHISPER_VAD,
-            vad_parameters=(
-                {"threshold": WHISPER_VAD_THRESHOLD, "speech_pad_ms": WHISPER_VAD_PAD_MS}
-                if WHISPER_VAD else None
-            ),
+            vad_parameters=_whisper_vad_parameters() if WHISPER_VAD else None,
         )
 
         base = os.path.splitext(media)[0]
