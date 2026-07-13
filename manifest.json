@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.5.0",
+        "changelog": "iOS Safari subtitle fix (Phase A). iOS hands fullscreen playback to Apple's native player, which ignores Jellyfin's HTML subtitle overlay - so text subtitles vanish in fullscreen on iPhone/iPad. The plugin now fixes this by burning the selected subtitle into the video, but ONLY on iOS: on an iOS/iPadOS device it rewrites the PlaybackInfo device profile so text subs are delivered as Encode (burn-in), per-playback, with no persistent setting changed. Desktop and TV are untouched and keep the styled overlay (no extra transcode). Toggle under Undertekster: 'Indbrænd undertekster på iOS' (default on). Note: iOS playback with a subtitle now transcodes, which is the cost of guaranteed fullscreen subtitles there.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v.1.4.5.0/subtitleguard_1.4.5.0.zip",
+        "checksum": "0a9e808575cd38d29f4455078b613b16",
+        "timestamp": "2026-07-13T15:30:00Z"
+      },
+      {
         "version": "1.4.4.0",
         "changelog": "Subtitle styling (Phase A): standardized appearance now covers font family and a configurable black outline/border (0-4px), on top of size. Size is computed live from the ACTIVE PLAYER's rendered height and re-applied on resize/fullscreen/orientation/playback-start, so it scales with the player (not just the window) on desktop, mobile and TV-web - with a viewport clamp as the pre-player fallback. Both render paths are covered (the browser's native ::cue renderer and Jellyfin's HTML overlay). New settings under Undertekster: Skrifttype and Kantlinje (px). More Phase A items (media-page language enforcement, iOS Safari) to follow.",
         "targetAbi": "10.11.0.0",
