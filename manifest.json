@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.4.4.0",
+        "changelog": "Subtitle styling (Phase A): standardized appearance now covers font family and a configurable black outline/border (0-4px), on top of size. Size is computed live from the ACTIVE PLAYER's rendered height and re-applied on resize/fullscreen/orientation/playback-start, so it scales with the player (not just the window) on desktop, mobile and TV-web - with a viewport clamp as the pre-player fallback. Both render paths are covered (the browser's native ::cue renderer and Jellyfin's HTML overlay). New settings under Undertekster: Skrifttype and Kantlinje (px). More Phase A items (media-page language enforcement, iOS Safari) to follow.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.4.4.0/subtitleguard_1.4.4.0.zip",
+        "checksum": "2838c5c19194d104945eb943c1a0d66a",
+        "timestamp": "2026-07-13T14:30:00Z"
+      },
+      {
         "version": "1.4.3.0",
         "changelog": "Transcription is now CUDA-only with no CPU fallback: when the GPU worker is offline, transcribe jobs simply aren't queued anywhere, rather than silently falling back to a CPU worker's less accurate 'small' model as before. Also fixes the detail-page 'Fix undertekst-sync'/'Generér undertekster' buttons, whose label text had no CSS of its own and inherited an oversized default font-size - it widened the button row enough to crowd the logo/release-date at narrower window widths. Labels are now sized to match the rest of the UI and collapse to icon-only (tooltip retained) below 1000px. Carries forward the per-item transcribe button now sending force:true, so re-transcribing an item overwrites its previous output (v1.4.2.0, never released standalone).",
         "targetAbi": "10.11.0.0",
