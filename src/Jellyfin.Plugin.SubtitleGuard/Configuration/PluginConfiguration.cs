@@ -37,6 +37,15 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public bool EnableWatchdog { get; set; } = true;
 
         /// <summary>
+        /// On iOS (iPhone/iPad), force the selected subtitle to be burned into
+        /// the video. iOS hands fullscreen to Apple's native player, which
+        /// ignores Jellyfin's HTML subtitle overlay, so text subs vanish in
+        /// fullscreen - burning them in is the only way to keep them visible
+        /// there. iOS-only; other devices keep the styled overlay.
+        /// </summary>
+        public bool IosBurnInSubtitles { get; set; } = true;
+
+        /// <summary>
         /// JSON array of enrolled workers:
         /// [{"Name":"...","Url":"http://ip:8099","ApiKey":"..."}]. Managed
         /// by the config page. Empty disables all sync features.

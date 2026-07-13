@@ -25,6 +25,7 @@
           SubtitleFontFamily: data.SubtitleFontFamily || '',
           SubtitleOutlineWidth: Math.min(4, Math.max(0, typeof data.SubtitleOutlineWidth === 'number' ? data.SubtitleOutlineWidth : 2)),
           EnableWatchdog: data.EnableWatchdog !== false,
+          IosBurnInSubtitles: data.IosBurnInSubtitles !== false,
           EnableTrackFilter: data.EnableTrackFilter !== false,
           VisibleSubtitleLanguages: data.VisibleSubtitleLanguages || 'da,en'
         };
@@ -37,6 +38,7 @@
           SubtitleFontFamily: '',
           SubtitleOutlineWidth: 2,
           EnableWatchdog: true,
+          IosBurnInSubtitles: true,
           EnableTrackFilter: true,
           VisibleSubtitleLanguages: 'da,en'
         };
@@ -99,6 +101,80 @@
     document.addEventListener('fullscreenchange', function () { updateSubtitleScale(); });
     document.addEventListener('webkitfullscreenchange', function () { updateSubtitleScale(); });
     window.addEventListener('orientationchange', function () { setTimeout(updateSubtitleScale, 250); });
+  }
+
+  // ---- iOS native-fullscreen subtitle fix (burn-in) ----
+  // iOS hands fullscreen to Apple's native player, which renders only the
+  // video's own pixels + native tracks - Jellyfin's HTML subtitle overlay
+  // isn't part of that, so text subs vanish in fullscreen. The only reliable
+  // fix is to burn the subtitle into the video. We do it iOS-only and per
+  // playback by rewriting the DeviceProfile in the PlaybackInfo request so
+  // text subtitles can only be delivered as "Encode" (burn-in); other devices
+  // are never touched, and no persistent Jellyfin setting is changed.
+  function isIOS() {
+    var ua = navigator.userAgent || '';
+    return /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === 'MacIntel' && (navigator.maxTouchPoints || 0) > 1);
+  }
+
+  function forceEncodeSubtitles(bodyStr) {
+    try {
+      var body = JSON.parse(bodyStr);
+      var prof = body && body.DeviceProfile;
+      if (prof && Array.isArray(prof.SubtitleProfiles)) {
+        var changed = false;
+        prof.SubtitleProfiles.forEach(function (sp) {
+          if (sp && (sp.Method === 'External' || sp.Method === 'Hls' || sp.Method === 'Embed')) {
+            sp.Method = 'Encode';
+            changed = true;
+          }
+        });
+        if (changed) { return JSON.stringify(body); }
+      }
+    } catch (e) { /* not our request / unparseable - leave it */ }
+    return null;
+  }
+
+  var _iosBurnInstalled = false;
+  function installIosBurnIn() {
+    if (_iosBurnInstalled || !isIOS()) { return; }
+    _iosBurnInstalled = true;
+
+    var origFetch = window.fetch;
+    if (origFetch) {
+      window.fetch = function (input, init) {
+        try {
+          if (config && config.IosBurnInSubtitles && init && typeof init.body === 'string') {
+            var url = typeof input === 'string' ? input : (input && input.url) || '';
+            if (/\/PlaybackInfo/i.test(url)) {
+              var patched = forceEncodeSubtitles(init.body);
+              if (patched) { init = Object.assign({}, init, { body: patched }); }
+            }
+          }
+        } catch (e) { /* leave request untouched */ }
+        return origFetch.apply(this, [input, init]);
+      };
+    }
+
+    var XHR = window.XMLHttpRequest;
+    if (XHR && XHR.prototype) {
+      var origOpen = XHR.prototype.open;
+      var origSend = XHR.prototype.send;
+      XHR.prototype.open = function (method, url) {
+        this.__sgUrl = url;
+        return origOpen.apply(this, arguments);
+      };
+      XHR.prototype.send = function (body) {
+        try {
+          if (config && config.IosBurnInSubtitles && typeof body === 'string' &&
+              this.__sgUrl && /\/PlaybackInfo/i.test(this.__sgUrl)) {
+            var patched = forceEncodeSubtitles(body);
+            if (patched) { return origSend.call(this, patched); }
+          }
+        } catch (e) { /* leave request untouched */ }
+        return origSend.apply(this, arguments);
+      };
+    }
   }
 
   function injectSizeStyle(cfg) {
@@ -480,6 +556,7 @@
     var fontFamilySelect = page.querySelector('#SgFontFamily');
     var outlineWidthInput = page.querySelector('#SgOutlineWidth');
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
+    var iosBurnInCheckbox = page.querySelector('#SgIosBurnIn');
     var trackFilterCheckbox = page.querySelector('#SgEnableTrackFilter');
     var visibleLangsInput = page.querySelector('#SgVisibleLanguages');
     var mapFromInput = page.querySelector('#SgPathMapFrom');
@@ -767,6 +844,7 @@
         outlineWidthInput.value = typeof cfg.SubtitleOutlineWidth === 'number' ? cfg.SubtitleOutlineWidth : 2;
       }
       watchdogCheckbox.checked = cfg.EnableWatchdog !== false;
+      if (iosBurnInCheckbox) { iosBurnInCheckbox.checked = cfg.IosBurnInSubtitles !== false; }
       if (trackFilterCheckbox) {
         trackFilterCheckbox.checked = cfg.EnableTrackFilter !== false;
         visibleLangsInput.value = cfg.VisibleSubtitleLanguages || 'da,en';
@@ -868,6 +946,7 @@
           cfg.SubtitleOutlineWidth = Math.min(4, Math.max(0, parseInt(outlineWidthInput.value, 10) || 0));
         }
         cfg.EnableWatchdog = watchdogCheckbox.checked;
+        if (iosBurnInCheckbox) { cfg.IosBurnInSubtitles = iosBurnInCheckbox.checked; }
         if (trackFilterCheckbox) {
           cfg.EnableTrackFilter = trackFilterCheckbox.checked;
           cfg.VisibleSubtitleLanguages = visibleLangsInput.value.trim() || 'da,en';
@@ -930,6 +1009,10 @@
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
+
+    // iOS burn-in interceptor goes in as early as possible (before the first
+    // PlaybackInfo can fire); it self-gates on iOS and reads config live.
+    installIosBurnIn();
 
     whenApiClientReady(function () {
       loadConfig().then(function (cfg) {
