@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.5.0.0",
+        "changelog": "Worker roles, true sync+ML concurrency, and transcription progress (Phase B). Roles: every worker now carries which jobs it may do (Synkronisering/Transskription/Oversættelse) - set via checkboxes at enrollment and editable afterwards as clickable chips on the worker list; routing requires the role AND the advertised capability (existing workers default to all roles). Concurrency: the worker now runs two queues - sync threads keep flowing while ONE dedicated ML thread handles transcriptions/translations, fixing a starvation bug where queued transcriptions could block every sync thread; a both-roles box genuinely syncs and transcribes at once. Progress: transcriptions report a real percentage (segment position vs media duration), painted as a 5-block bar with % on the worker list. REQUIRES a worker update on all machines (two queues + progress live in the worker script).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.5.0.1/subtitleguard_1.5.0.0.zip",
+        "checksum": "836218a5be1f42c0a08906eef86e5877",
+        "timestamp": "2026-07-13T17:00:00Z"
+      },
+      {
         "version": "1.4.5.0",
         "changelog": "iOS Safari subtitle fix (Phase A). iOS hands fullscreen playback to Apple's native player, which ignores Jellyfin's HTML subtitle overlay - so text subtitles vanish in fullscreen on iPhone/iPad. The plugin now fixes this by burning the selected subtitle into the video, but ONLY on iOS: on an iOS/iPadOS device it rewrites the PlaybackInfo device profile so text subs are delivered as Encode (burn-in), per-playback, with no persistent setting changed. Desktop and TV are untouched and keep the styled overlay (no extra transcode). Toggle under Undertekster: 'Indbrænd undertekster på iOS' (default on). Note: iOS playback with a subtitle now transcodes, which is the cost of guaranteed fullscreen subtitles there.",
         "targetAbi": "10.11.0.0",
