@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.6.0.0",
+        "changelog": "Config-page overhaul, transcription history, stats & graphs, new status glyphs (Phase C). The plugin page is rebuilt around a hero header, card layout, icon tabs and built-in guides (how sync works, step-by-step worker enrollment with a copyable install-kommando, CPU/GPU role guidance). Transskription tab gains a pool-wide transcription history (outcome, sprog-chip, tidspunkt, worker). Status tab opens with stat tiles (Rettet/I sync/Transskriberet/Oversat/Fejlet) and a stacked 14-dages aktivitetsgraf med hover-tooltips. Worker-status glyffer er nu animerede: åndende grøn med ring (ledig), roterende violet bue (arbejder), gule bjælker (pauset), pulserende rød (offline). KRÆVER worker-opdatering på alle maskiner (nye /stats- og /history-endpoints ligger i workeren).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.6.0.1/subtitleguard_1.6.0.0.zip",
+        "checksum": "d94377e76618b4a8cc84ddced9950657",
+        "timestamp": "2026-07-13T18:30:00Z"
+      },
+      {
         "version": "1.5.0.0",
         "changelog": "Worker roles, true sync+ML concurrency, and transcription progress (Phase B). Roles: every worker now carries which jobs it may do (Synkronisering/Transskription/Oversættelse) - set via checkboxes at enrollment and editable afterwards as clickable chips on the worker list; routing requires the role AND the advertised capability (existing workers default to all roles). Concurrency: the worker now runs two queues - sync threads keep flowing while ONE dedicated ML thread handles transcriptions/translations, fixing a starvation bug where queued transcriptions could block every sync thread; a both-roles box genuinely syncs and transcribes at once. Progress: transcriptions report a real percentage (segment position vs media duration), painted as a 5-block bar with % on the worker list. REQUIRES a worker update on all machines (two queues + progress live in the worker script).",
         "targetAbi": "10.11.0.0",
