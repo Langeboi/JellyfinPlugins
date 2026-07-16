@@ -638,6 +638,32 @@
     // Worker pool state, kept in sync with cfg.WorkersJson.
     var workers = [];
 
+    var ROLE_DEFS = [
+      { key: 'sync', label: 'Sync' },
+      { key: 'transcribe', label: 'Transskription' },
+      { key: 'translate', label: 'Oversættelse' }
+    ];
+
+    // Empty Roles = all roles (a worker enrolled before the selector existed).
+    function workerActiveRoles(w) {
+      if (!w.Roles || !w.Roles.length) { return { sync: true, transcribe: true, translate: true }; }
+      var m = {};
+      w.Roles.forEach(function (r) { m[r] = true; });
+      return m;
+    }
+
+    function roleChipsHtml(w, i) {
+      var active = workerActiveRoles(w);
+      return '<span style="display:inline-flex;gap:.35em;margin-top:.3em;flex-wrap:wrap;">' +
+        ROLE_DEFS.map(function (r) {
+          var on = !!active[r.key];
+          return '<button type="button" data-sg-role="' + r.key + '" data-sg-worker="' + i + '" ' +
+            'style="border:1px solid ' + (on ? 'rgba(140,130,255,.9)' : 'rgba(255,255,255,.2)') + ';' +
+            'background:' + (on ? 'rgba(140,130,255,.85)' : 'transparent') + ';color:' + (on ? '#fff' : 'rgba(255,255,255,.55)') + ';' +
+            'border-radius:999px;padding:.12em .7em;font-size:.75em;cursor:pointer;">' + r.label + '</button>';
+        }).join('') + '</span>';
+    }
+
     function renderWorkers(statusByUrl) {
       if (!workerList) {
         return;
@@ -681,6 +707,19 @@
             return '<span style="display:block;color:#d29922;font-size:.85em;white-space:nowrap;' +
               'overflow:hidden;text-overflow:ellipsis;">' + formatActivity(j).replace(/</g, '&lt;') + '</span>';
           }).join('');
+          // 5-step transcription progress: real percentage from the worker
+          // (segment position vs media duration), painted as five blocks.
+          if (st.ml_progress && typeof st.ml_progress.pct === 'number') {
+            var pct = Math.max(0, Math.min(100, st.ml_progress.pct));
+            var filled = Math.round(pct / 20);
+            var blocks = '';
+            for (var b = 0; b < 5; b++) {
+              blocks += '<span style="flex:1;height:6px;border-radius:3px;' +
+                'background:' + (b < filled ? 'rgba(140,130,255,.95)' : 'rgba(255,255,255,.15)') + ';"></span>';
+            }
+            activityHtml += '<span style="display:flex;align-items:center;gap:4px;margin-top:.25em;max-width:340px;">' +
+              blocks + '<span style="font-size:.72em;opacity:.65;flex:0 0 auto;">' + pct + '%</span></span>';
+          }
         }
 
         var controls = '';
@@ -701,6 +740,7 @@
               '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
                 w.Url.replace(/</g, '&lt;') + ' - ' + detail.replace(/</g, '&lt;') + caps.replace(/</g, '&lt;') + '</span>' +
               activityHtml +
+              roleChipsHtml(w, i) +
             '</span>' +
             controls +
             '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="' + ctrlBtnStyle + '">Fjern</button>' +
@@ -900,7 +940,15 @@
           window.Dashboard.alert('Worker URL og enrollment-kode skal udfyldes.');
           return;
         }
-        workers.push({ Name: name || url, Url: url, ApiKey: key });
+        var roles = [];
+        page.querySelectorAll('#SgNewWorkerRoles [data-sg-newrole]').forEach(function (cb) {
+          if (cb.checked) { roles.push(cb.getAttribute('data-sg-newrole')); }
+        });
+        if (!roles.length) {
+          window.Dashboard.alert('Vælg mindst én rolle for workeren.');
+          return;
+        }
+        workers.push({ Name: name || url, Url: url, ApiKey: key, Roles: roles });
         saveWorkers(function () {
           page.querySelector('#SgNewWorkerName').value = '';
           page.querySelector('#SgNewWorkerUrl').value = '';
@@ -921,6 +969,26 @@
             headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
             body: JSON.stringify({ Url: ctrl.getAttribute('data-sg-url'), Action: ctrl.getAttribute('data-sg-control') })
           }).then(refreshStatuses).catch(refreshStatuses);
+          return;
+        }
+
+        // Toggle a role chip: flip the role on that worker, keep at least one,
+        // persist, and re-render (routing picks it up on the next task run).
+        var roleBtn = e.target.closest ? e.target.closest('[data-sg-role]') : null;
+        if (roleBtn) {
+          var wi = parseInt(roleBtn.getAttribute('data-sg-worker'), 10);
+          var role = roleBtn.getAttribute('data-sg-role');
+          var w = workers[wi];
+          if (!w) { return; }
+          var active = workerActiveRoles(w);
+          active[role] = !active[role];
+          var next = ROLE_DEFS.map(function (r) { return r.key; }).filter(function (k) { return active[k]; });
+          if (!next.length) {
+            window.Dashboard.alert('En worker skal have mindst én rolle.');
+            return;
+          }
+          w.Roles = next;
+          saveWorkers(function () { renderWorkers(null); refreshStatuses(); });
           return;
         }
 

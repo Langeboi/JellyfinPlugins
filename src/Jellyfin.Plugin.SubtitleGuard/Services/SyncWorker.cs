@@ -19,6 +19,14 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         public string Url { get; set; } = string.Empty;
 
         public string ApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Roles this worker is allowed to fulfil: any of "sync", "transcribe",
+        /// "translate". Empty = all roles (backward-compatible with workers
+        /// enrolled before the selector existed). A role still additionally
+        /// requires the worker to actually advertise the matching capability.
+        /// </summary>
+        public List<string> Roles { get; set; } = new();
     }
 
     /// <summary>
@@ -51,11 +59,25 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         var key = entry["ApiKey"]?.ToString();
                         if (!string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(key))
                         {
+                            var roles = new List<string>();
+                            if (entry["Roles"] is JArray roleArr)
+                            {
+                                foreach (var r in roleArr)
+                                {
+                                    var rv = r?.ToString();
+                                    if (!string.IsNullOrWhiteSpace(rv))
+                                    {
+                                        roles.Add(rv.Trim().ToLowerInvariant());
+                                    }
+                                }
+                            }
+
                             workers.Add(new WorkerEntry
                             {
                                 Name = entry["Name"]?.ToString() ?? url,
                                 Url = url.TrimEnd('/'),
-                                ApiKey = key
+                                ApiKey = key,
+                                Roles = roles
                             });
                         }
                     }
@@ -83,6 +105,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         }
 
         public static bool IsConfigured => GetWorkers().Count > 0;
+
+        /// <summary>Empty role list = all roles (backward compatible).</summary>
+        public static bool WorkerHasRole(WorkerEntry worker, string role)
+        {
+            return worker.Roles == null || worker.Roles.Count == 0
+                || worker.Roles.Contains(role, StringComparer.OrdinalIgnoreCase);
+        }
 
         public static string MapPath(string path)
         {
@@ -389,6 +418,9 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["concurrency"] = body["concurrency"];
                         entry["outcomes"] = body["outcomes"];
                         entry["processing_list"] = body["processing_list"];
+                        entry["sync_queue_depth"] = body["sync_queue_depth"];
+                        entry["ml_queue_depth"] = body["ml_queue_depth"];
+                        entry["ml_progress"] = body["ml_progress"];
                     }
                     else
                     {
@@ -443,26 +475,32 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             // no CUDA worker is online. Better to queue nothing than to
             // silently degrade quality.
             // Translation jobs only go to workers with the NLLB model.
+            // A worker is eligible when it is online, ADVERTISES the needed
+            // capability, AND the operator assigned it that role. Roles let a
+            // GPU box do transcription only while CPU boxes do sync only - or
+            // any mix (a box can carry sync + transcribe at once).
             var eligible = new bool[workers.Count];
             if (capability == "transcribe")
             {
                 for (var i = 0; i < workers.Count; i++)
                 {
-                    eligible[i] = health[i].Online && health[i].Transcribe == "cuda";
+                    eligible[i] = health[i].Online && health[i].Transcribe == "cuda"
+                        && WorkerHasRole(workers[i], "transcribe");
                 }
             }
             else if (capability == "translate")
             {
                 for (var i = 0; i < workers.Count; i++)
                 {
-                    eligible[i] = health[i].Online && health[i].Translate;
+                    eligible[i] = health[i].Online && health[i].Translate
+                        && WorkerHasRole(workers[i], "translate");
                 }
             }
             else
             {
                 for (var i = 0; i < workers.Count; i++)
                 {
-                    eligible[i] = health[i].Online;
+                    eligible[i] = health[i].Online && WorkerHasRole(workers[i], "sync");
                 }
             }
 

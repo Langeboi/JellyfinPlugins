@@ -44,6 +44,12 @@
             <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment code</label>
             <input id="SgNewWorkerKey" type="password" is="emby-input" />
           </div>
+          <div id="SgNewWorkerRoles" style="margin:.2em 0 1em;">
+            <div class="fieldDescription" style="margin-bottom:.4em;">Roller (hvad denne maskine må lave):</div>
+            <label style="margin-right:1.2em;"><input type="checkbox" is="emby-checkbox" data-sg-newrole="sync" checked /><span>Synkronisering</span></label>
+            <label style="margin-right:1.2em;"><input type="checkbox" is="emby-checkbox" data-sg-newrole="transcribe" checked /><span>Transskription</span></label>
+            <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="translate" checked /><span>Oversættelse</span></label>
+          </div>
           <div style="margin-bottom:1.5em;">
             <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised block emby-button">
               <span>Tilføj worker</span>

@@ -409,11 +409,17 @@ def _wrap_lines(text: str) -> str:
     return "\n".join(lines)
 
 
-def write_srt(segments, path: str) -> int:
+def write_srt(segments, path: str, progress=None) -> int:
     """Build a tightly-timed SRT from Whisper segments. Consuming the
-    generator is where the transcription time is actually spent."""
+    generator is where the transcription time is actually spent, which is
+    why progress (if given) is reported per consumed segment."""
     cues = []  # [start, end, text]
     for segment in segments:
+        if progress is not None:
+            try:
+                progress(float(segment.end or 0))
+            except Exception:  # noqa: BLE001 - progress must never kill a job
+                progress = None
         text = " ".join(segment.text.split())
         if not text:
             continue
@@ -472,7 +478,26 @@ SYNC_CONCURRENCY = int(
     os.environ.get("SUBWORKER_SYNC_CONCURRENCY", "0")
 ) or min(4, max(1, (os.cpu_count() or 2) - 1))
 
+# Two queues so heavy ML work can never starve sync: with a single queue,
+# several queued transcriptions would each occupy a sync thread (all blocked
+# on the one-at-a-time transcribe lock) until no thread was left for sync.
+# Sync threads consume job_queue; ONE dedicated ML thread consumes ml_queue -
+# so a box with both roles genuinely syncs and transcribes at the same time.
 job_queue: "queue.Queue[dict]" = queue.Queue()
+ml_queue: "queue.Queue[dict]" = queue.Queue()
+
+
+def enqueue_job(job: dict):
+    if job.get("type") in ("transcribe", "translate"):
+        ml_queue.put(job)
+    else:
+        job_queue.put(job)
+
+
+def total_queue_depth() -> int:
+    return job_queue.qsize() + ml_queue.qsize()
+
+
 state = {
     "processing": {},  # thread name -> label of the job it is running
     "done": 0,
@@ -480,6 +505,8 @@ state = {
     "failed": 0,
     "paused": False,
     "started_at": datetime.now(timezone.utc).isoformat(),
+    # {"file": basename, "pct": 0-100} while a transcription runs, else None.
+    "ml_progress": None,
 }
 state_lock = threading.Lock()
 
@@ -538,7 +565,7 @@ def steal_loop():
     while True:
         time.sleep(45)
         try:
-            if not pause_event.is_set() or job_queue.qsize() > 0:
+            if not pause_event.is_set() or total_queue_depth() > 0:
                 continue
             with state_lock:
                 if state["processing"]:
@@ -575,7 +602,7 @@ def steal_loop():
             with urllib.request.urlopen(req, timeout=15) as resp:
                 stolen = _json.loads(resp.read()).get("jobs", [])
             for job in stolen:
-                job_queue.put(job)
+                enqueue_job(job)
         except Exception:  # noqa: BLE001 - never let the loop die
             continue
 
@@ -769,7 +796,22 @@ def process_transcribe_job(job: dict):
 
         out_fd, out_path = tempfile.mkstemp(suffix=".srt")
         os.close(out_fd)
-        count = write_srt(segments, out_path)
+
+        # Live progress: consuming the segment generator IS the transcription,
+        # and each segment's end time against the media duration gives a real
+        # percentage. Shown in the plugin's worker list while this runs.
+        duration = float(getattr(info, "duration", 0) or 0)
+        media_name = os.path.basename(media)
+        with state_lock:
+            state["ml_progress"] = {"file": media_name, "pct": 0}
+
+        def _progress(seg_end):
+            if duration > 0:
+                pct = max(0, min(100, int(seg_end / duration * 100)))
+                with state_lock:
+                    state["ml_progress"] = {"file": media_name, "pct": pct}
+
+        count = write_srt(segments, out_path, progress=_progress)
         if count == 0:
             record(key, mtime, None, "no-speech")
             with state_lock:
@@ -810,32 +852,56 @@ def worker_loop():
         except queue.Empty:
             continue
 
+        # ML jobs never belong on sync threads (see enqueue_job) - reroute
+        # any stray one instead of letting it block a sync slot on the lock.
+        if job.get("type") in ("transcribe", "translate"):
+            ml_queue.put(job)
+            job_queue.task_done()
+            continue
+
         label = job.get("subtitle_path") or job.get("media_path")
-        if job.get("type") == "transcribe":
-            label = "[whisper] " + os.path.basename(job.get("media_path") or "")
-        elif job.get("type") == "translate":
-            label = "[oversætter] " + os.path.basename(job.get("media_path") or "")
         with state_lock:
             state["processing"][name] = label
         try:
-            if job.get("type") == "transcribe":
-                # Whisper and NLLB share the same GPU - one heavy ML job at
-                # a time, sync keeps flowing on the other threads.
-                with transcribe_job_lock:
-                    process_transcribe_job(job)
-            elif job.get("type") == "translate":
-                with transcribe_job_lock:
-                    process_translate_job(job)
-            else:
-                process_job(job)
+            process_job(job)
         finally:
             with state_lock:
                 state["processing"].pop(name, None)
             job_queue.task_done()
 
 
+def ml_loop():
+    """The single ML thread: transcriptions and translations, one at a time
+    (a second large-v3 on the same GPU would OOM). Sync threads keep flowing
+    in parallel, so a both-roles box genuinely does sync + transcribe at once."""
+    name = threading.current_thread().name
+    while True:
+        pause_event.wait()
+        try:
+            job = ml_queue.get(timeout=1)
+        except queue.Empty:
+            continue
+
+        prefix = "[whisper] " if job.get("type") == "transcribe" else "[oversætter] "
+        label = prefix + os.path.basename(job.get("media_path") or "")
+        with state_lock:
+            state["processing"][name] = label
+        try:
+            with transcribe_job_lock:
+                if job.get("type") == "transcribe":
+                    process_transcribe_job(job)
+                else:
+                    process_translate_job(job)
+        finally:
+            with state_lock:
+                state["processing"].pop(name, None)
+                state["ml_progress"] = None
+            ml_queue.task_done()
+
+
 for _i in range(SYNC_CONCURRENCY):
     threading.Thread(target=worker_loop, name=f"worker-{_i + 1}", daemon=True).start()
+threading.Thread(target=ml_loop, name="ml-worker", daemon=True).start()
 
 
 def check_key(x_api_key):
@@ -966,16 +1032,16 @@ def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
 @app.post("/jobs")
 def submit_job(job: Job, x_api_key: str = Header(default="")):
     check_key(x_api_key)
-    job_queue.put(job.model_dump())
-    return {"queued": 1, "queue_depth": job_queue.qsize()}
+    enqueue_job(job.model_dump())
+    return {"queued": 1, "queue_depth": total_queue_depth()}
 
 
 @app.post("/jobs/batch")
 def submit_batch(batch: Batch, x_api_key: str = Header(default="")):
     check_key(x_api_key)
     for job in batch.jobs:
-        job_queue.put(job.model_dump())
-    return {"queued": len(batch.jobs), "queue_depth": job_queue.qsize()}
+        enqueue_job(job.model_dump())
+    return {"queued": len(batch.jobs), "queue_depth": total_queue_depth()}
 
 
 @app.post("/pause")
@@ -1010,14 +1076,15 @@ def resume(x_api_key: str = Header(default="")):
 def clear_queue(x_api_key: str = Header(default="")):
     check_key(x_api_key)
     removed = 0
-    try:
-        while True:
-            job_queue.get_nowait()
-            job_queue.task_done()
-            removed += 1
-    except queue.Empty:
-        pass
-    return {"removed": removed, "queue_depth": job_queue.qsize()}
+    for q in (job_queue, ml_queue):
+        try:
+            while True:
+                q.get_nowait()
+                q.task_done()
+                removed += 1
+        except queue.Empty:
+            pass
+    return {"removed": removed, "queue_depth": total_queue_depth()}
 
 
 @app.get("/processed")
@@ -1075,7 +1142,9 @@ def status(x_api_key: str = Header(default="")):
     snapshot["processing"] = ", ".join(active.values()) if active else None
     snapshot["processing_list"] = list(active.values())
     snapshot["concurrency"] = SYNC_CONCURRENCY
-    snapshot["queue_depth"] = job_queue.qsize()
+    snapshot["queue_depth"] = total_queue_depth()
+    snapshot["sync_queue_depth"] = job_queue.qsize()
+    snapshot["ml_queue_depth"] = ml_queue.qsize()
     snapshot["capabilities"] = {
         "sync": True,
         "transcribe": TRANSCRIBE_CAPABILITY,
