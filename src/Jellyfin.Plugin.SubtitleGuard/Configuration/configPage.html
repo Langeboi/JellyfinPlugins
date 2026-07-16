@@ -7,173 +7,202 @@
   <div id="SubtitleGuardConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
     <div data-role="content">
       <div class="content-primary">
-        <div class="verticalSection">
-          <h2>Subtitle Guard</h2>
+
+        <!-- Hero header -->
+        <div class="sgHero">
+          <div class="sgHeroIcon"><span class="material-icons closed_caption" aria-hidden="true"></span></div>
+          <div>
+            <h2 class="sgHeroTitle">Subtitle Guard</h2>
+            <div class="sgHeroSub">Undertekster der passer, synker og altid vises &mdash; på tværs af hele poolen.</div>
+          </div>
         </div>
 
         <!-- Tab bar: each button toggles one data-sg-tab panel. Wired in
              inject.js like everything else (inline scripts don't run). -->
-        <div id="SgTabBar" style="display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1.2em;">
-          <button type="button" class="sgTabBtn" data-sg-tabbtn="workers">Workers</button>
-          <button type="button" class="sgTabBtn" data-sg-tabbtn="sync">Synkronisering</button>
-          <button type="button" class="sgTabBtn" data-sg-tabbtn="subs">Undertekster</button>
-          <button type="button" class="sgTabBtn" data-sg-tabbtn="trans">Transskription</button>
-          <button type="button" class="sgTabBtn" data-sg-tabbtn="status">Status</button>
+        <div id="SgTabBar" class="sgTabBar">
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="workers"><span class="material-icons dns" aria-hidden="true"></span>Workers</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="sync"><span class="material-icons sync" aria-hidden="true"></span>Synkronisering</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="subs"><span class="material-icons subtitles" aria-hidden="true"></span>Undertekster</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="trans"><span class="material-icons mic" aria-hidden="true"></span>Transskription</button>
+          <button type="button" class="sgTabBtn" data-sg-tabbtn="status"><span class="material-icons insights" aria-hidden="true"></span>Status</button>
         </div>
 
         <!-- ======================= WORKERS ======================= -->
         <div data-sg-tab="workers">
-          <div class="verticalSection">
-            <h2>Sync workers</h2>
-            <p>Machines that do the actual subtitle work. Enroll one by running this on any Debian/Ubuntu machine that has the media mounted:</p>
-            <p><code>curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</code></p>
-            <p>Jobs are split between online workers, and idle workers automatically pull extra work from the busiest one.</p>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons dns" aria-hidden="true"></span>Worker-pool</div>
+            <div class="sgCardDesc">Maskinerne der udfører selve undertekst-arbejdet. Jobs fordeles mellem online workers efter deres roller, og ledige maskiner stjæler automatisk arbejde fra den travleste.</div>
+            <div id="SgWorkerList" style="margin-top:.6em;"></div>
           </div>
 
-          <div id="SgWorkerList" class="paperList" style="margin-bottom:1em;"></div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons add_circle" aria-hidden="true"></span>Tilmeld ny worker</div>
+            <ol class="sgSteps">
+              <li>Kør installeren på en Debian/Ubuntu-maskine der har medierne mountet:
+                <div class="sgCode">curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</div>
+              </li>
+              <li>Installeren udskriver en <b>Worker URL</b> og en <b>enrollment-kode</b> &mdash; indsæt dem herunder.</li>
+              <li>Vælg maskinens roller og tryk <b>Tilmeld worker</b>.</li>
+            </ol>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerName">Name</label>
-            <input id="SgNewWorkerName" type="text" is="emby-input" placeholder="Debian container" />
-          </div>
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerUrl">Worker URL</label>
-            <input id="SgNewWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
-          </div>
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment code</label>
-            <input id="SgNewWorkerKey" type="password" is="emby-input" />
-          </div>
-          <div id="SgNewWorkerRoles" style="margin:.2em 0 1em;">
-            <div class="fieldDescription" style="margin-bottom:.4em;">Roller (hvad denne maskine må lave):</div>
-            <label style="margin-right:1.2em;"><input type="checkbox" is="emby-checkbox" data-sg-newrole="sync" checked /><span>Synkronisering</span></label>
-            <label style="margin-right:1.2em;"><input type="checkbox" is="emby-checkbox" data-sg-newrole="transcribe" checked /><span>Transskription</span></label>
-            <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="translate" checked /><span>Oversættelse</span></label>
-          </div>
-          <div style="margin-bottom:1.5em;">
-            <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised block emby-button">
-              <span>Tilføj worker</span>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerName">Navn</label>
+              <input id="SgNewWorkerName" type="text" is="emby-input" placeholder="fx GPU-maskinen" />
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerUrl">Worker URL</label>
+              <input id="SgNewWorkerUrl" type="text" is="emby-input" placeholder="http://10.10.100.5:8099" />
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgNewWorkerKey">Enrollment-kode</label>
+              <input id="SgNewWorkerKey" type="password" is="emby-input" />
+            </div>
+            <div id="SgNewWorkerRoles" class="sgRoleRow">
+              <div class="fieldDescription" style="margin-bottom:.4em;">Roller (hvad denne maskine må lave):</div>
+              <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="sync" checked /><span>Synkronisering</span></label>
+              <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="transcribe" checked /><span>Transskription</span></label>
+              <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="translate" checked /><span>Oversættelse</span></label>
+            </div>
+            <div class="fieldDescription" style="margin:.3em 0 .8em;">Tip: CPU-maskiner egner sig til synkronisering; transskription og oversættelse kræver reelt en GPU-maskine (kvaliteten på CPU er ikke god nok).</div>
+            <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised button-submit block emby-button">
+              <span>Tilmeld worker</span>
             </button>
           </div>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgPathMapFrom">Path mapping: Jellyfin prefix</label>
-            <input id="SgPathMapFrom" type="text" is="emby-input" placeholder="/media" />
-            <div class="fieldDescription">Leave both fields empty if the workers mount media at the same paths as Jellyfin.</div>
-          </div>
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgPathMapTo">Path mapping: worker prefix</label>
-            <input id="SgPathMapTo" type="text" is="emby-input" placeholder="/mnt/tank/media" />
-          </div>
-
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgIncludedPaths">Included libraries (path prefixes)</label>
-            <input id="SgIncludedPaths" type="text" is="emby-input" placeholder="/Media/Movies,/Media/Shows" />
-            <div class="fieldDescription">When set, the scheduled tasks only touch items under these paths. Empty = whole library. Buttons on item pages ignore this.</div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons folder" aria-hidden="true"></span>Stier</div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgPathMapFrom">Path mapping: Jellyfin-prefix</label>
+              <input id="SgPathMapFrom" type="text" is="emby-input" placeholder="/media" />
+              <div class="fieldDescription">Lad begge felter stå tomme hvis workerne mounter medierne på samme stier som Jellyfin.</div>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgPathMapTo">Path mapping: worker-prefix</label>
+              <input id="SgPathMapTo" type="text" is="emby-input" placeholder="/mnt/tank/media" />
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgIncludedPaths">Inkluderede biblioteker (sti-prefixer)</label>
+              <input id="SgIncludedPaths" type="text" is="emby-input" placeholder="/Media/Movies,/Media/Shows" />
+              <div class="fieldDescription">Når sat rører de planlagte opgaver kun emner under disse stier. Tom = hele biblioteket. Knapperne på emne-sider ignorerer bevidst dette.</div>
+            </div>
           </div>
         </div>
 
         <!-- ==================== SYNKRONISERING =================== -->
         <div data-sg-tab="sync">
-          <div class="verticalSection">
-            <h2>Seneste rettelser</h2>
-            <p>The last subtitles the workers actually rewrote. "Fortryd rettelse" restores the original file (the .bak backup) and tells the pool not to re-fix it.</p>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons history" aria-hidden="true"></span>Seneste rettelser</div>
+            <div class="sgCardDesc">De seneste undertekster poolen faktisk har omskrevet. "Fortryd rettelse" gendanner originalen (.bak-backuppen) og fortæller poolen at den ikke skal rettes igen.</div>
+            <div id="SgRecentList" style="margin-top:.6em;"></div>
           </div>
-          <div id="SgRecentList" style="margin-bottom:1.5em;"></div>
-          <p class="fieldDescription">The nightly "Fix subtitle sync" task runs at 04:00 by default - change it under Dashboard &gt; Scheduled Tasks.</p>
+          <div class="sgCard sgGuide">
+            <div class="sgCardTitle"><span class="material-icons info" aria-hidden="true"></span>Sådan virker det</div>
+            <p>Den natlige opgave <b>Fix subtitle sync</b> (kl. 04:00, kan ændres under Dashboard &gt; Scheduled Tasks) sender alle eksterne tekst-undertekster til poolen. ffsubsync måler forskydningen mod lydsporet og retter kun filer der reelt er skæve; resten markeres som i-sync og springes over næste gang. En original gemmes altid som <code>.bak</code> ved siden af filen.</p>
+            <p>Resultater med en usandsynligt stor forskydning (&gt;60&nbsp;sek.) afvises som fejlmålinger, så en god undertekst aldrig ødelægges.</p>
+          </div>
         </div>
 
         <!-- ===================== UNDERTEKSTER ==================== -->
         <div data-sg-tab="subs">
-          <div class="checkboxContainer checkboxContainer-withDescription">
-            <label>
-              <input id="SgEnableStandardSize" type="checkbox" is="emby-checkbox" />
-              <span>Standardize subtitle size</span>
-            </label>
-            <div class="fieldDescription">One consistent, viewport-scaled size on every device.</div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons format_size" aria-hidden="true"></span>Udseende</div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgEnableStandardSize" type="checkbox" is="emby-checkbox" />
+                <span>Standardiseret størrelse</span>
+              </label>
+              <div class="fieldDescription">Én konsistent størrelse på alle enheder, beregnet ud fra afspillerens højde.</div>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Størrelse (procent)</label>
+              <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
+              <div class="fieldDescription">100 = standardstørrelsen (50-200). Skalerer med afspilleren på desktop, mobil og TV-web.</div>
+            </div>
+            <div class="selectContainer">
+              <label class="selectLabel" for="SgFontFamily">Skrifttype</label>
+              <select id="SgFontFamily" is="emby-select">
+                <option value="">Standard (afspillerens egen)</option>
+                <option value="Roboto, Arial, sans-serif">Roboto / sans-serif</option>
+                <option value="Arial, Helvetica, sans-serif">Arial</option>
+                <option value="Verdana, Geneva, sans-serif">Verdana (bred, læsevenlig)</option>
+                <option value="Georgia, 'Times New Roman', serif">Georgia (serif)</option>
+                <option value="'Courier New', monospace">Monospace</option>
+              </select>
+              <div class="fieldDescription">Anvendes på alle undertekster, på tværs af enheder.</div>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgOutlineWidth">Kantlinje (px)</label>
+              <input id="SgOutlineWidth" type="number" is="emby-input" min="0" max="4" step="1" />
+              <div class="fieldDescription">Sort kant rundt om teksten for læsbarhed mod lyse baggrunde. 0 = ingen.</div>
+            </div>
           </div>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgSizePercent">Size (percent)</label>
-            <input id="SgSizePercent" type="number" is="emby-input" min="50" max="200" step="10" />
-            <div class="fieldDescription">100 = the standard size (50-200). The actual size is computed from the player's height, so it scales with the player on desktop, mobile and TV-web.</div>
-          </div>
-
-          <div class="selectContainer">
-            <label class="selectLabel" for="SgFontFamily">Skrifttype</label>
-            <select id="SgFontFamily" is="emby-select">
-              <option value="">Standard (afspillerens egen)</option>
-              <option value="Roboto, Arial, sans-serif">Roboto / sans-serif</option>
-              <option value="Arial, Helvetica, sans-serif">Arial</option>
-              <option value="Verdana, Geneva, sans-serif">Verdana (bred, læsevenlig)</option>
-              <option value="Georgia, 'Times New Roman', serif">Georgia (serif)</option>
-              <option value="'Courier New', monospace">Monospace</option>
-            </select>
-            <div class="fieldDescription">Anvendes på alle undertekster, på tværs af enheder.</div>
-          </div>
-
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgOutlineWidth">Kantlinje (px)</label>
-            <input id="SgOutlineWidth" type="number" is="emby-input" min="0" max="4" step="1" />
-            <div class="fieldDescription">Sort kant rundt om teksten for læsbarhed mod lyse baggrunde. 0 = ingen.</div>
-          </div>
-
-          <div class="checkboxContainer checkboxContainer-withDescription">
-            <label>
-              <input id="SgEnableWatchdog" type="checkbox" is="emby-checkbox" />
-              <span>Rendering watchdog</span>
-            </label>
-            <div class="fieldDescription">Re-applies the selected subtitle automatically when it is selected but not actually shown.</div>
-          </div>
-
-          <div class="checkboxContainer checkboxContainer-withDescription">
-            <label>
-              <input id="SgIosBurnIn" type="checkbox" is="emby-checkbox" />
-              <span>Indbrænd undertekster på iOS (Safari)</span>
-            </label>
-            <div class="fieldDescription">iPhone/iPad viser undertekster i fuldskærm ved at brænde dem ind i videoen - Apples indbyggede afspiller ignorerer Jellyfins overlay, så tekst-undertekster forsvinder ellers i fuldskærm. Kun iOS; andre enheder bruger fortsat det stylede overlay. Kræver transkodning på iOS-afspilning.</div>
-          </div>
-
-          <div class="checkboxContainer checkboxContainer-withDescription">
-            <label>
-              <input id="SgEnableTrackFilter" type="checkbox" is="emby-checkbox" />
-              <span>Ryd op i undertekst-menuen</span>
-            </label>
-            <div class="fieldDescription">Hides unwanted tracks in the player's subtitle menu: languages outside the list below, hearing-impaired (SDH/CC) variants, and duplicate tracks of the same language - one clean choice per language.</div>
-          </div>
-
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgVisibleLanguages">Visible subtitle languages</label>
-            <input id="SgVisibleLanguages" type="text" is="emby-input" placeholder="da,en" />
-            <div class="fieldDescription">Comma-separated two-letter codes. Tracks without a language tag are kept.</div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons visibility" aria-hidden="true"></span>Visning &amp; enheder</div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgEnableWatchdog" type="checkbox" is="emby-checkbox" />
+                <span>Rendering-watchdog</span>
+              </label>
+              <div class="fieldDescription">Genanvender automatisk den valgte undertekst når den er valgt men ikke faktisk vises.</div>
+            </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgIosBurnIn" type="checkbox" is="emby-checkbox" />
+                <span>Indbrænd undertekster på iOS (Safari)</span>
+              </label>
+              <div class="fieldDescription">iPhone/iPad viser undertekster i fuldskærm ved at brænde dem ind i videoen - Apples indbyggede afspiller ignorerer Jellyfins overlay, så tekst-undertekster forsvinder ellers i fuldskærm. Kun iOS; andre enheder bruger fortsat det stylede overlay. Kræver transkodning på iOS-afspilning.</div>
+            </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgEnableTrackFilter" type="checkbox" is="emby-checkbox" />
+                <span>Ryd op i undertekst-menuen</span>
+              </label>
+              <div class="fieldDescription">Skjuler uønskede spor i afspillerens undertekst-menu: sprog uden for listen herunder, hørehæmmede-varianter (SDH/CC) og dubletter - ét rent valg pr. sprog.</div>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgVisibleLanguages">Synlige undertekst-sprog</label>
+              <input id="SgVisibleLanguages" type="text" is="emby-input" placeholder="da,en" />
+              <div class="fieldDescription">Kommaseparerede to-bogstavs koder. Spor uden sprog-tag beholdes.</div>
+            </div>
           </div>
         </div>
 
         <!-- ==================== TRANSSKRIPTION =================== -->
         <div data-sg-tab="trans">
-          <div class="verticalSection">
-            <h2>Whisper &amp; oversættelse</h2>
-            <p>"Generate missing subtitles" (01:00) transcribes items lacking a subtitle in the target languages - GPU workers preferred, spoken language decides the output. "Translate subtitles to Danish" (02:00) machine-translates English subs to Danish (NLLB, quality-first) for items without a Danish sub.</p>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons mic" aria-hidden="true"></span>Whisper &amp; oversættelse</div>
+            <div class="sgCardDesc"><b>Generate missing subtitles</b> (kl. 01:00) transskriberer emner uden undertekst i målsprogene på GPU-workeren - det talte sprog afgør outputtet. <b>Translate subtitles to Danish</b> (kl. 02:00) maskinoversætter engelske undertekster til dansk (NLLB) for emner uden dansk undertekst.</div>
+            <div class="inputContainer" style="margin-top:.8em;">
+              <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Målsprog</label>
+              <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
+              <div class="fieldDescription">Emner der allerede har en tekst-undertekst i ét af disse sprog springes over af transskriptionsopgaven.</div>
+            </div>
           </div>
 
-          <div class="inputContainer">
-            <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Target languages</label>
-            <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
-            <div class="fieldDescription">Items that already have a text subtitle in any of these are skipped by the transcription task.</div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons history_edu" aria-hidden="true"></span>Transskriptions-historik</div>
+            <div class="sgCardDesc">De seneste transskriptioner på tværs af poolen, nyeste først.</div>
+            <div id="SgTransHistory" style="margin-top:.6em;"></div>
           </div>
         </div>
 
         <!-- ======================== STATUS ======================= -->
         <div data-sg-tab="status">
-          <div class="verticalSection">
-            <h2>Pool-status</h2>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons insights" aria-hidden="true"></span>Pool-statistik</div>
+            <div id="SgStatsTiles" class="sgTiles"></div>
+            <div id="SgStatsChart" style="margin-top:1em;"></div>
           </div>
-          <div id="SgPoolSummary" style="margin-bottom:1.5em;opacity:.85;"></div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons monitor_heart" aria-hidden="true"></span>Pool-status</div>
+            <div id="SgPoolSummary" style="opacity:.9;"></div>
+          </div>
         </div>
 
         <div style="margin-top:1.5em;">
           <button is="emby-button" type="button" id="SubtitleGuardSaveButton" class="raised button-submit block emby-button">
-            <span>Save</span>
+            <span>Gem</span>
           </button>
         </div>
       </div>

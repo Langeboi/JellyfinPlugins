@@ -1132,6 +1132,75 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
     return {"kind": kind, "paths": paths}
 
 
+# Buckets a raw ledger status into the categories the stats/graphs use.
+def _stat_category(status: str) -> str:
+    s = str(status)
+    if s == "fixed":
+        return "fixed"
+    if s == "in-sync":
+        return "in-sync"
+    if s.startswith("transcribed:"):
+        return "transcribed"
+    if s == "translated":
+        return "translated"
+    if s in ("already-has-sub", "rolled-back", "suspect-offset"):
+        return "skipped"
+    return "failed"
+
+
+@app.get("/stats")
+def stats(days: int = 14, x_api_key: str = Header(default="")):
+    """Daily outcome counts for the last N days, for the plugin's graphs.
+    processed_at is stored ISO-8601 UTC, so substr(...,1,10) is the date."""
+    check_key(x_api_key)
+    days = max(1, min(60, days))
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT substr(processed_at,1,10) AS d, status, count(*) FROM processed "
+            "WHERE processed_at >= datetime('now', ?) GROUP BY d, status",
+            (f"-{days} days",),
+        ).fetchall()
+        totals_rows = conn.execute("SELECT status, count(*) FROM processed").fetchall()
+    finally:
+        conn.close()
+
+    daily: dict = {}
+    for d, status_val, n in rows:
+        bucket = daily.setdefault(d, {})
+        cat = _stat_category(status_val)
+        bucket[cat] = bucket.get(cat, 0) + n
+
+    totals: dict = {}
+    for status_val, n in totals_rows:
+        cat = _stat_category(status_val)
+        totals[cat] = totals.get(cat, 0) + n
+
+    return {"days": days, "daily": daily, "totals": totals}
+
+
+@app.get("/history")
+def history(kind: str = "transcribe", limit: int = 20, x_api_key: str = Header(default="")):
+    """Most recent completed jobs of a kind, newest first - powers the
+    transcription-history list in the plugin."""
+    check_key(x_api_key)
+    prefix = kind + ":"
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT sub_path, status, processed_at FROM processed "
+            "WHERE sub_path LIKE ? ORDER BY processed_at DESC LIMIT ?",
+            (prefix + "%", max(1, min(100, limit))),
+        ).fetchall()
+    finally:
+        conn.close()
+    items = [
+        {"media_path": p[len(prefix):], "status": s, "processed_at": at}
+        for p, s, at in rows
+    ]
+    return {"kind": kind, "items": items}
+
+
 @app.get("/status")
 def status(x_api_key: str = Header(default="")):
     check_key(x_api_key)

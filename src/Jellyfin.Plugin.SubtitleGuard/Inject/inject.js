@@ -575,11 +575,72 @@
       var tabStyle = document.createElement('style');
       tabStyle.id = 'sgTabStyle';
       tabStyle.textContent =
-        '.sgTabBtn{background:rgba(255,255,255,.06);color:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.14);' +
-        'border-radius:999px;padding:.45em 1.3em;font-size:.95em;cursor:pointer;transition:background .15s,color .15s;}' +
+        // Hero
+        '.sgHero{display:flex;align-items:center;gap:1em;margin:.4em 0 1.2em;}' +
+        '.sgHeroIcon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;' +
+        'background:linear-gradient(135deg,rgba(140,130,255,.9),rgba(88,166,255,.75));box-shadow:0 4px 18px rgba(140,130,255,.35);}' +
+        '.sgHeroIcon .material-icons{font-size:30px;color:#fff;}' +
+        '.sgHeroTitle{margin:0;font-size:1.5em;}' +
+        '.sgHeroSub{opacity:.65;font-size:.9em;margin-top:.15em;}' +
+        // Tabs
+        '.sgTabBar{display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1.2em;}' +
+        '.sgTabBtn{display:inline-flex;align-items:center;gap:.4em;background:rgba(255,255,255,.06);color:rgba(255,255,255,.8);' +
+        'border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:.45em 1.2em;font-size:.95em;cursor:pointer;' +
+        'transition:background .15s,color .15s,box-shadow .15s;}' +
+        '.sgTabBtn .material-icons{font-size:17px;opacity:.8;}' +
         '.sgTabBtn:hover{background:rgba(255,255,255,.12);}' +
-        '.sgTabBtn.sgTabActive{background:rgba(140,130,255,.9);border-color:rgba(140,130,255,.9);color:#fff;font-weight:600;}' +
+        '.sgTabBtn.sgTabActive{background:rgba(140,130,255,.9);border-color:rgba(140,130,255,.9);color:#fff;font-weight:600;' +
+        'box-shadow:0 2px 12px rgba(140,130,255,.4);}' +
+        // Cards
+        '.sgCard{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:14px;' +
+        'padding:1.1em 1.3em;margin-bottom:1.1em;}' +
+        '.sgCardTitle{display:flex;align-items:center;gap:.5em;font-size:1.05em;font-weight:700;margin-bottom:.35em;}' +
+        '.sgCardTitle .material-icons{font-size:20px;color:rgba(140,130,255,.95);}' +
+        '.sgCardDesc{opacity:.7;font-size:.9em;line-height:1.45;}' +
+        '.sgGuide p{opacity:.75;font-size:.9em;line-height:1.5;margin:.5em 0;}' +
+        '.sgGuide code{background:rgba(255,255,255,.09);border-radius:5px;padding:.1em .4em;font-size:.9em;}' +
+        // Enrollment guide
+        '.sgSteps{margin:.5em 0 1em;padding-left:1.3em;opacity:.85;font-size:.92em;line-height:1.55;}' +
+        '.sgSteps li{margin-bottom:.5em;}' +
+        '.sgCode{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:.55em .8em;' +
+        'font-family:monospace;font-size:.82em;margin-top:.35em;word-break:break-all;user-select:all;}' +
+        '.sgRoleRow label{margin-right:1.2em;}' +
+        // Stat tiles + chart
+        '.sgTiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.7em;margin-top:.8em;}' +
+        '.sgTile{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:12px;' +
+        'padding:.8em .9em;display:flex;flex-direction:column;gap:.15em;}' +
+        '.sgTileNum{font-size:1.5em;font-weight:800;line-height:1.1;}' +
+        '.sgTileLabel{font-size:.78em;opacity:.6;}' +
+        '.sgChartWrap{overflow-x:auto;}' +
+        '.sgLegend{display:flex;gap:1em;flex-wrap:wrap;margin-top:.5em;font-size:.78em;opacity:.8;}' +
+        '.sgLegend span{display:inline-flex;align-items:center;gap:.35em;}' +
+        '.sgLegendDot{width:9px;height:9px;border-radius:3px;display:inline-block;}' +
+        // History rows
+        '.sgHistRow{display:flex;align-items:center;gap:.8em;padding:.5em .2em;border-bottom:1px solid rgba(255,255,255,.07);}' +
+        '.sgHistRow .material-icons{font-size:18px;opacity:.65;}' +
+        '.sgHistMain{flex:1;min-width:0;}' +
+        '.sgHistTitle{font-size:.92em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+        '.sgHistMeta{font-size:.76em;opacity:.55;}' +
+        '.sgHistLang{background:rgba(140,130,255,.2);border:1px solid rgba(140,130,255,.5);color:#cfc9ff;' +
+        'border-radius:6px;padding:.1em .5em;font-size:.75em;font-weight:700;text-transform:uppercase;flex:0 0 auto;}' +
+        // Status glyphs (#11): breathing idle, orbiting arc while working,
+        // amber pause bars, slow-pulsing offline.
+        '.sgGlyph{position:relative;width:16px;height:16px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;}' +
+        '.sgGlyphDot{width:9px;height:9px;border-radius:50%;}' +
+        '.sgGlyph-idle .sgGlyphDot{background:#3fb950;animation:sgBreath 2.6s ease-in-out infinite;}' +
+        '.sgGlyph-idle::after{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(63,185,80,.5);' +
+        'animation:sgRipple 2.6s ease-out infinite;}' +
+        '.sgGlyph-work .sgGlyphDot{background:#8c82ff;width:6px;height:6px;}' +
+        '.sgGlyph-work::before{content:"";position:absolute;inset:0;border-radius:50%;' +
+        'border:2px solid transparent;border-top-color:#8c82ff;border-right-color:rgba(140,130,255,.35);animation:sgSpin .9s linear infinite;}' +
+        '.sgGlyph-pause .sgGlyphDot{background:transparent;width:10px;height:10px;border-radius:2px;' +
+        'background:linear-gradient(90deg,#d29922 0 3px,transparent 3px 7px,#d29922 7px 10px);}' +
+        '.sgGlyph-off .sgGlyphDot{background:#f85149;animation:sgOffPulse 1.6s ease-in-out infinite;}' +
+        '.sgGlyph-unknown .sgGlyphDot{background:#666;}' +
         '@keyframes sgSpin{to{transform:rotate(360deg);}}' +
+        '@keyframes sgBreath{0%,100%{box-shadow:0 0 3px 1px rgba(63,185,80,.45);}50%{box-shadow:0 0 8px 3px rgba(63,185,80,.85);}}' +
+        '@keyframes sgRipple{0%{transform:scale(.6);opacity:.9;}100%{transform:scale(1.6);opacity:0;}}' +
+        '@keyframes sgOffPulse{0%,100%{opacity:1;}50%{opacity:.35;}}' +
         '@keyframes sgGlow{0%,100%{box-shadow:0 0 4px 1px rgba(63,185,80,.5);}50%{box-shadow:0 0 7px 2px rgba(63,185,80,.85);}}';
       document.head.appendChild(tabStyle);
     }
@@ -594,32 +655,34 @@
     }
 
     page.querySelectorAll('[data-sg-tabbtn]').forEach(function (b) {
-      b.addEventListener('click', function () { showTab(b.getAttribute('data-sg-tabbtn')); });
+      b.addEventListener('click', function () {
+        var name = b.getAttribute('data-sg-tabbtn');
+        showTab(name);
+        // Lazy-refresh the data views when their tab is opened (function
+        // declarations hoist, so these are defined further down).
+        if (name === 'status') { renderStats(); }
+        if (name === 'trans') { renderTransHistory(); }
+      });
     });
     showTab('workers');
 
-    // Status indicators: green glowing dot = online/idle, spinning ring =
-    // working, grey with pause bars = paused, red = offline, plain grey =
-    // unknown (still checking).
+    // Status glyphs: breathing green + ripple ring = online/idle, orbiting
+    // violet arc = working, amber bars = paused, pulsing red = offline,
+    // grey = unknown (still checking). Classes live in sgTabStyle.
     function statusIndicatorHtml(st) {
-      var base = 'width:12px;height:12px;flex:0 0 auto;border-radius:50%;';
-      if (!st) {
-        return '<span style="' + base + 'background:#666;"></span>';
+      var mode = 'unknown';
+      if (st && !st.online) {
+        mode = 'off';
+      } else if (st && st.paused) {
+        mode = 'pause';
+      } else if (st && st.processing) {
+        mode = 'work';
+      } else if (st) {
+        mode = 'idle';
       }
-      if (!st.online) {
-        return '<span style="' + base + 'background:#f85149;box-shadow:0 0 4px rgba(248,81,73,.6);"></span>';
-      }
-      if (st.paused) {
-        return '<span style="width:12px;height:12px;flex:0 0 auto;display:inline-flex;gap:2px;align-items:center;justify-content:center;">' +
-          '<span style="width:3px;height:10px;background:#999;border-radius:1px;"></span>' +
-          '<span style="width:3px;height:10px;background:#999;border-radius:1px;"></span></span>';
-      }
-      if (st.processing) {
-        return '<span style="width:12px;height:12px;flex:0 0 auto;border-radius:50%;' +
-          'border:2px solid rgba(210,153,34,.25);border-top-color:#d29922;box-sizing:border-box;' +
-          'animation:sgSpin .9s linear infinite;"></span>';
-      }
-      return '<span style="' + base + 'background:#3fb950;animation:sgGlow 2.4s ease-in-out infinite;"></span>';
+      return '<span class="sgGlyph sgGlyph-' + mode + '" title="' +
+        ({ idle: 'Online, ledig', work: 'Arbejder', pause: 'Pauset', off: 'Offline', unknown: 'Tjekker…' })[mode] +
+        '"><span class="sgGlyphDot"></span></span>';
     }
 
     // Human-readable per-job activity: the worker labels transcriptions
@@ -859,6 +922,122 @@
       renderRecentFixes();
     }
 
+    // ---- Stats tiles + daily activity chart (Status tab) ----
+    var STAT_CATS = [
+      { key: 'fixed', label: 'Rettet', color: '#8c82ff' },
+      { key: 'in-sync', label: 'I sync', color: '#3fb950' },
+      { key: 'transcribed', label: 'Transskriberet', color: '#d29922' },
+      { key: 'translated', label: 'Oversat', color: '#58a6ff' },
+      { key: 'failed', label: 'Fejlet', color: '#f85149' }
+    ];
+
+    function renderStats() {
+      var tiles = page.querySelector('#SgStatsTiles');
+      var chart = page.querySelector('#SgStatsChart');
+      if (!tiles || !chart) { return; }
+      fetch(apiClient.getUrl('SubtitleGuard/stats', { days: 14 }), {
+        headers: { 'X-Emby-Token': apiClient.accessToken() }
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var totals = data.totals || {};
+          tiles.innerHTML = STAT_CATS.map(function (c) {
+            return '<div class="sgTile"><span class="sgTileNum" style="color:' + c.color + ';">' +
+              (totals[c.key] || 0) + '</span><span class="sgTileLabel">' + c.label + '</span></div>';
+          }).join('');
+
+          // Stacked daily bars for the last 14 days, pure inline SVG.
+          var daily = data.daily || {};
+          var days = [];
+          for (var i = 13; i >= 0; i--) {
+            var d = new Date(Date.now() - i * 86400000);
+            days.push(d.toISOString().slice(0, 10));
+          }
+          var maxDay = 1;
+          days.forEach(function (d) {
+            var b = daily[d] || {};
+            var sum = STAT_CATS.reduce(function (a, c) { return a + (b[c.key] || 0); }, 0);
+            if (sum > maxDay) { maxDay = sum; }
+          });
+          var W = 560, H = 150, PAD = 4;
+          var bw = (W - PAD * 2) / days.length;
+          var bars = days.map(function (d, di) {
+            var b = daily[d] || {};
+            var x = PAD + di * bw;
+            var y = H - 18;
+            var segs = '';
+            STAT_CATS.forEach(function (c) {
+              var n = b[c.key] || 0;
+              if (!n) { return; }
+              var h = Math.max(2, (n / maxDay) * (H - 30));
+              y -= h;
+              segs += '<rect x="' + (x + 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw - 4).toFixed(1) +
+                '" height="' + h.toFixed(1) + '" rx="2" fill="' + c.color + '"><title>' + d + ': ' + n + ' ' +
+                c.label.toLowerCase() + '</title></rect>';
+            });
+            var dayLabel = di % 2 === 0 ? d.slice(8, 10) + '/' + d.slice(5, 7) : '';
+            var label = dayLabel
+              ? '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="middle" ' +
+                'font-size="8.5" fill="rgba(255,255,255,.45)">' + dayLabel + '</text>'
+              : '';
+            return segs + label;
+          }).join('');
+
+          chart.innerHTML =
+            '<div class="sgChartWrap"><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;display:block;">' +
+            bars + '</svg></div>' +
+            '<div class="sgLegend">' + STAT_CATS.map(function (c) {
+              return '<span><span class="sgLegendDot" style="background:' + c.color + ';"></span>' + c.label + '</span>';
+            }).join('') + '</div>';
+        })
+        .catch(function () {
+          tiles.innerHTML = '<div style="opacity:.6;">Kunne ikke hente statistik (er workerne opdateret og online?).</div>';
+          chart.innerHTML = '';
+        });
+    }
+
+    // ---- Transcription history (Transskription tab) ----
+    function renderTransHistory() {
+      var box = page.querySelector('#SgTransHistory');
+      if (!box) { return; }
+      fetch(apiClient.getUrl('SubtitleGuard/history', { kind: 'transcribe', limit: 15 }), {
+        headers: { 'X-Emby-Token': apiClient.accessToken() }
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var items = data.items || [];
+          if (!items.length) {
+            box.innerHTML = '<div style="opacity:.6;">Ingen transskriptioner endnu.</div>';
+            return;
+          }
+          box.innerHTML = items.map(function (it) {
+            var name = String(it.media_path || '').split(/[\\/]/).pop();
+            var lang = '';
+            var s = String(it.status || '');
+            var ok = s.indexOf('transcribed:') === 0;
+            if (ok) { lang = s.slice('transcribed:'.length); }
+            var when = '';
+            try {
+              var dt = new Date(it.processed_at);
+              when = dt.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' }) + ' ' +
+                dt.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
+            } catch (e) { /* leave empty */ }
+            return '<div class="sgHistRow">' +
+              '<span class="material-icons ' + (ok ? 'check_circle' : 'error') + '" style="color:' + (ok ? '#3fb950' : '#f85149') + ';"></span>' +
+              '<span class="sgHistMain">' +
+                '<span class="sgHistTitle">' + name.replace(/</g, '&lt;') + '</span>' +
+                '<span class="sgHistMeta" style="display:block;">' + when + (it.worker ? ' · ' + String(it.worker).replace(/</g, '&lt;') : '') +
+                  (ok ? '' : ' · ' + s.replace(/</g, '&lt;')) + '</span>' +
+              '</span>' +
+              (lang ? '<span class="sgHistLang">' + lang.replace(/</g, '&lt;') + '</span>' : '') +
+            '</div>';
+          }).join('');
+        })
+        .catch(function () {
+          box.innerHTML = '<div style="opacity:.6;">Kunne ikke hente historik (er workerne opdateret og online?).</div>';
+        });
+    }
+
     function refreshStatuses() {
       fetch(apiClient.getUrl('SubtitleGuard/workers/status'), {
         headers: { 'X-Emby-Token': apiClient.accessToken() }
@@ -910,6 +1089,8 @@
       }
       renderWorkers(null);
       refreshStatuses();
+      renderStats();
+      renderTransHistory();
       window.Dashboard.hideLoadingMsg();
     });
 

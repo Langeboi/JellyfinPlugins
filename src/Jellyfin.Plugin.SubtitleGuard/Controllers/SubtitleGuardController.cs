@@ -247,6 +247,25 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             };
         }
 
+        [Authorize]
+        [HttpGet("stats")]
+        public async Task<ActionResult> PoolStats([FromQuery] int days, CancellationToken cancellationToken)
+        {
+            var stats = await SyncWorker.GetStats(days <= 0 ? 14 : Math.Min(days, 60), cancellationToken).ConfigureAwait(false);
+            return Json(stats);
+        }
+
+        [Authorize]
+        [HttpGet("history")]
+        public async Task<ActionResult> JobHistory([FromQuery] string? kind, [FromQuery] int limit, CancellationToken cancellationToken)
+        {
+            var items = await SyncWorker.GetHistory(
+                string.IsNullOrWhiteSpace(kind) ? "transcribe" : kind,
+                limit <= 0 ? 20 : Math.Min(limit, 100),
+                cancellationToken).ConfigureAwait(false);
+            return Json(new JObject { ["items"] = items });
+        }
+
         // System.Text.Json silently serializes JObject as an empty array -
         // route through Newtonsoft's own ToString (same gotcha as the other
         // plugins in this family).

@@ -391,6 +391,113 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         /// Per-worker status for the config page: online flag plus the
         /// worker's own counters when reachable.
         /// </summary>
+        /// <summary>
+        /// Pool-wide daily outcome counts: every online worker's /stats
+        /// merged (same day+category buckets summed), for the status graphs.
+        /// </summary>
+        public static async Task<JObject> GetStats(int days, CancellationToken cancellationToken)
+        {
+            var workers = GetWorkers();
+            var results = await Task.WhenAll(workers.Select(async w =>
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, w.Url + "/stats?days=" + days);
+                    request.Headers.Add("X-Api-Key", w.ApiKey);
+                    using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return null;
+                    }
+
+                    return JObject.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                }
+                catch
+                {
+                    return null;
+                }
+            })).ConfigureAwait(false);
+
+            var daily = new JObject();
+            var totals = new JObject();
+            foreach (var r in results)
+            {
+                if (r == null)
+                {
+                    continue;
+                }
+
+                if (r["daily"] is JObject d)
+                {
+                    foreach (var day in d.Properties())
+                    {
+                        if (daily[day.Name] is not JObject bucket)
+                        {
+                            bucket = new JObject();
+                            daily[day.Name] = bucket;
+                        }
+
+                        if (day.Value is JObject cats)
+                        {
+                            foreach (var c in cats.Properties())
+                            {
+                                bucket[c.Name] = (bucket[c.Name]?.Value<int>() ?? 0) + (c.Value.Value<int>());
+                            }
+                        }
+                    }
+                }
+
+                if (r["totals"] is JObject t)
+                {
+                    foreach (var c in t.Properties())
+                    {
+                        totals[c.Name] = (totals[c.Name]?.Value<int>() ?? 0) + (c.Value.Value<int>());
+                    }
+                }
+            }
+
+            return new JObject { ["days"] = days, ["daily"] = daily, ["totals"] = totals };
+        }
+
+        /// <summary>
+        /// Pool-wide job history of a kind (e.g. transcribe): every worker's
+        /// /history merged, worker name attached, newest first.
+        /// </summary>
+        public static async Task<JArray> GetHistory(string kind, int limit, CancellationToken cancellationToken)
+        {
+            var workers = GetWorkers();
+            var results = await Task.WhenAll(workers.Select(async w =>
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(
+                        HttpMethod.Get, w.Url + "/history?kind=" + Uri.EscapeDataString(kind) + "&limit=" + limit);
+                    request.Headers.Add("X-Api-Key", w.ApiKey);
+                    using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        return Array.Empty<JObject>();
+                    }
+
+                    var body = JObject.Parse(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                    return ((body["items"] as JArray) ?? new JArray())
+                        .OfType<JObject>()
+                        .Select(i => { i["worker"] = w.Name; return i; })
+                        .ToArray();
+                }
+                catch
+                {
+                    return Array.Empty<JObject>();
+                }
+            })).ConfigureAwait(false);
+
+            var merged = results.SelectMany(x => x)
+                .OrderByDescending(i => i["processed_at"]?.ToString() ?? string.Empty)
+                .Take(limit)
+                .Cast<object>();
+            return new JArray(merged);
+        }
+
         public static async Task<JArray> GetStatuses(CancellationToken cancellationToken)
         {
             var workers = GetWorkers();
