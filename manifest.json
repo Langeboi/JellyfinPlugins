@@ -148,6 +148,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.2.0",
+        "changelog": "Ens knapform i alle vinduesstørrelser. Info/Afspil/Favorit-knapperne har nu præcis samme facon i fuldskærm, halvt vindue og på mobil: fast min-højde + border-box ligger i grundreglen, og media queries ændrer ikke længere padding/højde (det var dem der gjorde knapperne synligt anderledes ved smallere bredder).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.1.2.0/herobar_1.1.2.0.zip",
+        "checksum": "69fe8c6dfe573ef6f6255f88f531894f",
+        "timestamp": "2026-07-16T22:00:00Z"
+      },
+      {
         "version": "1.1.1.0",
         "changelog": "Fixes the Info button looking visibly 'fluffier' than the Play/Favorite buttons next to it: Info is an <a> element while the other two are real <button>s, and without an explicit reset each rendered with its own element's default font/appearance despite sharing the same CSS class. Added a font-family/line-height/appearance reset to the shared button style so all three render pixel-consistent.",
         "targetAbi": "10.11.0.0",
@@ -198,6 +206,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "1.6.3.0",
+        "changelog": "Ydelse: Anbefalet til dig og detail-baggrunde. Anbefalinger på film-biblioteker (Movies, Western, Comedy Specials m.fl.) genberegnes nu højst hver 72. time og gemmes i localStorage i stedet for sessionStorage (som døde med hver browser-session - den egentlige grund til at rækken føltes langsom hver gang). Enhver cachet kopi maler rækken med det samme; en udløbet kopi opdateres i baggrunden og genmales stille. Detail-sidernes baggrundsbillede brugte window.innerWidth som billedbredde, så hver vinduesstørrelse gav en NY billed-URL (frisk server-skalering, intet browser-cache-hit - synligt langsomt i halvt vindue); bredden kvantiseres nu til fire faste trin (960/1280/1920/2560), så URL'en er stabil på tværs af resize og gentagne visninger kommer fra cache.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.6.3.0/newbadges_1.6.3.0.zip",
+        "checksum": "da2f699e3a00c21d2ab01fcf3ba884cd",
+        "timestamp": "2026-07-16T22:00:00Z"
+      },
       {
         "version": "1.6.2.0",
         "changelog": "Instant search overlay. Typing in the drawer search field (or clicking the header magnifier) opens a full-screen as-you-type search: media results on top, and the focused result auto-enriches below with its cast strip (Medvirkende) and a 'Mere fra <instruktør>' row of the director's other films/series. Click a cast face to open that actor, a poster to open that title; arrow keys move focus, Enter opens, Esc closes. Built for speed - 160ms debounce plus AbortController so only the latest keystroke's request survives, LRU caches for both results and per-item cast/director (instant on backspace/re-type), and hover-prefetch so clicking a result is immediate. Replaces the old drawer behaviour of bouncing to Jellyfin's native search page. Note: the 'Mere fra' row needs a Director in the item's People, so it may not appear for TV series (episodes carry the directors, not the series).",
