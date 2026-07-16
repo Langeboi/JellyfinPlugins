@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.7.0.0",
+        "changelog": "Metadata-hotwords til Whisper. Før hver transskription bygges automatisk en kort, rangeret liste af navne og særegne termer fra emnets Jellyfin-metadata - serie-/film-/afsnitstitler, karakternavne, skuespillere, tags/collections og egennavne udtrukket lokalt fra resuméer (afsnit kombineres med serie-metadata) - og gives til faster-whisper's hotwords, så 'Chrisjen Avasarala' staves rigtigt i stedet for fonetisk gætværk. Dubletter fjernes (mest specifikke form vinder), apostroffer/bindestreger/accenter bevares, og listen er begrænset (75 termer / 800 tegn, konfigurerbart). Nye indstillinger under Transskription: aktivér (til), maks. termer/tegn, skuespillere (til), instruktører/forfattere (fra), resuméer (til), studier (fra), debug-log (fra - normalt logges kun antallet). Cachet pr. emne og ugyldiggjort ved metadata-ændringer; intet metadata forlader serveren. Worker-delen ruller selv ud via auto-opdateringen. Bemærk: hotwords er en bias, ikke en garanti - de øger sandsynligheden for korrekte stavemåder markant.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.7.0.0/subtitleguard_1.7.0.0.zip",
+        "checksum": "d54caefd376f082692aee6a006e576a7",
+        "timestamp": "2026-07-16T21:00:00Z"
+      },
+      {
         "version": "1.6.1.0",
         "changelog": "Blåt tema, undertekst-boks/skygge og sprogfilter på emne-sider. Plugin-siden er farvelagt om fra violet til et moderne blåt tema (grafen bruger nu teal til Oversat så de to blå ikke flyder sammen), og CC-logoet i toppen er fjernet. To nye undertekst-indstillinger under Udseende: Baggrundsboks (0-100% sort boks bag teksten, 60-70 giver det klassiske TV-look) og Skygge (0-4 blød slagskygge, kan kombineres med kantlinjen) - begge dækker begge render-stier. Undertekst-vælgeren på emne-sider (detail-siden) respekterer nu listen over synlige sprog: ét spor pr. sprog (ikke-SDH foretrækkes), utaggede spor beholdes, og det aktuelt valgte spor fjernes aldrig. Ingen worker-opdatering nødvendig.",
         "targetAbi": "10.11.0.0",
