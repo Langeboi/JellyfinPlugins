@@ -31,6 +31,18 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public int SubtitleOutlineWidth { get; set; } = 2;
 
         /// <summary>
+        /// Opacity (0-100) of a black box drawn behind the subtitle text.
+        /// 0 = no box; 60-70 gives the classic semi-transparent TV look.
+        /// </summary>
+        public int SubtitleBackgroundOpacity { get; set; } = 0;
+
+        /// <summary>
+        /// Drop-shadow strength (0-4, 0 = none) cast below/right of the text.
+        /// Independent of the outline; both can be combined.
+        /// </summary>
+        public int SubtitleShadowStrength { get; set; } = 0;
+
+        /// <summary>
         /// Watch active playback and re-apply the selected subtitle stream
         /// when it is selected but not actually rendering.
         /// </summary>

@@ -24,6 +24,8 @@
           SubtitleSizePercent: Math.min(200, Math.max(50, data.SubtitleSizePercent || 100)),
           SubtitleFontFamily: data.SubtitleFontFamily || '',
           SubtitleOutlineWidth: Math.min(4, Math.max(0, typeof data.SubtitleOutlineWidth === 'number' ? data.SubtitleOutlineWidth : 2)),
+          SubtitleBackgroundOpacity: Math.min(100, Math.max(0, data.SubtitleBackgroundOpacity || 0)),
+          SubtitleShadowStrength: Math.min(4, Math.max(0, data.SubtitleShadowStrength || 0)),
           EnableWatchdog: data.EnableWatchdog !== false,
           IosBurnInSubtitles: data.IosBurnInSubtitles !== false,
           EnableTrackFilter: data.EnableTrackFilter !== false,
@@ -37,6 +39,8 @@
           SubtitleSizePercent: 100,
           SubtitleFontFamily: '',
           SubtitleOutlineWidth: 2,
+          SubtitleBackgroundOpacity: 0,
+          SubtitleShadowStrength: 0,
           EnableWatchdog: true,
           IosBurnInSubtitles: true,
           EnableTrackFilter: true,
@@ -195,14 +199,33 @@
 
     var fam = (cfg.SubtitleFontFamily || '').trim();
     var famDecl = fam ? 'font-family:' + fam + '!important;' : '';
-    var shadowDecl = 'text-shadow:' + outlineShadow(cfg.SubtitleOutlineWidth) + '!important;';
+
+    // Outline (8-direction hard shadows) and drop shadow (single soft one,
+    // down-right) are both text-shadows, so they combine into one list.
+    var shadows = [];
+    var outline = outlineShadow(cfg.SubtitleOutlineWidth);
+    if (outline !== 'none') { shadows.push(outline); }
+    var ds = cfg.SubtitleShadowStrength || 0;
+    if (ds > 0) { shadows.push(ds + 'px ' + ds + 'px ' + (ds * 2) + 'px rgba(0,0,0,.85)'); }
+    var shadowDecl = 'text-shadow:' + (shadows.length ? shadows.join(',') : 'none') + '!important;';
+
+    // Black box behind the text. ::cue allows background-color; on the HTML
+    // overlay path the box goes on the inner element so it hugs the text.
+    var bgOp = (cfg.SubtitleBackgroundOpacity || 0) / 100;
+    var cueBgDecl = bgOp > 0 ? 'background-color:rgba(0,0,0,' + bgOp.toFixed(2) + ')!important;' : '';
+    var overlayBgDecl = bgOp > 0
+      ? 'background-color:rgba(0,0,0,' + bgOp.toFixed(2) + ')!important;' +
+        'padding:.1em .45em!important;border-radius:.18em!important;box-decoration-break:clone;' +
+        '-webkit-box-decoration-break:clone;'
+      : '';
 
     var style = document.createElement('style');
     style.id = 'subtitleGuard-style';
     style.textContent =
-      'video::cue{font-size:' + sizeExpr + '!important;line-height:1.35;' + famDecl + shadowDecl + '}' +
-      '.videoSubtitles,.videoSubtitlesInner,.htmlVideoPlayerSubtitles{' +
-      'font-size:' + sizeExpr + '!important;line-height:1.35!important;' + famDecl + shadowDecl + '}';
+      'video::cue{font-size:' + sizeExpr + '!important;line-height:1.35;' + famDecl + shadowDecl + cueBgDecl + '}' +
+      '.videoSubtitles,.htmlVideoPlayerSubtitles{' +
+      'font-size:' + sizeExpr + '!important;line-height:1.35!important;' + famDecl + shadowDecl + '}' +
+      '.videoSubtitlesInner{font-size:inherit!important;line-height:inherit!important;' + famDecl + shadowDecl + overlayBgDecl + '}';
     document.head.appendChild(style);
 
     lastSubCfg = cfg;
@@ -441,6 +464,95 @@
       .catch(function () { /* leave the sheet untouched */ });
   }
 
+  // ---- Detail-page subtitle selector cleanup ----
+  // The item detail page has its own subtitle <select> (independent of the
+  // player's action sheet), and it showed every language. Option values are
+  // stream indexes, so the item's MediaStreams (fetched once per item, text
+  // labels are locale-dependent and unreliable) decide what stays: one track
+  // per visible language (non-SDH preferred), untagged tracks, and whatever
+  // is currently selected (never yank the user's active choice).
+
+  var detailStreamsCache = {}; // itemId -> merged MediaStreams
+
+  function filterDetailSubtitleSelect() {
+    if (!config || !config.EnableTrackFilter || !window.ApiClient) {
+      return;
+    }
+    var m = location.hash.match(/#\/details\?id=([a-f0-9]+)/i);
+    if (!m) {
+      return;
+    }
+    var itemId = m[1];
+    var selects = document.querySelectorAll('select.selectSubtitles');
+    var pending = [];
+    for (var i = 0; i < selects.length; i++) {
+      if (selects[i].getAttribute('data-sg-filtered') !== itemId && selects[i].options.length > 1) {
+        pending.push(selects[i]);
+      }
+    }
+    if (!pending.length) {
+      return;
+    }
+
+    var apiClient = window.ApiClient;
+    var streamsPromise = detailStreamsCache[itemId]
+      ? Promise.resolve(detailStreamsCache[itemId])
+      : apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items/' + itemId))
+          .then(function (item) {
+            var streams = [];
+            ((item && item.MediaSources) || []).forEach(function (src) {
+              (src.MediaStreams || []).forEach(function (s) { streams.push(s); });
+            });
+            detailStreamsCache[itemId] = streams;
+            return streams;
+          });
+
+    streamsPromise.then(function (streams) {
+      var subs = streams.filter(function (s) { return s.Type === 'Subtitle'; });
+      if (!subs.length) {
+        return;
+      }
+      var visible = (config.VisibleSubtitleLanguages || 'da,en')
+        .split(',').map(function (l) { return l.trim().toLowerCase(); }).filter(Boolean);
+
+      // Same policy as the player menu: one track per visible language
+      // (non-SDH preferred), untagged tracks always kept.
+      var allowed = {};
+      visible.forEach(function (lang) {
+        var candidates = subs.filter(function (s) { return sgNormLang(s.Language) === lang; });
+        if (!candidates.length) {
+          return;
+        }
+        var pick = candidates.filter(function (s) { return !isHearingImpairedStream(s); })[0] || candidates[0];
+        allowed[pick.Index] = true;
+      });
+      subs.forEach(function (s) {
+        if (!s.Language) {
+          allowed[s.Index] = true;
+        }
+      });
+      var subIndexes = {};
+      subs.forEach(function (s) { subIndexes[s.Index] = true; });
+
+      pending.forEach(function (sel) {
+        sel.setAttribute('data-sg-filtered', itemId);
+        // Removal (not display:none) because Safari ignores hidden options;
+        // Jellyfin rebuilds the select on item/source change and the marker
+        // above lets us re-filter the fresh copy.
+        Array.prototype.slice.call(sel.options).forEach(function (opt) {
+          var idx = parseInt(opt.value, 10);
+          if (isNaN(idx) || idx < 0 || !subIndexes[idx] || allowed[idx]) {
+            return; // "Ingen", unknown values, and allowed tracks stay
+          }
+          if (opt.selected) {
+            return; // never remove the user's active choice
+          }
+          opt.remove();
+        });
+      });
+    }).catch(function () { /* leave the select untouched */ });
+  }
+
   // ---- "Fix undertekst-sync" button on item detail pages ----
   // One tap queues the item's external text subtitles on the sync worker.
   // The backend answers with how many were queued (or that there were none),
@@ -555,6 +667,8 @@
     var percentInput = page.querySelector('#SgSizePercent');
     var fontFamilySelect = page.querySelector('#SgFontFamily');
     var outlineWidthInput = page.querySelector('#SgOutlineWidth');
+    var bgOpacityInput = page.querySelector('#SgBackgroundOpacity');
+    var shadowInput = page.querySelector('#SgShadowStrength');
     var watchdogCheckbox = page.querySelector('#SgEnableWatchdog');
     var iosBurnInCheckbox = page.querySelector('#SgIosBurnIn');
     var trackFilterCheckbox = page.querySelector('#SgEnableTrackFilter');
@@ -578,7 +692,7 @@
         // Hero
         '.sgHero{display:flex;align-items:center;gap:1em;margin:.4em 0 1.2em;}' +
         '.sgHeroIcon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;' +
-        'background:linear-gradient(135deg,rgba(140,130,255,.9),rgba(88,166,255,.75));box-shadow:0 4px 18px rgba(140,130,255,.35);}' +
+        'background:linear-gradient(135deg,rgba(59,130,246,.9),rgba(88,166,255,.75));box-shadow:0 4px 18px rgba(59,130,246,.35);}' +
         '.sgHeroIcon .material-icons{font-size:30px;color:#fff;}' +
         '.sgHeroTitle{margin:0;font-size:1.5em;}' +
         '.sgHeroSub{opacity:.65;font-size:.9em;margin-top:.15em;}' +
@@ -589,13 +703,13 @@
         'transition:background .15s,color .15s,box-shadow .15s;}' +
         '.sgTabBtn .material-icons{font-size:17px;opacity:.8;}' +
         '.sgTabBtn:hover{background:rgba(255,255,255,.12);}' +
-        '.sgTabBtn.sgTabActive{background:rgba(140,130,255,.9);border-color:rgba(140,130,255,.9);color:#fff;font-weight:600;' +
-        'box-shadow:0 2px 12px rgba(140,130,255,.4);}' +
+        '.sgTabBtn.sgTabActive{background:rgba(59,130,246,.9);border-color:rgba(59,130,246,.9);color:#fff;font-weight:600;' +
+        'box-shadow:0 2px 12px rgba(59,130,246,.4);}' +
         // Cards
         '.sgCard{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09);border-radius:14px;' +
         'padding:1.1em 1.3em;margin-bottom:1.1em;}' +
         '.sgCardTitle{display:flex;align-items:center;gap:.5em;font-size:1.05em;font-weight:700;margin-bottom:.35em;}' +
-        '.sgCardTitle .material-icons{font-size:20px;color:rgba(140,130,255,.95);}' +
+        '.sgCardTitle .material-icons{font-size:20px;color:rgba(59,130,246,.95);}' +
         '.sgCardDesc{opacity:.7;font-size:.9em;line-height:1.45;}' +
         '.sgGuide p{opacity:.75;font-size:.9em;line-height:1.5;margin:.5em 0;}' +
         '.sgGuide code{background:rgba(255,255,255,.09);border-radius:5px;padding:.1em .4em;font-size:.9em;}' +
@@ -621,7 +735,7 @@
         '.sgHistMain{flex:1;min-width:0;}' +
         '.sgHistTitle{font-size:.92em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
         '.sgHistMeta{font-size:.76em;opacity:.55;}' +
-        '.sgHistLang{background:rgba(140,130,255,.2);border:1px solid rgba(140,130,255,.5);color:#cfc9ff;' +
+        '.sgHistLang{background:rgba(59,130,246,.2);border:1px solid rgba(59,130,246,.5);color:#bfdbfe;' +
         'border-radius:6px;padding:.1em .5em;font-size:.75em;font-weight:700;text-transform:uppercase;flex:0 0 auto;}' +
         // Status glyphs (#11): breathing idle, orbiting arc while working,
         // amber pause bars, slow-pulsing offline.
@@ -630,9 +744,9 @@
         '.sgGlyph-idle .sgGlyphDot{background:#3fb950;animation:sgBreath 2.6s ease-in-out infinite;}' +
         '.sgGlyph-idle::after{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(63,185,80,.5);' +
         'animation:sgRipple 2.6s ease-out infinite;}' +
-        '.sgGlyph-work .sgGlyphDot{background:#8c82ff;width:6px;height:6px;}' +
+        '.sgGlyph-work .sgGlyphDot{background:#3b82f6;width:6px;height:6px;}' +
         '.sgGlyph-work::before{content:"";position:absolute;inset:0;border-radius:50%;' +
-        'border:2px solid transparent;border-top-color:#8c82ff;border-right-color:rgba(140,130,255,.35);animation:sgSpin .9s linear infinite;}' +
+        'border:2px solid transparent;border-top-color:#3b82f6;border-right-color:rgba(59,130,246,.35);animation:sgSpin .9s linear infinite;}' +
         '.sgGlyph-pause .sgGlyphDot{background:transparent;width:10px;height:10px;border-radius:2px;' +
         'background:linear-gradient(90deg,#d29922 0 3px,transparent 3px 7px,#d29922 7px 10px);}' +
         '.sgGlyph-off .sgGlyphDot{background:#f85149;animation:sgOffPulse 1.6s ease-in-out infinite;}' +
@@ -721,8 +835,8 @@
         ROLE_DEFS.map(function (r) {
           var on = !!active[r.key];
           return '<button type="button" data-sg-role="' + r.key + '" data-sg-worker="' + i + '" ' +
-            'style="border:1px solid ' + (on ? 'rgba(140,130,255,.9)' : 'rgba(255,255,255,.2)') + ';' +
-            'background:' + (on ? 'rgba(140,130,255,.85)' : 'transparent') + ';color:' + (on ? '#fff' : 'rgba(255,255,255,.55)') + ';' +
+            'style="border:1px solid ' + (on ? 'rgba(59,130,246,.9)' : 'rgba(255,255,255,.2)') + ';' +
+            'background:' + (on ? 'rgba(59,130,246,.85)' : 'transparent') + ';color:' + (on ? '#fff' : 'rgba(255,255,255,.55)') + ';' +
             'border-radius:999px;padding:.12em .7em;font-size:.75em;cursor:pointer;">' + r.label + '</button>';
         }).join('') + '</span>';
     }
@@ -778,7 +892,7 @@
             var blocks = '';
             for (var b = 0; b < 5; b++) {
               blocks += '<span style="flex:1;height:6px;border-radius:3px;' +
-                'background:' + (b < filled ? 'rgba(140,130,255,.95)' : 'rgba(255,255,255,.15)') + ';"></span>';
+                'background:' + (b < filled ? 'rgba(59,130,246,.95)' : 'rgba(255,255,255,.15)') + ';"></span>';
             }
             activityHtml += '<span style="display:flex;align-items:center;gap:4px;margin-top:.25em;max-width:340px;">' +
               blocks + '<span style="font-size:.72em;opacity:.65;flex:0 0 auto;">' + pct + '%</span></span>';
@@ -924,10 +1038,10 @@
 
     // ---- Stats tiles + daily activity chart (Status tab) ----
     var STAT_CATS = [
-      { key: 'fixed', label: 'Rettet', color: '#8c82ff' },
+      { key: 'fixed', label: 'Rettet', color: '#3b82f6' },
       { key: 'in-sync', label: 'I sync', color: '#3fb950' },
       { key: 'transcribed', label: 'Transskriberet', color: '#d29922' },
-      { key: 'translated', label: 'Oversat', color: '#58a6ff' },
+      { key: 'translated', label: 'Oversat', color: '#2dd4bf' },
       { key: 'failed', label: 'Fejlet', color: '#f85149' }
     ];
 
@@ -1062,6 +1176,8 @@
       if (outlineWidthInput) {
         outlineWidthInput.value = typeof cfg.SubtitleOutlineWidth === 'number' ? cfg.SubtitleOutlineWidth : 2;
       }
+      if (bgOpacityInput) { bgOpacityInput.value = cfg.SubtitleBackgroundOpacity || 0; }
+      if (shadowInput) { shadowInput.value = cfg.SubtitleShadowStrength || 0; }
       watchdogCheckbox.checked = cfg.EnableWatchdog !== false;
       if (iosBurnInCheckbox) { iosBurnInCheckbox.checked = cfg.IosBurnInSubtitles !== false; }
       if (trackFilterCheckbox) {
@@ -1194,6 +1310,12 @@
         if (outlineWidthInput) {
           cfg.SubtitleOutlineWidth = Math.min(4, Math.max(0, parseInt(outlineWidthInput.value, 10) || 0));
         }
+        if (bgOpacityInput) {
+          cfg.SubtitleBackgroundOpacity = Math.min(100, Math.max(0, parseInt(bgOpacityInput.value, 10) || 0));
+        }
+        if (shadowInput) {
+          cfg.SubtitleShadowStrength = Math.min(4, Math.max(0, parseInt(shadowInput.value, 10) || 0));
+        }
         cfg.EnableWatchdog = watchdogCheckbox.checked;
         if (iosBurnInCheckbox) { cfg.IosBurnInSubtitles = iosBurnInCheckbox.checked; }
         if (trackFilterCheckbox) {
@@ -1250,6 +1372,7 @@
           wireConfigPageIfPresent();
           renderSyncButton();
           filterSubtitleSheet();
+          filterDetailSubtitleSelect();
           // Catches the <video> appearing on playback start (not a resize),
           // so the player-relative size is set as soon as there's a player.
           updateSubtitleScale();
@@ -1270,6 +1393,7 @@
       });
       wireConfigPageIfPresent();
       renderSyncButton();
+      filterDetailSubtitleSelect();
     });
   }
 
