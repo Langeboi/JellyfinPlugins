@@ -384,10 +384,18 @@
           return;
         }
 
+        // Quantized width: window.innerWidth minted a NEW image URL for
+        // every distinct window size, so a half-sized window meant a fresh
+        // server-side rescale instead of a browser-cache hit (visibly slow).
+        // Four fixed buckets keep the URL stable across resizes - after the
+        // first load, any window size paints from cache instantly.
+        var bucket = window.innerWidth <= 960 ? 960
+          : window.innerWidth <= 1280 ? 1280
+          : window.innerWidth <= 1920 ? 1920 : 2560;
         var imgUrl = apiClient.getScaledImageUrl(imageItemId, {
           type: 'Backdrop',
           tag: tag,
-          maxWidth: window.innerWidth
+          maxWidth: bucket
         });
 
         var freshContainer = document.querySelector('.backdropContainer');
@@ -1197,10 +1205,12 @@
   var MOVIES_LIB_ATTR = 'data-newbadges-movies-lib';
   var MOVIES_PENDING_ATTR = 'data-newbadges-movies-pending';
   var MOVIES_PAGE_SIZE = 48;
-  // A day-long cache turns "recompute on every Movies-tab visit" (several
-  // parallel Items/{id}/Similar lookups) into a once-a-day cost - watch
-  // history driving these recs doesn't change minute to minute anyway.
-  var RECS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  // Recs recompute at most every 72h - watch history doesn't change fast
+  // enough to justify more. Stored in localStorage (sessionStorage died with
+  // every browser session, which is why the row kept feeling slow), and
+  // served stale-while-revalidate: an expired cache still paints instantly
+  // while a background refresh replaces it.
+  var RECS_CACHE_TTL_MS = 72 * 60 * 60 * 1000;
 
   function getTopParentIdFromHash() {
     var m = location.hash.match(/[?&]topParentId=([a-f0-9-]+)/i);
@@ -1273,18 +1283,30 @@
   // this server, so this builds the row client-side. Falls back to the
   // highest-rated unwatched titles when there's no watch history (or not
   // enough similar results) so the row is never uselessly empty.
-  function fetchMovieRecommendations(libId) {
+  // Cache wrapper: instant paint from localStorage whenever ANY cached copy
+  // exists (stale included); a stale copy triggers a background recompute
+  // whose result lands via onRefresh. Only a cold cache waits on the network.
+  function fetchMovieRecommendations(libId, onRefresh) {
     var cacheKey = 'newBadges-movierecs-' + window.ApiClient.getCurrentUserId() + '-' + libId;
+    var cached = null;
     try {
-      var raw = sessionStorage.getItem(cacheKey);
-      if (raw) {
-        var cached = JSON.parse(raw);
-        if (cached.at && (Date.now() - cached.at) < RECS_CACHE_TTL_MS) {
-          return Promise.resolve(cached.items);
-        }
-      }
+      var raw = localStorage.getItem(cacheKey);
+      if (raw) { cached = JSON.parse(raw); }
     } catch (e) { /* fetch fresh */ }
 
+    if (cached && cached.items && cached.items.length) {
+      if (!cached.at || (Date.now() - cached.at) >= RECS_CACHE_TTL_MS) {
+        computeMovieRecommendations(libId, cacheKey).then(function (items) {
+          if (onRefresh && items.length) { onRefresh(items); }
+        }).catch(function () { /* keep showing the stale copy */ });
+      }
+      return Promise.resolve(cached.items);
+    }
+
+    return computeMovieRecommendations(libId, cacheKey);
+  }
+
+  function computeMovieRecommendations(libId, cacheKey) {
     var apiClient = window.ApiClient;
     var userId = apiClient.getCurrentUserId();
 
@@ -1345,7 +1367,7 @@
             }
           });
           try {
-            sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), items: merged }));
+            localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), items: merged }));
           } catch (e) { /* quota - fine */ }
           return merged;
         });
@@ -1492,12 +1514,17 @@
     renderMoviesPills(container, libId);
     loadMoviesGrid(container, libId, false);
 
-    fetchMovieRecommendations(libId).then(function (items) {
-      if (items.length) {
-        container.querySelector('.newBadges-moviesRecsRow').innerHTML = items.map(buildMovieCardHtml).join('');
-        container.querySelector('.newBadges-moviesRecsSection').style.display = '';
+    function paintRecs(items) {
+      if (!items.length || !document.body.contains(container)) {
+        return;
       }
-    }).catch(function () { /* row stays hidden */ });
+      container.querySelector('.newBadges-moviesRecsRow').innerHTML = items.map(buildMovieCardHtml).join('');
+      container.querySelector('.newBadges-moviesRecsSection').style.display = '';
+    }
+
+    // Instant from cache (even stale); a background refresh repaints quietly.
+    fetchMovieRecommendations(libId, paintRecs).then(paintRecs)
+      .catch(function () { /* row stays hidden */ });
 
     fetchLibraryMovies(libId, { Filters: 'IsFavorite', SortBy: 'SortName', Limit: 20 }).then(function (result) {
       var items = result.Items || [];

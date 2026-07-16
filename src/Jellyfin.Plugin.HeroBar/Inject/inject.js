@@ -698,9 +698,14 @@
       // font/appearance, so despite sharing this class Info rendered
       // visibly "fluffier" than its siblings. font-family/line-height and
       // stripping native button chrome make all three pixel-consistent.
-      '.heroBar-btn{display:inline-flex;align-items:center;gap:.35em;border:none;' +
+      // One shape at EVERY width: fixed min-height + border-box so the <a>
+      // (Info) and <button>s (Play/Fav) can't diverge, and no media query
+      // overrides the shape below - previously ≤800px changed padding/height
+      // and made the buttons visibly different in half-window/mobile.
+      '.heroBar-btn{display:inline-flex;align-items:center;justify-content:center;gap:.35em;border:none;' +
       'border-radius:999px;padding:.55em 1.3em;font-weight:700;font-size:.9em;cursor:pointer;' +
       'font-family:inherit;line-height:normal;-webkit-appearance:none;appearance:none;' +
+      'min-height:40px;box-sizing:border-box;' +
       'text-decoration:none;white-space:nowrap;transition:background .15s,transform .15s;}' +
       '.heroBar-btn-play{background:#fff;color:#111;}' +
       '.heroBar-btn-play:hover{background:#e2e2e2;transform:scale(1.05);}' +
@@ -718,9 +723,8 @@
       '.heroBar-content{max-width:94%;padding:1.2em 1.4em;}' +
       '.heroBar-titleText{font-size:1.6em;}' +
       '.heroBar-overview{-webkit-line-clamp:2;}' +
-      // Keep buttons comfortably tappable (~40px) rather than shrinking
-      // them along with the text.
-      '.heroBar-btn{padding:.6em 1.1em;font-size:.85em;min-height:40px;}' +
+      // Button shape deliberately NOT overridden here - identical at all
+      // widths (min-height/padding live in the base .heroBar-btn rule).
       '.heroBar-dots{bottom:.8em;right:1em;gap:.55em;}' +
       // Bigger touch targets for the dots without growing the visual dot -
       // padding + background-clip keeps the painted circle small.
@@ -736,7 +740,6 @@
       '.heroBar-meta{font-size:.78em;margin-bottom:.3em;}' +
       '.heroBar-overview{font-size:.8em;-webkit-line-clamp:2;}' +
       '.heroBar-buttons{gap:.5em;margin-top:.7em;}' +
-      '.heroBar-btn{padding:.5em .95em;font-size:.82em;}' +
       '}';
     document.head.appendChild(style);
   }
