@@ -75,6 +75,24 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 var job = SyncWorker.CollectTranscribeJob(item, targetLangs);
                 if (job != null)
                 {
+                    var cfg = Plugin.Instance!.Configuration;
+                    var hotwords = HotwordBuilder.BuildForItem(item, _libraryManager, cfg);
+                    if (hotwords.Length > 0)
+                    {
+                        job["hotwords"] = hotwords;
+                        if (cfg.HotwordDebugLog)
+                        {
+                            _logger.LogInformation(
+                                "SubtitleGuard: hotwords for {Item}: {Hotwords}", item.Name, hotwords);
+                        }
+                        else
+                        {
+                            _logger.LogDebug(
+                                "SubtitleGuard: {Count} hotwords for {Item}",
+                                hotwords.Count(c => c == ',') + 1, item.Name);
+                        }
+                    }
+
                     jobs.Add(job);
                 }
             }

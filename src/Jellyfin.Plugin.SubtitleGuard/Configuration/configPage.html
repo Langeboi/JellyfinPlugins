@@ -190,6 +190,41 @@
           </div>
 
           <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons psychology" aria-hidden="true"></span>Hotwords (navne &amp; termer)</div>
+            <div class="sgCardDesc">Bygger automatisk en kort liste af navne og særegne termer fra emnets Jellyfin-metadata (titler, karakternavne, skuespillere, tags, resuméer) og giver den til Whisper, så &quot;Chrisjen Avasarala&quot; ikke bliver til fonetisk gætværk. Alt sker lokalt - intet metadata forlader serveren.</div>
+            <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:.6em;">
+              <label>
+                <input id="SgHotwordsEnable" type="checkbox" is="emby-checkbox" />
+                <span>Metadata-hotwords</span>
+              </label>
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgHotwordMaxTerms">Maks. antal termer</label>
+              <input id="SgHotwordMaxTerms" type="number" is="emby-input" min="1" max="200" step="5" />
+            </div>
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgHotwordMaxChars">Maks. tegn i alt</label>
+              <input id="SgHotwordMaxChars" type="number" is="emby-input" min="50" max="2000" step="50" />
+            </div>
+            <div class="checkboxContainer">
+              <label><input id="SgHotwordCast" type="checkbox" is="emby-checkbox" /><span>Medtag skuespillernavne</span></label>
+            </div>
+            <div class="checkboxContainer">
+              <label><input id="SgHotwordCrew" type="checkbox" is="emby-checkbox" /><span>Medtag instruktører/forfattere</span></label>
+            </div>
+            <div class="checkboxContainer">
+              <label><input id="SgHotwordOverview" type="checkbox" is="emby-checkbox" /><span>Udtræk termer fra resuméer</span></label>
+            </div>
+            <div class="checkboxContainer">
+              <label><input id="SgHotwordStudios" type="checkbox" is="emby-checkbox" /><span>Medtag studier/netværk</span></label>
+            </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label><input id="SgHotwordDebug" type="checkbox" is="emby-checkbox" /><span>Debug-log den fulde termliste</span></label>
+              <div class="fieldDescription">Normalt logges kun antallet af termer.</div>
+            </div>
+          </div>
+
+          <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons history_edu" aria-hidden="true"></span>Transskriptions-historik</div>
             <div class="sgCardDesc">De seneste transskriptioner på tværs af poolen, nyeste først.</div>
             <div id="SgTransHistory" style="margin-top:.6em;"></div>

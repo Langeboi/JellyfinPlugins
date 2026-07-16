@@ -673,6 +673,16 @@
     var iosBurnInCheckbox = page.querySelector('#SgIosBurnIn');
     var trackFilterCheckbox = page.querySelector('#SgEnableTrackFilter');
     var visibleLangsInput = page.querySelector('#SgVisibleLanguages');
+    var hotwordControls = {
+      SgHotwordsEnable: 'EnableMetadataHotwords',
+      SgHotwordMaxTerms: 'HotwordMaxTerms',
+      SgHotwordMaxChars: 'HotwordMaxChars',
+      SgHotwordCast: 'HotwordIncludeCast',
+      SgHotwordCrew: 'HotwordIncludeCrew',
+      SgHotwordOverview: 'HotwordFromOverview',
+      SgHotwordStudios: 'HotwordIncludeStudios',
+      SgHotwordDebug: 'HotwordDebugLog'
+    };
     var mapFromInput = page.querySelector('#SgPathMapFrom');
     var mapToInput = page.querySelector('#SgPathMapTo');
     var langInput = page.querySelector('#SgTranscribeLanguages');
@@ -1191,6 +1201,19 @@
       if (langInput) {
         langInput.value = cfg.TranscribeLanguages || 'da,en';
       }
+      Object.keys(hotwordControls).forEach(function (id) {
+        var el = page.querySelector('#' + id);
+        if (!el) { return; }
+        var key = hotwordControls[id];
+        if (el.type === 'checkbox') {
+          // Booleans defaulting to true use !== false; the rest are plain.
+          el.checked = (key === 'EnableMetadataHotwords' || key === 'HotwordIncludeCast' || key === 'HotwordFromOverview')
+            ? cfg[key] !== false
+            : !!cfg[key];
+        } else {
+          el.value = cfg[key] || (key === 'HotwordMaxTerms' ? 75 : 800);
+        }
+      });
       if (pathsInput) {
         pathsInput.value = cfg.IncludedPathPrefixes || '';
       }
@@ -1329,6 +1352,16 @@
         if (langInput) {
           cfg.TranscribeLanguages = langInput.value.trim() || 'da,en';
         }
+        Object.keys(hotwordControls).forEach(function (id) {
+          var el = page.querySelector('#' + id);
+          if (!el) { return; }
+          var key = hotwordControls[id];
+          if (el.type === 'checkbox') {
+            cfg[key] = el.checked;
+          } else {
+            cfg[key] = parseInt(el.value, 10) || (key === 'HotwordMaxTerms' ? 75 : 800);
+          }
+        });
         if (pathsInput) {
           cfg.IncludedPathPrefixes = pathsInput.value.trim();
         }

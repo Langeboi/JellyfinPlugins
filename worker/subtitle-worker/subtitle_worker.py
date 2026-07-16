@@ -770,17 +770,32 @@ def process_transcribe_job(job: dict):
         # in that language (it can translate to English but never to Danish -
         # translation is a future, separate step). word_timestamps=True gives
         # per-word timing so write_srt can tighten each cue to real speech.
-        segments, info = model.transcribe(
-            media,
-            language=job.get("language") or None,
-            word_timestamps=True,
+        kwargs = {
+            "language": job.get("language") or None,
+            "word_timestamps": True,
             # Wider beam = fewer missed words, punctuation-safe. VAD tuning is
             # left at faster-whisper's proven default unless opted in via env
             # (see WHISPER_* above) - overriding it stripped all punctuation.
-            beam_size=WHISPER_BEAM,
-            vad_filter=WHISPER_VAD,
-            vad_parameters=_whisper_vad_parameters() if WHISPER_VAD else None,
-        )
+            "beam_size": WHISPER_BEAM,
+            "vad_filter": WHISPER_VAD,
+            "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
+        }
+        # Per-item hotwords from the plugin (titles, character/place names
+        # mined from Jellyfin metadata) bias the decoder toward the right
+        # spellings. faster-whisper's `hotwords` prefixes them into the
+        # decoding window without replacing previous-text conditioning; on an
+        # older faster-whisper without the parameter, fall back to a short
+        # initial_prompt (weaker: only conditions the first window).
+        hotwords = (job.get("hotwords") or "").strip()
+        if hotwords:
+            import inspect
+            if "hotwords" in inspect.signature(model.transcribe).parameters:
+                kwargs["hotwords"] = hotwords
+            else:
+                kwargs["initial_prompt"] = (
+                    "This program may include the following names and terms: " + hotwords + "."
+                )
+        segments, info = model.transcribe(media, **kwargs)
 
         base = os.path.splitext(media)[0]
         target = f"{base}.{info.language}.srt"
@@ -916,6 +931,7 @@ class Job(BaseModel):
     language: str | None = None  # transcribe only; None = auto-detect
     stream_index: int | None = None  # translate only: embedded source stream
     force: bool = False  # transcribe: re-run even if already processed / target exists
+    hotwords: str | None = None  # transcribe: comma-separated names/terms to bias Whisper
 
 
 class Batch(BaseModel):

@@ -92,6 +92,34 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public string TranscribeLanguages { get; set; } = "da,en";
 
         /// <summary>
+        /// Build a per-item hotword list (names, fictional terms) from the
+        /// item's Jellyfin metadata and pass it to Whisper, so transcription
+        /// gets character/place names right instead of guessing phonetically.
+        /// </summary>
+        public bool EnableMetadataHotwords { get; set; } = true;
+
+        /// <summary>Maximum number of hotword terms per item.</summary>
+        public int HotwordMaxTerms { get; set; } = 75;
+
+        /// <summary>Maximum total characters of the hotword string.</summary>
+        public int HotwordMaxChars { get; set; } = 800;
+
+        /// <summary>Include actor names in the hotword list.</summary>
+        public bool HotwordIncludeCast { get; set; } = true;
+
+        /// <summary>Include directors/writers/other crew in the hotword list.</summary>
+        public bool HotwordIncludeCrew { get; set; }
+
+        /// <summary>Mine proper nouns from episode/series/movie overviews.</summary>
+        public bool HotwordFromOverview { get; set; } = true;
+
+        /// <summary>Include studio/network names in the hotword list.</summary>
+        public bool HotwordIncludeStudios { get; set; }
+
+        /// <summary>Log the full generated term list (not just the count).</summary>
+        public bool HotwordDebugLog { get; set; }
+
+        /// <summary>
         /// Comma-separated path prefixes (as Jellyfin sees them). When set,
         /// the scheduled tasks only touch items under these paths - e.g.
         /// "/Media/Movies,/Media/Shows" keeps Standup/Western/etc. out of
