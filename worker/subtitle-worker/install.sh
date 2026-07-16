@@ -156,6 +156,9 @@ HF_HOME=$HF_CACHE_DIR
 # Reject ffsubsync results whose offset exceeds this many seconds - such a
 # large shift is almost always a mis-alignment, so the original is kept.
 # SUBWORKER_MAX_OFFSET=60
+# Set to 0 to pin this box to its current worker version (skips the daily
+# self-update timer).
+# SUBWORKER_AUTOUPDATE=0
 EOF
 if [ -n "${CUDA_LIBS:-}" ]; then
   echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"
@@ -182,6 +185,17 @@ EOF
 
 systemctl daemon-reload
 systemctl enable --now subtitle-worker
+
+# Self-updating worker: a daily timer pulls the latest worker script from the
+# repo (validated before swap, deferred while jobs run). Opt out per box with
+# SUBWORKER_AUTOUPDATE=0 in the env file.
+echo "== Enabling auto-update timer =="
+if [ -f "$(dirname "$0")/enable-autoupdate.sh" ]; then
+  bash "$(dirname "$0")/enable-autoupdate.sh" || echo "WARNING: auto-update setup failed - update manually"
+else
+  curl -fsSL "https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/enable-autoupdate.sh?v=$(date +%s)" | bash \
+    || echo "WARNING: auto-update setup failed - update manually"
+fi
 
 IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo ""
