@@ -741,6 +741,40 @@
         '.sgHeroIcon .material-icons{font-size:30px;color:#fff;}' +
         '.sgHeroTitle{margin:0;font-size:1.5em;}' +
         '.sgHeroSub{opacity:.65;font-size:.9em;margin-top:.15em;}' +
+        // Help "?" button (top-right of the hero) + guide modal
+        '.sgHero>div:first-child{flex:1;}' +
+        '.sgHelpBtn{flex:0 0 auto;width:38px;height:38px;border-radius:50%;font-size:1.15em;font-weight:800;cursor:pointer;' +
+        'color:#fff;background:rgba(59,130,246,.85);border:1px solid rgba(88,166,255,.6);line-height:1;' +
+        'box-shadow:0 2px 12px rgba(59,130,246,.35);transition:background .15s,transform .1s;}' +
+        '.sgHelpBtn:hover{background:rgba(59,130,246,1);transform:scale(1.06);}' +
+        '.sgHelpOverlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.62);' +
+        'display:flex;align-items:flex-start;justify-content:center;padding:4vh 1em;overflow-y:auto;}' +
+        '.sgHelpModal{background:#1c2230;border:1px solid rgba(255,255,255,.12);border-radius:16px;' +
+        'max-width:720px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.5);margin:auto;}' +
+        '.sgHelpHead{display:flex;align-items:center;gap:.6em;padding:1em 1.3em;border-bottom:1px solid rgba(255,255,255,.1);' +
+        'position:sticky;top:0;background:#1c2230;border-radius:16px 16px 0 0;}' +
+        '.sgHelpTitle{display:flex;align-items:center;gap:.5em;font-size:1.15em;font-weight:700;flex:1;}' +
+        '.sgHelpTitle .material-icons{color:rgba(88,166,255,.95);}' +
+        '.sgHelpClose{background:transparent;border:none;color:rgba(255,255,255,.7);font-size:1.7em;line-height:1;' +
+        'cursor:pointer;padding:0 .2em;}' +
+        '.sgHelpClose:hover{color:#fff;}' +
+        '.sgHelpBody{padding:1.2em 1.4em 1.6em;}' +
+        '.sgHelpLead{opacity:.82;font-size:.93em;line-height:1.55;margin:0 0 1.2em;}' +
+        '.sgHelpStep{display:flex;gap:.9em;padding:.7em 0;border-top:1px solid rgba(255,255,255,.07);}' +
+        '.sgHelpNum{flex:0 0 auto;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+        'font-weight:800;font-size:.95em;background:rgba(59,130,246,.85);color:#fff;}' +
+        '.sgHelpNum .material-icons{font-size:19px;}' +
+        '.sgHelpStepBody{flex:1;min-width:0;}' +
+        '.sgHelpStepBody h4{margin:.15em 0 .4em;font-size:1.02em;}' +
+        '.sgHelpStepBody p{opacity:.82;font-size:.9em;line-height:1.55;margin:.4em 0;}' +
+        '.sgHelpStepBody ul{margin:.4em 0;padding-left:1.2em;opacity:.82;font-size:.88em;line-height:1.5;}' +
+        '.sgHelpStepBody li{margin-bottom:.3em;}' +
+        '.sgHelpStepBody code{background:rgba(255,255,255,.1);border-radius:5px;padding:.1em .4em;font-size:.9em;}' +
+        '.sgHelpImportant{background:rgba(210,153,34,.09);border:1px solid rgba(210,153,34,.4);border-radius:12px;' +
+        'padding:.7em .9em;margin:.5em 0;}' +
+        '.sgHelpImportant .sgHelpNum{background:#d29922;}' +
+        '.sgHelpNote{background:rgba(255,255,255,.05);border-left:3px solid rgba(88,166,255,.6);border-radius:0 8px 8px 0;' +
+        'padding:.5em .8em;font-size:.85em !important;}' +
         // Tabs
         '.sgTabBar{display:flex;gap:.5em;flex-wrap:wrap;margin-bottom:1.2em;}' +
         '.sgTabBtn{display:inline-flex;align-items:center;gap:.4em;background:rgba(255,255,255,.06);color:rgba(255,255,255,.8);' +
@@ -825,6 +859,114 @@
     });
     showTab('workers');
 
+    // Help "?" -> setup guide overlay. Close on the X, on the backdrop, or Esc.
+    (function wireHelp() {
+      var helpBtn = page.querySelector('#SgHelpButton');
+      var overlay = page.querySelector('#SgHelpOverlay');
+      var closeBtn = page.querySelector('#SgHelpClose');
+      if (!helpBtn || !overlay) { return; }
+      function openHelp() { overlay.style.display = 'flex'; }
+      function closeHelp() { overlay.style.display = 'none'; }
+      helpBtn.addEventListener('click', openHelp);
+      if (closeBtn) { closeBtn.addEventListener('click', closeHelp); }
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) { closeHelp(); }
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && overlay.style.display !== 'none') { closeHelp(); }
+      });
+    })();
+
+    // Whisper-settings panel: these live in each worker's env file, not in the
+    // plugin config, so instead of saving them we generate an idempotent
+    // command the operator pastes on the worker box. Choices persist in
+    // localStorage so the panel remembers them across page loads.
+    (function wireWhisperSettings() {
+      var modelSel = page.querySelector('#SgWsModel');
+      var beamInput = page.querySelector('#SgWsBeam');
+      var vadCb = page.querySelector('#SgWsVad');
+      var thrInput = page.querySelector('#SgWsVadThreshold');
+      var padInput = page.querySelector('#SgWsVadPad');
+      var svcInput = page.querySelector('#SgWsService');
+      var cmdBox = page.querySelector('#SgWsCommand');
+      var copyBtn = page.querySelector('#SgWsCopyBtn');
+      if (!cmdBox || !modelSel) { return; }
+      var LS_KEY = 'sgWhisperSettings';
+
+      function restore() {
+        try {
+          var s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+          if (typeof s.model === 'string') { modelSel.value = s.model; }
+          if (typeof s.beam === 'string') { beamInput.value = s.beam; }
+          if (typeof s.vad === 'boolean') { vadCb.checked = s.vad; }
+          if (typeof s.thr === 'string') { thrInput.value = s.thr; }
+          if (typeof s.pad === 'string') { padInput.value = s.pad; }
+          if (typeof s.svc === 'string') { svcInput.value = s.svc; }
+        } catch (e) { /* ignore corrupt storage */ }
+      }
+      function persist() {
+        try {
+          localStorage.setItem(LS_KEY, JSON.stringify({
+            model: modelSel.value, beam: beamInput.value, vad: vadCb.checked,
+            thr: thrInput.value, pad: padInput.value, svc: svcInput.value
+          }));
+        } catch (e) { /* private mode / quota */ }
+      }
+
+      function buildCommand() {
+        var service = (svcInput.value.trim() || 'subtitle-worker').replace(/[^a-zA-Z0-9._-]/g, '');
+        if (!service) { service = 'subtitle-worker'; }
+        var envPath = '/opt/' + service + '/env';
+        var lines = [];
+        var model = modelSel.value.trim();
+        if (model) { lines.push('SUBWORKER_WHISPER_MODEL=' + model); }
+        var beam = beamInput.value.trim();
+        if (beam) { lines.push('SUBWORKER_WHISPER_BEAM=' + beam); }
+        // VAD default is on; emit it explicitly so the state is unambiguous.
+        lines.push('SUBWORKER_WHISPER_VAD=' + (vadCb.checked ? '1' : '0'));
+        var thr = thrInput.value.trim();
+        if (thr) { lines.push('SUBWORKER_WHISPER_VAD_THRESHOLD=' + thr); }
+        var pad = padInput.value.trim();
+        if (pad) { lines.push('SUBWORKER_WHISPER_VAD_PAD_MS=' + pad); }
+
+        // Wipe any prior values for these keys, then append the chosen ones -
+        // blank fields are simply not re-added, so they fall back to defaults.
+        var cmd = "sudo sed -i -E '/^SUBWORKER_WHISPER_(MODEL|BEAM|VAD|VAD_THRESHOLD|VAD_PAD_MS)=/d' " + envPath + "\n";
+        cmd += "sudo tee -a " + envPath + " >/dev/null <<'EOF'\n" + lines.join("\n") + "\nEOF\n";
+        cmd += "sudo systemctl restart " + service;
+        return cmd;
+      }
+
+      function refresh() { cmdBox.textContent = buildCommand(); persist(); }
+
+      [modelSel, beamInput, thrInput, padInput, svcInput].forEach(function (el) {
+        el.addEventListener('input', refresh);
+        el.addEventListener('change', refresh);
+      });
+      vadCb.addEventListener('change', refresh);
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () {
+          var text = cmdBox.textContent;
+          var label = copyBtn.querySelector('span:last-child');
+          function ok() { if (label) { var o = label.textContent; label.textContent = 'Kopieret!'; setTimeout(function () { label.textContent = o; }, 1600); } }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok, fallbackCopy);
+          } else { fallbackCopy(); }
+          function fallbackCopy() {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); ok(); } catch (e) { /* noop */ }
+            document.body.removeChild(ta);
+          }
+        });
+      }
+
+      restore();
+      refresh();
+    })();
+
     // Status glyphs: breathing green + ripple ring = online/idle, orbiting
     // violet arc = working, amber bars = paused, pulsing red = offline,
     // grey = unknown (still checking). Classes live in sgTabStyle.
@@ -907,6 +1049,14 @@
           caps += ' · Oversættelse: NLLB';
         }
 
+        // CPU boxes can transcribe again, but the smaller model means poorer
+        // results - warn only when this box actually has the transcribe role on.
+        var cpuWarn = '';
+        if (st && st.online && st.transcribe === 'cpu' && workerActiveRoles(w).transcribe) {
+          cpuWarn = '<span style="display:block;color:#d29922;font-size:.78em;margin-top:.15em;">' +
+            '⚠ CPU-transskription: lavere kvalitet og markant langsommere. GPU anbefales.</span>';
+        }
+
         var detail = '';
         if (paused) {
           detail = 'Pauset' + (st.queue_depth > 0 ? ' (' + st.queue_depth + ' venter i kø)' : '');
@@ -961,6 +1111,7 @@
               '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
               '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
                 w.Url.replace(/</g, '&lt;') + ' - ' + detail.replace(/</g, '&lt;') + caps.replace(/</g, '&lt;') + '</span>' +
+              cpuWarn +
               activityHtml +
               roleChipsHtml(w, i) +
             '</span>' +

@@ -32,10 +32,15 @@ curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/
 
 Installeren opdager selv om maskinen har en NVIDIA-GPU:
 
-* **CPU-maskine** → egner sig til **sync** (ffsubsync).
-* **GPU-maskine** → kan også **transskribere** (Whisper large-v3) og
-  **oversætte** (NLLB). Transskription/oversættelse på CPU frarådes –
-  kvaliteten er ikke god nok.
+* **CPU-maskine** → egner sig bedst til **sync** (ffsubsync). Den *kan* også
+  transskribere (mindre Whisper-model), men kvaliteten er lavere og det er
+  markant langsommere – slå kun transskriptions-rollen til på en CPU-worker
+  hvis du ingen GPU har. Oversættelse (NLLB) frarådes på CPU. Installeren
+  vælger selv Whisper-model ud fra maskinens kerner/RAM (`small`, eller
+  `medium` på ≥4 kerner og ≥6 GB RAM) – du kan overstyre pr. worker under
+  **Transskription → Whisper-indstillinger** i pluginet.
+* **GPU-maskine** → kan **transskribere** (Whisper large-v3) og
+  **oversætte** (NLLB) i fuld kvalitet. Anbefales til begge dele.
 
 Til sidst udskriver den en **Worker URL** og en **enrollment-kode**. Åbn
 **Dashboard → Plugins → Subtitle Guard → Workers**, indsæt begge, vælg

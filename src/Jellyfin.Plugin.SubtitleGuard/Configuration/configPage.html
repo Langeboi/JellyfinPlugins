@@ -14,6 +14,7 @@
             <h2 class="sgHeroTitle">Subtitle Guard</h2>
             <div class="sgHeroSub">Undertekster der passer, synker og altid vises &mdash; på tværs af hele poolen.</div>
           </div>
+          <button type="button" id="SgHelpButton" class="sgHelpBtn" title="Opsætningsguide" aria-label="Opsætningsguide">?</button>
         </div>
 
         <!-- Tab bar: each button toggles one data-sg-tab panel. Wired in
@@ -62,7 +63,7 @@
               <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="transcribe" checked /><span>Transskription</span></label>
               <label><input type="checkbox" is="emby-checkbox" data-sg-newrole="translate" checked /><span>Oversættelse</span></label>
             </div>
-            <div class="fieldDescription" style="margin:.3em 0 .8em;">Tip: CPU-maskiner egner sig til synkronisering; transskription og oversættelse kræver reelt en GPU-maskine (kvaliteten på CPU er ikke god nok).</div>
+            <div class="fieldDescription" style="margin:.3em 0 .8em;">Tip: CPU-maskiner egner sig bedst til synkronisering. De <i>kan</i> transskribere (mindre model, lavere kvalitet og langsommere) &mdash; men oversættelse og transskription i fuld kvalitet kræver reelt en GPU-maskine.</div>
             <button is="emby-button" type="button" id="SgAddWorkerButton" class="raised button-submit block emby-button">
               <span>Tilmeld worker</span>
             </button>
@@ -239,6 +240,62 @@
           </div>
 
           <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons tune" aria-hidden="true"></span>Whisper-indstillinger (pr. worker)</div>
+            <div class="sgCardDesc">Finjustér selve transskriberingen. Disse indstillinger sidder på <b>hver enkelt worker</b> (den læser dem ved opstart) &mdash; de gemmes derfor ikke her i pluginet. Vælg dine værdier herunder, kopiér kommandoen nederst og kør den på den worker du vil ændre. Lad felter stå tomme for at bruge standard.</div>
+
+            <div class="inputContainer" style="margin-top:.8em;">
+              <label class="inputLabel inputLabelUnfocused" for="SgWsModel">Model</label>
+              <select id="SgWsModel" is="emby-select">
+                <option value="">Standard (large-v3 på GPU / auto small/medium på CPU)</option>
+                <option value="large-v3">large-v3 &ndash; bedst (GPU: ~10 GB VRAM. Kører også på CPU, men meget langsomt)</option>
+                <option value="large-v2">large-v2 &ndash; næsten lige så god</option>
+                <option value="medium">medium &ndash; god balance (auto-valgt på stærkere CPU'er)</option>
+                <option value="small">small &ndash; hurtig, lavere kvalitet</option>
+                <option value="base">base &ndash; meget hurtig, ringe kvalitet</option>
+              </select>
+              <div class="fieldDescription">Større model = bedre tekst (især dansk), men langsommere. På GPU måles pladsen i VRAM; på CPU er det almindelig RAM (large-v3 ved int8 fylder kun ~2&ndash;4 GB, så en CPU <i>kan</i> godt køre den &mdash; den er bare langsom, tit flere timer pr. film). Nye CPU-workers vælger selv <code>small</code> eller <code>medium</code> ud fra kerner/RAM ved installation; sæt en værdi her for at overstyre.</div>
+            </div>
+
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgWsBeam">Beam size</label>
+              <input id="SgWsBeam" type="number" is="emby-input" min="1" max="10" step="1" placeholder="8" />
+              <div class="fieldDescription">Hvor mange tekst-hypoteser dekoderen overvejer. Højere = færre oversete/gættede ord og bedre tegnsætning, men langsommere (beam 8 ≈ 1,5× beam 5). Standard 8. Sænk til 5 for mere fart.</div>
+            </div>
+
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgWsVad" type="checkbox" is="emby-checkbox" checked />
+                <span>Voice Activity Detection (VAD)</span>
+              </label>
+              <div class="fieldDescription">Filtrerer stilhed/musik fra, så modellen ikke &quot;hallucinerer&quot; en linje hen over tavshed. Anbefales tændt. Slås den fra bliver alt lydspor transskriberet (mest grundigt, men large-v3 kan finde på at digte).</div>
+            </div>
+
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgWsVadThreshold">VAD-tærskel (avanceret)</label>
+              <input id="SgWsVadThreshold" type="number" is="emby-input" min="0.1" max="0.9" step="0.05" placeholder="standard" />
+              <div class="fieldDescription">0.1&ndash;0.9. Lavere fanger svagere/mumlet tale, men risikerer at medtage støj. <b>Tom = faster-whispers gennemprøvede standard</b> &mdash; at overstyre den re-chunker lyden og fjernede al tegnsætning i test, så rør kun ved den hvis du bevidst eksperimenterer.</div>
+            </div>
+
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgWsVadPad">VAD-padding (ms, avanceret)</label>
+              <input id="SgWsVadPad" type="number" is="emby-input" min="0" max="2000" step="50" placeholder="standard" />
+              <div class="fieldDescription">Ekstra lyd der beholdes i hver ende af et tale-segment, så ord ikke klippes af. Tom = standard.</div>
+            </div>
+
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="SgWsService">Tjenestenavn (ved flere instanser)</label>
+              <input id="SgWsService" type="text" is="emby-input" placeholder="subtitle-worker" />
+              <div class="fieldDescription">Kun relevant hvis du kører flere workers på samme maskine (fx <code>subtitle-worker2</code> til et ekstra GPU). Kommandoen tilpasser både sti og genstart efter dette navn.</div>
+            </div>
+
+            <div class="sgCardDesc" style="margin-top:1em;font-weight:600;opacity:.9;">Kør denne kommando på workeren (root/sudo):</div>
+            <div id="SgWsCommand" class="sgCode" style="margin-top:.4em;white-space:pre-wrap;"></div>
+            <button is="emby-button" type="button" id="SgWsCopyBtn" class="raised emby-button" style="margin-top:.7em;min-width:auto;padding:.4em 1.2em;">
+              <span class="material-icons content_copy" aria-hidden="true" style="font-size:16px;vertical-align:-3px;margin-right:.3em;"></span><span>Kopiér kommando</span>
+            </button>
+          </div>
+
+          <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons history_edu" aria-hidden="true"></span>Transskriptions-historik</div>
             <div class="sgCardDesc">De seneste transskriptioner på tværs af poolen, nyeste først.</div>
             <div id="SgTransHistory" style="margin-top:.6em;"></div>
@@ -270,6 +327,86 @@
           <button is="emby-button" type="button" id="SubtitleGuardSaveButton" class="raised button-submit block emby-button">
             <span>Gem</span>
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== HJÆLP / OPSÆTNINGSGUIDE ===================== -->
+    <!-- Full step-by-step worker setup guide. Hidden by default; the "?"
+         button in the hero toggles it (wired in inject.js). -->
+    <div id="SgHelpOverlay" class="sgHelpOverlay" style="display:none;">
+      <div class="sgHelpModal" role="dialog" aria-modal="true" aria-labelledby="SgHelpTitle">
+        <div class="sgHelpHead">
+          <div class="sgHelpTitle" id="SgHelpTitle"><span class="material-icons help_outline" aria-hidden="true"></span>Opsætningsguide &ndash; workers</div>
+          <button type="button" id="SgHelpClose" class="sgHelpClose" aria-label="Luk">&times;</button>
+        </div>
+        <div class="sgHelpBody">
+
+          <p class="sgHelpLead">En <b>worker</b> er en Debian/Ubuntu-maskine (fysisk, VM eller LXC) der har dit mediebibliotek mountet og udfører det tunge arbejde: sync, transskription (Whisper) og oversættelse (NLLB). Alt kører lokalt &mdash; intet forlader dine servere. Du kan starte med <b>én</b> maskine og udvide senere.</p>
+
+          <div class="sgHelpStep">
+            <div class="sgHelpNum">1</div>
+            <div class="sgHelpStepBody">
+              <h4>Installér pluginet i Jellyfin</h4>
+              <p>Du har allerede pluginet (du står i det). Sørg også for at <b>File Transformation</b>-pluginet er installeret fra samme katalog &mdash; det injicerer frontend-scriptet der giver undertekst-knapperne og denne side. Genstart Jellyfin efter installation.</p>
+            </div>
+          </div>
+
+          <div class="sgHelpStep">
+            <div class="sgHelpNum">2</div>
+            <div class="sgHelpStepBody">
+              <h4>Tilmeld en worker</h4>
+              <p>Kør installeren på maskinen (som root/sudo):</p>
+              <div class="sgCode">curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</div>
+              <p>Installeren opdager selv om maskinen har en NVIDIA-GPU. Til sidst udskriver den en <b>Worker URL</b> og en <b>enrollment-kode</b>. Åbn <b>Workers</b>-fanen her, indsæt begge, vælg maskinens roller og tryk <b>Tilmeld worker</b>.</p>
+              <ul>
+                <li><b>CPU-maskine</b> &rarr; bedst til <b>sync</b>. Kan transskribere med en mindre model, men langsommere og i lavere kvalitet.</li>
+                <li><b>GPU-maskine</b> &rarr; <b>transskription</b> (Whisper large-v3) og <b>oversættelse</b> (NLLB) i fuld kvalitet.</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="sgHelpStep sgHelpImportant">
+            <div class="sgHelpNum"><span class="material-icons priority_high" aria-hidden="true"></span></div>
+            <div class="sgHelpStepBody">
+              <h4><u>Rettigheder til medierne (vigtigt!)</u></h4>
+              <p><b>Dette er det trin folk oftest snubler over.</b> Workeren skriver de rettede/nye undertekst-filer direkte ned <u>ved siden af medie-filerne</u>. Den skal derfor have <u>skriveadgang</u> til de mapper &mdash; ellers fejler hvert eneste job med &quot;permission denied&quot;, selvom alt andet er sat korrekt op.</p>
+              <p>Kør workeren som en bruger der ejer (eller er i gruppen for) medie-filerne. To gode fremgangsmåder:</p>
+              <p><b>A) Kør tjenesten som en medie-ejende bruger</b> &mdash; sæt en dedikeret <code>subworker</code>-konto (eller din normale mediebruger) ved installation:</p>
+              <div class="sgCode">SERVICE_USER=subworker sudo -E bash install.sh</div>
+              <p><b>B) Læg tjeneste-brugeren i medie-gruppen</b> &mdash; hvis medierne ejes af fx gruppen <code>media</code>:</p>
+              <div class="sgCode">sudo usermod -aG media subworker
+sudo systemctl restart subtitle-worker</div>
+              <p><u>Undgå en konto uden adgang.</u> Ved netværks-mounts (SMB/NFS/CIFS) er det <b>serverens</b> bruger-mapping der bestemmer &mdash; det er ikke nok at den lokale Linux-bruger ser filerne, den mountede identitet skal have skriveret på storage-serveren.</p>
+              <p class="sgHelpNote">Undtagelse: eksterne undertekster som workeren ikke må overskrive (fx fra OpenSubtitles-pluginet) kan den selv overtage ejerskabet af ved at slette og genskabe filen &mdash; men det kræver stadig skriveret til <u>mappen</u>. Uden mappe-adgang virker intet.</p>
+            </div>
+          </div>
+
+          <div class="sgHelpStep">
+            <div class="sgHelpNum">3</div>
+            <div class="sgHelpStepBody">
+              <h4>Stier (kun hvis de er forskellige)</h4>
+              <p>Mounter workeren medierne på <b>samme sti</b> som Jellyfin ser dem, skal du intet gøre. Er stierne forskellige, sæt <b>Path mapping</b> på Workers-fanen (Jellyfin-prefix &rarr; worker-prefix).</p>
+            </div>
+          </div>
+
+          <div class="sgHelpStep">
+            <div class="sgHelpNum">4</div>
+            <div class="sgHelpStepBody">
+              <h4>Automatisk opdatering (anbefales)</h4>
+              <p>Kør én gang pr. worker, så de selv henter fremtidige opdateringer dagligt:</p>
+              <div class="sgCode">curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/enable-autoupdate.sh | sudo bash</div>
+            </div>
+          </div>
+
+          <div class="sgHelpStep">
+            <div class="sgHelpNum">5</div>
+            <div class="sgHelpStepBody">
+              <h4>Roller &amp; planlagte opgaver</h4>
+              <p>Rollerne (Sync / Transskription / Oversættelse) på hver worker afgør hvilke jobs den må tage &mdash; giv fx kun GPU-maskinen transskriptions-rollen. Under <b>Dashboard &rarr; Scheduled Tasks</b> ligger de natlige opgaver, som du kan tidsindstille eller slå fra.</p>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

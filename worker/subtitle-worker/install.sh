@@ -64,11 +64,22 @@ python3 -m venv "$INSTALL_DIR/venv"
 
 echo "== Whisper transcription support =="
 "$INSTALL_DIR/venv/bin/pip" install faster-whisper
-WHISPER_NOTE="CPU (model: small)"
 TRANSLATE_NOTE="not installed (CPU machine)"
-WHISPER_MODEL=small
 WHISPER_DEV=cpu
 WHISPER_CT=int8
+# CPU model auto-selection (speed-aware). RAM is rarely the constraint -
+# large-v3 at int8 is only ~2-4GB - so CPU cores are the real signal for how
+# fast a model chews through audio. We CAP the CPU auto-pick at 'medium':
+# large-v3 on CPU means multi-hour movies. It stays selectable per-worker from
+# the plugin's Whisper-settings panel, it's just never chosen automatically.
+CPU_CORES=$(nproc 2>/dev/null || echo 1)
+RAM_GB=$(awk '/MemTotal/{printf "%d", $2/1048576}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${CPU_CORES:-1}" -ge 4 ] && [ "${RAM_GB:-0}" -ge 6 ]; then
+  WHISPER_MODEL=medium
+else
+  WHISPER_MODEL=small
+fi
+WHISPER_NOTE="CPU (model: $WHISPER_MODEL; auto: ${CPU_CORES} kerner, ${RAM_GB}GB RAM)"
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   echo "NVIDIA GPU detected - installing CUDA runtime libraries"
   "$INSTALL_DIR/venv/bin/pip" install nvidia-cublas-cu12 nvidia-cudnn-cu12
@@ -175,6 +186,13 @@ fi
 if [ -n "$GPU_INDEX" ]; then
   # Pin this instance to one GPU (multi-GPU boxes run one instance per card).
   echo "CUDA_VISIBLE_DEVICES=$GPU_INDEX" >> "$INSTALL_DIR/env"
+fi
+if [ "$WHISPER_DEV" = "cpu" ] && [ "$WHISPER_MODEL" != "small" ]; then
+  # Pin the auto-selected CPU model - the runtime otherwise defaults to 'small'
+  # on CPU, so without this line the pre-downloaded 'medium' would sit unused.
+  # Overridable later via the plugin's Whisper-settings command; survives daily
+  # auto-updates (only a full reinstall regenerates this env file).
+  echo "SUBWORKER_WHISPER_MODEL=$WHISPER_MODEL" >> "$INSTALL_DIR/env"
 fi
 chmod 600 "$INSTALL_DIR/env"
 

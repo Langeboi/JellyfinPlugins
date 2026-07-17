@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.0.0",
+        "changelog": "Indbygget opsætningsguide, CPU-transskription igen, og en Whisper-indstillings-UI. Et nyt '?' i toppen af plugin-siden åbner en fuld trin-for-trin guide til at sætte workers op - med et fremhævet afsnit om at worker-kontoen SKAL have skriverettigheder til medierne (ellers fejler alt med 'permission denied'), inkl. SERVICE_USER og gruppe-fix. CPU-workers kan nu transskribere igen: routingen er ikke længere CUDA-only, men styres af transskriptions-rollen - Workers-listen advarer om at CPU giver lavere kvalitet og anbefaler GPU. Ny sektion under Transskription: Whisper-indstillinger (model, beam size, VAD + tærskel/padding) med en forklaring til hver, som genererer en færdig kopier-og-indsæt-kommando du kører på den ønskede worker (indstillingerne sidder pr. worker, så de gemmes ikke i pluginet). Desuden en ny 'Aktivér dansk oversættelse'-kontakt, så hele oversættelsesfunktionen kan slås fra. Nye CPU-workers vælger nu selv Whisper-model ud fra kerner/RAM ved installation (small, eller medium på ≥4 kerner og ≥6 GB RAM; large-v3 er GPU-only i auto-valget, men kan stadig vælges manuelt). Selve pluginet kræver ingen worker-opdatering; auto-modelvalget gælder ved (gen)installation af en worker.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.0.0/subtitleguard_1.9.0.0.zip",
+        "checksum": "01be544d706a125f86e51165834aea1a",
+        "timestamp": "2026-07-17T14:00:00Z"
+      },
+      {
         "version": "1.8.0.0",
         "changelog": "Fejl-triage, historik-forbedringer, kvalitetspas, live fremdrift, auto-oversættelse og multi-GPU. Status-fanen får et rødt triage-kort der grupperer fejl efter årsag (skriverettigheder, manglende mount, model-cache osv.) med konkrete løsningsforslag og en 'Prøv fejlede igen nu'-knap der sætter alle tre opgaver i kø. Transskriptions-historikken viser nu seneste status PR. EMNE (gamle fejl forsvinder når et nyt forsøg lykkes) og fejlede rækker får en 'Prøv igen'-knap. Whisper-output renses for hallucinationer (thanks-for-watching/subtitles-by-boilerplate og gentagelses-loops). Emne-sidens 'Generér undertekster'-knap viser nu live fremdrift ('Transskriberer... 42%' -> 'Færdig'). Ny indstilling: automatisk en->da-oversættelse i kø straks efter en vellykket engelsk transskription (til som standard). Installeren understøtter nu flere instanser pr. maskine (INSTALL_DIR/SERVICE_NAME/WORKER_PORT/GPU_INDEX), så fx en 3080 + 2060 kører som to uafhængige workers. Worker-delen ruller selv ud via auto-opdateringen.",
         "targetAbi": "10.11.0.0",
