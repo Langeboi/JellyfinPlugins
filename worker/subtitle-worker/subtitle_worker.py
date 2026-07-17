@@ -14,6 +14,7 @@ Auth: every request must carry the X-Api-Key header matching the
 SUBWORKER_API_KEY environment variable.
 """
 
+import errno
 import os
 import re
 import shutil
@@ -705,6 +706,29 @@ def record(sub_path: str, mtime: float, offset, status: str):
 OFFSET_RE = re.compile(r"offset seconds:\s*(-?[\d.]+)", re.IGNORECASE)
 
 
+def place_subtitle(out_path: str, sub: str):
+    """Move the corrected subtitle into place. Normally a plain overwrite,
+    but many external subs (e.g. Jellyfin's OpenSubtitles plugin downloads)
+    are owned by a DIFFERENT identity than the worker's SMB session, so the
+    worker can't overwrite them (Permission denied) even though it can create
+    and delete files in the folder (that's how it writes the .bak). When the
+    overwrite is refused, delete the un-owned file and drop our copy in its
+    place - it now belongs to the worker, so this file syncs cleanly forever
+    after. The corrected copy already carries the original's (human) content,
+    time-aligned by ffsubsync, so nothing is lost. Only the .bak-backed 'fixed'
+    path calls this, so a failure here still leaves the original + its .bak."""
+    try:
+        shutil.move(out_path, sub)
+        return
+    except (PermissionError, OSError) as exc:
+        if not isinstance(exc, PermissionError) and getattr(exc, "errno", None) not in (errno.EACCES, errno.EPERM):
+            raise
+    # Re-own: remove the externally-owned file (a directory-level operation,
+    # which the worker is allowed), then write our synced copy as a new file.
+    os.remove(sub)  # if this also fails (e.g. read-only flag) it propagates
+    shutil.move(out_path, sub)
+
+
 def process_job(job: dict):
     media = job["media_path"]
     sub = job["subtitle_path"]
@@ -761,7 +785,7 @@ def process_job(job: dict):
         backup = sub + ".bak"
         if not os.path.exists(backup):
             shutil.copy2(sub, backup)
-        shutil.move(out_path, sub)
+        place_subtitle(out_path, sub)  # overwrite, or re-own if refused
         out_path = None
         # Record against the NEW mtime so the corrected file itself counts
         # as processed.
