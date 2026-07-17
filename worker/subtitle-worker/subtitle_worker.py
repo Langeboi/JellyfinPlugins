@@ -113,8 +113,10 @@ WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
 
 # Max characters of the hotword prompt handed to Whisper. Kept well under
 # half the 448-token decoder context so hotwords + previous-text conditioning
-# can't overflow it (which crashes transcription). See use site for detail.
-HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "350"))
+# don't overflow it (which crashes transcription). This is a soft measure -
+# the real guarantee is the no-hotwords retry in process_transcribe_job, so a
+# list that still overflows never stops a subtitle being produced.
+HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "250"))
 
 
 def _whisper_vad_parameters():
@@ -835,42 +837,38 @@ def process_transcribe_job(job: dict):
         # in that language (it can translate to English but never to Danish -
         # translation is a future, separate step). word_timestamps=True gives
         # per-word timing so write_srt can tighten each cue to real speech.
-        kwargs = {
-            "language": job.get("language") or None,
-            "word_timestamps": True,
-            # Wider beam = fewer missed words, punctuation-safe. VAD tuning is
-            # left at faster-whisper's proven default unless opted in via env
-            # (see WHISPER_* above) - overriding it stripped all punctuation.
-            "beam_size": WHISPER_BEAM,
-            "vad_filter": WHISPER_VAD,
-            "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
-        }
         # Per-item hotwords from the plugin (titles, character/place names
         # mined from Jellyfin metadata) bias the decoder toward the right
-        # spellings. faster-whisper's `hotwords` prefixes them into the
-        # decoding window without replacing previous-text conditioning; on an
-        # older faster-whisper without the parameter, fall back to a short
-        # initial_prompt (weaker: only conditions the first window).
-        #
-        # HARD length clamp: Whisper's decoder context is 448 tokens; faster-
-        # whisper lets hotwords take up to half AND previous-text conditioning
-        # takes the other half, so a long hotword list + accumulated previous
-        # text overflows the window and CTranslate2 raises "maximum decoding
-        # length must be > 0" (transcription fails on every file). ~350 chars
-        # (~90-120 tokens) leaves ample decode budget and still fits a rich
-        # name list. Trimmed on a comma so a name is never cut in half.
+        # spellings. faster-whisper's `hotwords` prefixes them into the decode
+        # window; an older build without the parameter falls back to a short
+        # initial_prompt (weaker: only conditions the first window). Clamped
+        # for length, but the retry below is the real guarantee.
         hotwords = (job.get("hotwords") or "").strip()
         if len(hotwords) > HOTWORDS_MAX_CHARS:
             hotwords = hotwords[:HOTWORDS_MAX_CHARS].rsplit(",", 1)[0].strip()
-        if hotwords:
-            import inspect
-            if "hotwords" in inspect.signature(model.transcribe).parameters:
-                kwargs["hotwords"] = hotwords
-            else:
-                kwargs["initial_prompt"] = (
-                    "This program may include the following names and terms: " + hotwords + "."
-                )
-        segments, info = model.transcribe(media, **kwargs)
+
+        def transcribe(use_hotwords):
+            # language=None auto-detects the SPOKEN language. word_timestamps
+            # gives per-word timing so write_srt can hug real speech. Wider
+            # beam = fewer missed words; VAD left at the proven default.
+            kw = {
+                "language": job.get("language") or None,
+                "word_timestamps": True,
+                "beam_size": WHISPER_BEAM,
+                "vad_filter": WHISPER_VAD,
+                "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
+            }
+            if use_hotwords and hotwords:
+                import inspect
+                if "hotwords" in inspect.signature(model.transcribe).parameters:
+                    kw["hotwords"] = hotwords
+                else:
+                    kw["initial_prompt"] = (
+                        "This program may include the following names and terms: " + hotwords + "."
+                    )
+            return model.transcribe(media, **kw)
+
+        segments, info = transcribe(use_hotwords=bool(hotwords))
 
         base = os.path.splitext(media)[0]
         target = f"{base}.{info.language}.srt"
@@ -901,7 +899,19 @@ def process_transcribe_job(job: dict):
                 with state_lock:
                     state["ml_progress"] = {"file": media_name, "pct": pct}
 
-        count = write_srt(segments, out_path, progress=_progress)
+        # The "maximum decoding length must be > 0" error is raised while the
+        # generator is CONSUMED (here, not at transcribe()), when hotwords +
+        # previous-text conditioning overflow Whisper's 448-token context. If
+        # that happens, transcribe ONCE MORE without hotwords - they're a
+        # best-effort spelling bias and must never stop a subtitle being made.
+        try:
+            count = write_srt(segments, out_path, progress=_progress)
+        except (ValueError, RuntimeError) as exc:
+            if hotwords and "decoding length" in str(exc).lower():
+                segments, info = transcribe(use_hotwords=False)
+                count = write_srt(segments, out_path, progress=_progress)
+            else:
+                raise
         if count == 0:
             record(key, mtime, None, "no-speech")
             with state_lock:
