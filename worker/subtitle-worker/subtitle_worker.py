@@ -365,6 +365,25 @@ CUE_MAX_LINES = 2            # cap at a 2-line block (subtitle convention)
 CUE_MAX_CHARS = CUE_MAX_LINE_CHARS * CUE_MAX_LINES  # merge budget
 CUE_MERGE_MAX_GAP = 0.9      # don't merge across a pause longer than this
 
+# Whisper's classic hallucinations: boilerplate it learned from YouTube subs
+# (thanks-for-watching/credits lines, usually over music or silence) and
+# loops where the same line repeats for minutes. Both are detectable.
+HALLUCINATION_RE = re.compile(
+    r"^\s*[\[(♪♫]*\s*("
+    r"thanks?\s+for\s+watching|thank\s+you\s+for\s+watching|"
+    r"subtitles?\s+(by|made|created|provided)|subs?\s+by|captions?\s+by|"
+    r"transcri(bed|ption)\s+by|translat(ed|ion)\s+by|"
+    r"copyright|all\s+rights\s+reserved|"
+    r"www\.|https?://|"
+    r"undertekster?\s+(af|lavet)|tekstet\s+af|tak\s+fordi\s+du\s+så\s+med"
+    r")",
+    re.IGNORECASE,
+)
+# Cap on how many times the same text may repeat CONSECUTIVELY before the
+# repeats are treated as a decoder loop and dropped (2 legit repeats happen
+# in real dialogue; 3+ identical cues in a row almost never do).
+HALLUCINATION_MAX_REPEATS = 2
+
 
 def _tight_bounds(segment):
     """(start, end) hugging real speech via word timestamps, or the raw
@@ -445,6 +464,23 @@ def write_srt(segments, path: str, progress=None) -> int:
                 continue
         merged.append(list(cue))
     cues = merged
+
+    # Hallucination cleanup: drop boilerplate junk cues, and collapse decoder
+    # loops (the same text repeated 3+ times in a row) down to the allowed
+    # repeats. Runs after merging so loop detection sees final cue texts.
+    cleaned = []
+    repeat_run = 0
+    for cue in cues:
+        if HALLUCINATION_RE.search(cue[2]):
+            continue
+        if cleaned and cue[2].strip().lower() == cleaned[-1][2].strip().lower():
+            repeat_run += 1
+            if repeat_run >= HALLUCINATION_MAX_REPEATS:
+                continue
+        else:
+            repeat_run = 0
+        cleaned.append(cue)
+    cues = cleaned
 
     # Readable minimum duration: longer for longer lines, floored so short
     # lines don't blink out, capped so nothing lingers too long.
@@ -845,6 +881,13 @@ def process_transcribe_job(job: dict):
             record(target, os.path.getmtime(target), 0.0, "in-sync")
         except OSError:
             pass
+        # Auto-chain: a fresh ENGLISH transcription can go straight to the
+        # da-translation queue instead of waiting for the nightly translate
+        # task - the item has a Danish sub by morning in one flow. Only when
+        # this worker can translate (NLLB) - which it can, since transcription
+        # is CUDA-only and the NLLB model lives on the same GPU box.
+        if job.get("chain_translate") and info.language == "en" and TRANSLATE_CAPABILITY:
+            ml_queue.put({"type": "translate", "media_path": media, "subtitle_path": target})
         with state_lock:
             state["done"] += 1
     except Exception as exc:  # noqa: BLE001 - keep the worker alive
@@ -932,6 +975,7 @@ class Job(BaseModel):
     stream_index: int | None = None  # translate only: embedded source stream
     force: bool = False  # transcribe: re-run even if already processed / target exists
     hotwords: str | None = None  # transcribe: comma-separated names/terms to bias Whisper
+    chain_translate: bool = False  # transcribe: auto-queue en->da translation on success
 
 
 class Batch(BaseModel):
@@ -1164,6 +1208,30 @@ def _stat_category(status: str) -> str:
     return "failed"
 
 
+# Sub-classifies a failed status into an operator-actionable kind - the
+# plugin renders these as human hints ("check ACL inheritance" etc.).
+def _failure_kind(status: str) -> str | None:
+    s = str(status)
+    if _stat_category(s) != "failed":
+        return None
+    low = s.lower()
+    if "permission denied" in low or "errno 13" in low:
+        return "permission"
+    if s == "missing-file":
+        return "missing-file"
+    if s == "timeout":
+        return "timeout"
+    if s == "ffsubsync-failed":
+        return "sync-failed"
+    if s == "no-speech":
+        return "no-speech"
+    if s == "no-whisper":
+        return "no-whisper"
+    if "huggingface" in low or "429" in low or "hf-cache" in low or "snapshot" in low:
+        return "model-download"
+    return "other"
+
+
 @app.get("/stats")
 def stats(days: int = 14, x_api_key: str = Header(default="")):
     """Daily outcome counts for the last N days, for the plugin's graphs.
@@ -1182,17 +1250,21 @@ def stats(days: int = 14, x_api_key: str = Header(default="")):
         conn.close()
 
     daily: dict = {}
+    failure_kinds: dict = {}
     for d, status_val, n in rows:
         bucket = daily.setdefault(d, {})
         cat = _stat_category(status_val)
         bucket[cat] = bucket.get(cat, 0) + n
+        kind = _failure_kind(status_val)
+        if kind:
+            failure_kinds[kind] = failure_kinds.get(kind, 0) + n
 
     totals: dict = {}
     for status_val, n in totals_rows:
         cat = _stat_category(status_val)
         totals[cat] = totals.get(cat, 0) + n
 
-    return {"days": days, "daily": daily, "totals": totals}
+    return {"days": days, "daily": daily, "totals": totals, "failure_kinds": failure_kinds}
 
 
 @app.get("/history")
@@ -1203,9 +1275,12 @@ def history(kind: str = "transcribe", limit: int = 20, x_api_key: str = Header(d
     prefix = kind + ":"
     conn = db()
     try:
+        # Latest entry PER ITEM (SQLite's MAX() bare-column rule pulls the
+        # other columns from the max row), so an old failure doesn't linger
+        # in the list once a newer attempt succeeded.
         rows = conn.execute(
-            "SELECT sub_path, status, processed_at FROM processed "
-            "WHERE sub_path LIKE ? ORDER BY processed_at DESC LIMIT ?",
+            "SELECT sub_path, status, MAX(processed_at) FROM processed "
+            "WHERE sub_path LIKE ? GROUP BY sub_path ORDER BY 3 DESC LIMIT ?",
             (prefix + "%", max(1, min(100, limit))),
         ).fetchall()
     finally:

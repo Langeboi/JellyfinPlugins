@@ -6,7 +6,9 @@
 # simply tries again on the next timer run.
 set -u
 
-INSTALL_DIR=/opt/subtitle-worker
+# Multi-instance: the systemd unit passes these for non-default instances.
+INSTALL_DIR=${SUBWORKER_INSTALL_DIR:-/opt/subtitle-worker}
+SERVICE_NAME=${SUBWORKER_SERVICE:-subtitle-worker}
 ENV_FILE="$INSTALL_DIR/env"
 RAW_URL="https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/subtitle_worker.py"
 
@@ -57,5 +59,5 @@ cp "$TMP" "$INSTALL_DIR/subtitle_worker.py"
 if [ -n "$OWNER" ]; then
   chown "$OWNER" "$INSTALL_DIR/subtitle_worker.py" 2>/dev/null || true
 fi
-systemctl restart subtitle-worker
-echo "worker updated and restarted"
+systemctl restart "$SERVICE_NAME"
+echo "worker updated and restarted ($SERVICE_NAME)"

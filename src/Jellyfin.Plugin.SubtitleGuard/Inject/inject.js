@@ -639,12 +639,47 @@
           label.textContent = r.data.queued > 0
             ? 'I kø ✓'
             : (r.data.message || 'Intet at gøre');
+          if (r.data.queued > 0 && opts.endpoint.indexOf('transcribe') !== -1) {
+            pollTranscribeProgress(btn, label);
+          }
         })
         .catch(function () {
           label.textContent = 'Fejl - prøv igen';
           btn.disabled = false;
         });
     });
+  }
+
+  // After queueing a transcription from the item page, poll the pool's live
+  // ml_progress and show it right on the button ("Transskriberer... 42%").
+  // Stops when the job finishes (progress seen, then gone), the user leaves
+  // the page (button detached), or after an hour as a hard cap.
+  function pollTranscribeProgress(btn, label) {
+    var apiClient = window.ApiClient;
+    var sawActive = false;
+    var started = Date.now();
+    var timer = setInterval(function () {
+      if (!btn.isConnected || Date.now() - started > 60 * 60 * 1000) {
+        clearInterval(timer);
+        return;
+      }
+      fetch(apiClient.getUrl('SubtitleGuard/progress/' + btn.getAttribute('data-item-id')), {
+        headers: { 'X-Emby-Token': apiClient.accessToken() }
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.active) {
+            sawActive = true;
+            label.textContent = 'Transskriberer... ' + (typeof d.pct === 'number' ? d.pct + '%' : '');
+          } else if (sawActive) {
+            label.textContent = 'Færdig ✓';
+            clearInterval(timer);
+          }
+          // Not active and never seen: still queued behind other ML jobs -
+          // keep showing "I kø ✓" and keep polling.
+        })
+        .catch(function () { /* transient - next tick */ });
+    }, 5000);
   }
 
   // ---- Config page wiring (no inline scripts in plugin config pages on
@@ -1055,6 +1090,41 @@
       { key: 'failed', label: 'Fejlet', color: '#f85149' }
     ];
 
+    // Operator-actionable explanations for each failure kind the workers
+    // classify - every one of these has actually happened on this setup.
+    var FAILURE_HINTS = {
+      'permission': { label: 'Skriverettigheder', hint: 'Workeren må ikke skrive til mediefilerne. Tjek TrueNAS ACL-arven på Movies/Shows-datasettene - nye filer skal arve skriverettigheden, ellers kommer fejlen igen for nyt indhold.' },
+      'missing-file': { label: 'Fil ikke fundet', hint: 'Filen findes ikke på workerens mount. Tjek at stien er mountet på alle workers (fx mangler /Media/Standup på worker-maskinerne).' },
+      'timeout': { label: 'Timeout', hint: 'Jobbet tog for lang tid - typisk en meget stor fil eller langsomt netværk til medie-mountet.' },
+      'sync-failed': { label: 'Sync-analyse fejlede', hint: 'ffsubsync kunne ikke matche underteksten mod lydsporet - ofte et støjfyldt lydspor eller en undertekst der hører til en anden version af filmen.' },
+      'no-speech': { label: 'Ingen tale', hint: 'Whisper fandt ingen tale i filen (musik/dokumentar uden dialog?).' },
+      'no-whisper': { label: 'Forkert worker', hint: 'Et transskriptionsjob ramte en worker uden Whisper - tjek rollerne på Workers-fanen.' },
+      'model-download': { label: 'Model kunne ikke indlæses', hint: 'Whisper/NLLB-modellen kunne ikke indlæses på workeren - tjek HF-cachen og offline-flagene i /opt/subtitle-worker/env.' },
+      'other': { label: 'Andet', hint: 'Ukendte fejl - se journalen på workeren: journalctl -u subtitle-worker.' }
+    };
+
+    function renderFailureTriage(kinds) {
+      var card = page.querySelector('#SgFailureCard');
+      var box = page.querySelector('#SgFailureTriage');
+      if (!card || !box) { return; }
+      var keys = Object.keys(kinds || {}).filter(function (k) { return kinds[k] > 0; });
+      if (!keys.length) {
+        card.style.display = 'none';
+        return;
+      }
+      keys.sort(function (a, b) { return kinds[b] - kinds[a]; });
+      card.style.display = '';
+      box.innerHTML = keys.map(function (k) {
+        var def = FAILURE_HINTS[k] || FAILURE_HINTS.other;
+        return '<div style="display:flex;gap:.8em;align-items:baseline;padding:.45em 0;border-bottom:1px solid rgba(255,255,255,.07);">' +
+          '<span style="flex:0 0 auto;background:rgba(248,81,73,.15);border:1px solid rgba(248,81,73,.4);color:#ffb4ae;' +
+          'border-radius:8px;padding:.1em .6em;font-size:.8em;font-weight:700;">' + kinds[k] + '</span>' +
+          '<span style="min-width:0;"><b style="font-size:.9em;">' + def.label + '</b>' +
+          '<span style="display:block;font-size:.8em;opacity:.65;line-height:1.4;">' + def.hint + '</span></span>' +
+        '</div>';
+      }).join('');
+    }
+
     function renderStats() {
       var tiles = page.querySelector('#SgStatsTiles');
       var chart = page.querySelector('#SgStatsChart');
@@ -1113,6 +1183,8 @@
             '<div class="sgLegend">' + STAT_CATS.map(function (c) {
               return '<span><span class="sgLegendDot" style="background:' + c.color + ';"></span>' + c.label + '</span>';
             }).join('') + '</div>';
+
+          renderFailureTriage(data.failure_kinds);
         })
         .catch(function () {
           tiles.innerHTML = '<div style="opacity:.6;">Kunne ikke hente statistik (er workerne opdateret og online?).</div>';
@@ -1138,14 +1210,18 @@
             var name = String(it.media_path || '').split(/[\\/]/).pop();
             var lang = '';
             var s = String(it.status || '');
-            var ok = s.indexOf('transcribed:') === 0;
-            if (ok) { lang = s.slice('transcribed:'.length); }
+            var ok = s.indexOf('transcribed:') === 0 || s === 'already-has-sub';
+            if (s.indexOf('transcribed:') === 0) { lang = s.slice('transcribed:'.length); }
             var when = '';
             try {
               var dt = new Date(it.processed_at);
               when = dt.toLocaleDateString('da-DK', { day: 'numeric', month: 'short' }) + ' ' +
                 dt.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
             } catch (e) { /* leave empty */ }
+            var retryBtn = ok ? '' :
+              '<button type="button" is="emby-button" class="raised emby-button" data-sg-retrypath="' +
+              String(it.media_path || '').replace(/"/g, '&quot;').replace(/</g, '&lt;') +
+              '" style="min-width:auto;padding:.25em .8em;font-size:.78em;flex:0 0 auto;">Prøv igen</button>';
             return '<div class="sgHistRow">' +
               '<span class="material-icons ' + (ok ? 'check_circle' : 'error') + '" style="color:' + (ok ? '#3fb950' : '#f85149') + ';"></span>' +
               '<span class="sgHistMain">' +
@@ -1154,6 +1230,7 @@
                   (ok ? '' : ' · ' + s.replace(/</g, '&lt;')) + '</span>' +
               '</span>' +
               (lang ? '<span class="sgHistLang">' + lang.replace(/</g, '&lt;') + '</span>' : '') +
+              retryBtn +
             '</div>';
           }).join('');
         })
@@ -1201,6 +1278,8 @@
       if (langInput) {
         langInput.value = cfg.TranscribeLanguages || 'da,en';
       }
+      var chainCb = page.querySelector('#SgChainTranslate');
+      if (chainCb) { chainCb.checked = cfg.ChainTranslateAfterTranscribe !== false; }
       Object.keys(hotwordControls).forEach(function (id) {
         var el = page.querySelector('#' + id);
         if (!el) { return; }
@@ -1324,6 +1403,57 @@
       });
     }
 
+    // "Prøv fejlede igen nu": queues the three scheduled tasks - failures are
+    // never marked done, so a re-run retries all of them.
+    var retryFailedBtn = page.querySelector('#SgRetryFailedBtn');
+    if (retryFailedBtn) {
+      retryFailedBtn.addEventListener('click', function () {
+        retryFailedBtn.disabled = true;
+        fetch(apiClient.getUrl('SubtitleGuard/retry-failed'), {
+          method: 'POST',
+          headers: { 'X-Emby-Token': apiClient.accessToken() }
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            retryFailedBtn.querySelector('span').textContent = d.error ? d.error : 'Opgaver sat i kø ✓';
+          })
+          .catch(function () {
+            retryFailedBtn.querySelector('span').textContent = 'Fejl - prøv igen';
+            retryFailedBtn.disabled = false;
+          });
+      });
+    }
+
+    function setBtnLabel(btn, text) {
+      var span = btn.querySelector('span');
+      if (span) { span.textContent = text; } else { btn.textContent = text; }
+    }
+
+    // Per-row retry on failed history entries.
+    var transHistoryBox = page.querySelector('#SgTransHistory');
+    if (transHistoryBox) {
+      transHistoryBox.addEventListener('click', function (e) {
+        var btn = e.target.closest ? e.target.closest('[data-sg-retrypath]') : null;
+        if (!btn) { return; }
+        btn.disabled = true;
+        setBtnLabel(btn, 'Sender...');
+        fetch(apiClient.getUrl('SubtitleGuard/transcribe-path'), {
+          method: 'POST',
+          headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ MediaPath: btn.getAttribute('data-sg-retrypath') })
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            setBtnLabel(btn, d.error ? (d.error.length > 30 ? 'Fejl' : d.error) : 'I kø ✓');
+            if (d.error) { btn.disabled = false; }
+          })
+          .catch(function () {
+            setBtnLabel(btn, 'Fejl');
+            btn.disabled = false;
+          });
+      });
+    }
+
     page.querySelector('#SubtitleGuardSaveButton').addEventListener('click', function () {
       window.Dashboard.showLoadingMsg();
       apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
@@ -1352,6 +1482,8 @@
         if (langInput) {
           cfg.TranscribeLanguages = langInput.value.trim() || 'da,en';
         }
+        var chainCbSave = page.querySelector('#SgChainTranslate');
+        if (chainCbSave) { cfg.ChainTranslateAfterTranscribe = chainCbSave.checked; }
         Object.keys(hotwordControls).forEach(function (id) {
           var el = page.querySelector('#' + id);
           if (!el) { return; }

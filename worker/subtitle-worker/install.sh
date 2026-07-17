@@ -3,7 +3,16 @@
 # Run as root (or with sudo) on the container that can see the media files.
 set -euo pipefail
 
-INSTALL_DIR=/opt/subtitle-worker
+# Multi-instance support: override these to run a SECOND worker on the same
+# machine - e.g. one per GPU:
+#   INSTALL_DIR=/opt/subtitle-worker2 SERVICE_NAME=subtitle-worker2 \
+#   WORKER_PORT=8100 GPU_INDEX=1 sudo -E bash install.sh
+# GPU_INDEX pins the instance to one GPU via CUDA_VISIBLE_DEVICES, so a 3080
+# and a 2060 in the same box become two independent pool workers.
+INSTALL_DIR=${INSTALL_DIR:-/opt/subtitle-worker}
+SERVICE_NAME=${SERVICE_NAME:-subtitle-worker}
+WORKER_PORT=${WORKER_PORT:-8099}
+GPU_INDEX=${GPU_INDEX:-}
 SERVICE_USER=${SERVICE_USER:-subworker}
 WORKER_PY_URL=${WORKER_PY_URL:-https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/subtitle_worker.py}
 
@@ -146,7 +155,7 @@ fi
 
 cat > "$INSTALL_DIR/env" <<EOF
 SUBWORKER_API_KEY=$API_KEY
-SUBWORKER_PORT=8099
+SUBWORKER_PORT=$WORKER_PORT
 SUBWORKER_MIN_OFFSET=0.4
 SUBWORKER_DB=$INSTALL_DIR/processed.db
 HF_HOME=$HF_CACHE_DIR
@@ -163,14 +172,18 @@ EOF
 if [ -n "${CUDA_LIBS:-}" ]; then
   echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"
 fi
+if [ -n "$GPU_INDEX" ]; then
+  # Pin this instance to one GPU (multi-GPU boxes run one instance per card).
+  echo "CUDA_VISIBLE_DEVICES=$GPU_INDEX" >> "$INSTALL_DIR/env"
+fi
 chmod 600 "$INSTALL_DIR/env"
 
 chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
 
 echo "== systemd service =="
-cat > /etc/systemd/system/subtitle-worker.service <<EOF
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
-Description=Subtitle sync worker (Subtitle Guard)
+Description=Subtitle sync worker (Subtitle Guard, $SERVICE_NAME)
 After=network.target
 
 [Service]
@@ -184,12 +197,13 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now subtitle-worker
+systemctl enable --now "$SERVICE_NAME"
 
 # Self-updating worker: a daily timer pulls the latest worker script from the
 # repo (validated before swap, deferred while jobs run). Opt out per box with
 # SUBWORKER_AUTOUPDATE=0 in the env file.
 echo "== Enabling auto-update timer =="
+export INSTALL_DIR SERVICE_NAME
 if [ -f "$(dirname "$0")/enable-autoupdate.sh" ]; then
   bash "$(dirname "$0")/enable-autoupdate.sh" || echo "WARNING: auto-update setup failed - update manually"
 else
@@ -202,7 +216,7 @@ echo ""
 echo "=================================================================="
 echo "Done. The worker is running and enrolled at:"
 echo ""
-echo "  Worker URL:      http://${IP_ADDR:-<this-machines-ip>}:8099"
+echo "  Worker URL:      http://${IP_ADDR:-<this-machines-ip>}:$WORKER_PORT"
 echo "  Enrollment code: $API_KEY"
 echo "  Transcription:   $WHISPER_NOTE"
 echo "  Translation:     $TRANSLATE_NOTE"
@@ -213,7 +227,7 @@ echo ""
 echo "NOTE: the service user '$SERVICE_USER' must have WRITE access to"
 echo "the subtitle files in your media library. If your media is mounted"
 echo "with specific ownership, either add $SERVICE_USER to the right"
-echo "group or edit /etc/systemd/system/subtitle-worker.service to run"
+echo "group or edit /etc/systemd/system/${SERVICE_NAME}.service to run"
 echo "as a user that can write there, then:"
-echo "  systemctl daemon-reload && systemctl restart subtitle-worker"
+echo "  systemctl daemon-reload && systemctl restart $SERVICE_NAME"
 echo "=================================================================="

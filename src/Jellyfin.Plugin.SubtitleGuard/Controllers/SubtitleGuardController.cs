@@ -4,8 +4,10 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.SubtitleGuard.ScheduledTasks;
 using Jellyfin.Plugin.SubtitleGuard.Services;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -17,11 +19,16 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
     public class SubtitleGuardController : ControllerBase
     {
         private readonly ILibraryManager _libraryManager;
+        private readonly ITaskManager _taskManager;
         private readonly ILogger<SubtitleGuardController> _logger;
 
-        public SubtitleGuardController(ILibraryManager libraryManager, ILogger<SubtitleGuardController> logger)
+        public SubtitleGuardController(
+            ILibraryManager libraryManager,
+            ITaskManager taskManager,
+            ILogger<SubtitleGuardController> logger)
         {
             _libraryManager = libraryManager;
+            _taskManager = taskManager;
             _logger = logger;
         }
 
@@ -132,6 +139,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             };
 
             var cfg = Plugin.Instance!.Configuration;
+            job["chain_translate"] = cfg.ChainTranslateAfterTranscribe;
             var hotwords = HotwordBuilder.BuildForItem(item, _libraryManager, cfg);
             if (hotwords.Length > 0)
             {
@@ -262,6 +270,126 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
                 ContentType = "application/json",
                 StatusCode = 200
             };
+        }
+
+        public class TranscribePathBody
+        {
+            public string MediaPath { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// One-click retry of everything that previously failed: failures are
+        /// never recorded as done, so simply queueing the three scheduled
+        /// tasks re-collects and re-attempts them all.
+        /// </summary>
+        [Authorize]
+        [HttpPost("retry-failed")]
+        public ActionResult RetryFailed()
+        {
+            if (!SyncWorker.IsConfigured)
+            {
+                return Json(new JObject { ["error"] = "Ingen workers konfigureret." }, 503);
+            }
+
+            _taskManager.QueueScheduledTask<SyncSubtitlesTask>();
+            _taskManager.QueueScheduledTask<TranscribeSubtitlesTask>();
+            _taskManager.QueueScheduledTask<TranslateSubtitlesTask>();
+            return Json(new JObject { ["queued"] = "sync,transcribe,translate" });
+        }
+
+        /// <summary>
+        /// Re-transcribe by WORKER media path (as recorded in the ledgers) -
+        /// powers the retry button on failed history rows, where only the
+        /// path is known. Resolved back to a library item when possible so
+        /// hotwords apply; falls back to a raw forced job otherwise.
+        /// </summary>
+        [Authorize]
+        [HttpPost("transcribe-path")]
+        public async Task<ActionResult> TranscribeByPath([FromBody] TranscribePathBody body, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(body?.MediaPath))
+            {
+                return BadRequest();
+            }
+
+            if (!SyncWorker.IsConfigured)
+            {
+                return Json(new JObject { ["error"] = "Ingen workers konfigureret." }, 503);
+            }
+
+            var job = new JObject
+            {
+                ["type"] = "transcribe",
+                ["media_path"] = body!.MediaPath,
+                ["force"] = true
+            };
+
+            var cfg = Plugin.Instance!.Configuration;
+            job["chain_translate"] = cfg.ChainTranslateAfterTranscribe;
+
+            var item = _libraryManager.FindByPath(SyncWorker.UnmapPath(body.MediaPath), false);
+            if (item != null)
+            {
+                var hotwords = HotwordBuilder.BuildForItem(item, _libraryManager, cfg);
+                if (hotwords.Length > 0)
+                {
+                    job["hotwords"] = hotwords;
+                }
+            }
+
+            try
+            {
+                await SyncWorker.DistributeAndSubmit(new[] { job }, cancellationToken, capability: "transcribe").ConfigureAwait(false);
+                return Json(new JObject { ["queued"] = 1 });
+            }
+            catch (InvalidOperationException)
+            {
+                return Json(new JObject { ["error"] = "Ingen transskriptions-workere online (tænd GPU-maskinen)." }, 502);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SubtitleGuard: transcribe-path submit failed");
+                return Json(new JObject { ["error"] = "Kunne ikke nå workerne." }, 502);
+            }
+        }
+
+        /// <summary>
+        /// Live transcription progress for one item, matched against the
+        /// pool's ml_progress by media file name - lets the detail-page
+        /// button show a percentage while Whisper runs.
+        /// </summary>
+        [Authorize]
+        [HttpGet("progress/{itemId}")]
+        public async Task<ActionResult> ItemProgress(string itemId, CancellationToken cancellationToken)
+        {
+            if (!Guid.TryParse(itemId, out var guid))
+            {
+                return BadRequest();
+            }
+
+            var item = _libraryManager.GetItemById(guid);
+            if (item == null || string.IsNullOrEmpty(item.Path))
+            {
+                return NotFound();
+            }
+
+            var fileName = Path.GetFileName(SyncWorker.MapPath(item.Path));
+            var statuses = await SyncWorker.GetStatuses(cancellationToken).ConfigureAwait(false);
+            foreach (var w in statuses.OfType<JObject>())
+            {
+                var prog = w["ml_progress"] as JObject;
+                if (prog != null && string.Equals(prog["file"]?.ToString(), fileName, StringComparison.Ordinal))
+                {
+                    return Json(new JObject
+                    {
+                        ["active"] = true,
+                        ["pct"] = prog["pct"],
+                        ["worker"] = w["name"]
+                    });
+                }
+            }
+
+            return Json(new JObject { ["active"] = false });
         }
 
         [Authorize]

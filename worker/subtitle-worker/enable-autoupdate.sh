@@ -6,7 +6,10 @@
 # Per-box opt-out: add SUBWORKER_AUTOUPDATE=0 to /opt/subtitle-worker/env.
 set -euo pipefail
 
-INSTALL_DIR=/opt/subtitle-worker
+# Multi-instance: set INSTALL_DIR/SERVICE_NAME to enroll a second instance's
+# updater (each instance gets its own -update service + timer).
+INSTALL_DIR=${INSTALL_DIR:-/opt/subtitle-worker}
+SERVICE_NAME=${SERVICE_NAME:-subtitle-worker}
 SELF_UPDATE_URL=${SELF_UPDATE_URL:-https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/self-update.sh}
 
 if [ ! -d "$INSTALL_DIR" ]; then
@@ -22,21 +25,23 @@ else
 fi
 chmod 755 "$INSTALL_DIR/self-update.sh"
 
-cat > /etc/systemd/system/subtitle-worker-update.service <<'EOF'
+cat > "/etc/systemd/system/${SERVICE_NAME}-update.service" <<EOF
 [Unit]
-Description=Subtitle worker self-update
+Description=Subtitle worker self-update ($SERVICE_NAME)
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/subtitle-worker/self-update.sh
+Environment=SUBWORKER_INSTALL_DIR=$INSTALL_DIR
+Environment=SUBWORKER_SERVICE=$SERVICE_NAME
+ExecStart=$INSTALL_DIR/self-update.sh
 EOF
 
-# RandomizedDelaySec spreads the fleet's checks out so three boxes don't hit
+# RandomizedDelaySec spreads the fleet's checks out so the boxes don't hit
 # GitHub in the same second; Persistent catches up after a powered-off day.
-cat > /etc/systemd/system/subtitle-worker-update.timer <<'EOF'
+cat > "/etc/systemd/system/${SERVICE_NAME}-update.timer" <<EOF
 [Unit]
-Description=Daily subtitle worker self-update
+Description=Daily subtitle worker self-update ($SERVICE_NAME)
 
 [Timer]
 OnCalendar=daily
@@ -48,11 +53,11 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now subtitle-worker-update.timer
+systemctl enable --now "${SERVICE_NAME}-update.timer"
 
 echo "=================================================================="
 echo "Auto-update enabled. The worker now updates itself daily."
-echo "  Check log:    journalctl -u subtitle-worker-update"
-echo "  Update now:   sudo systemctl start subtitle-worker-update"
+echo "  Check log:    journalctl -u ${SERVICE_NAME}-update"
+echo "  Update now:   sudo systemctl start ${SERVICE_NAME}-update"
 echo "  Disable box:  add SUBWORKER_AUTOUPDATE=0 to $INSTALL_DIR/env"
 echo "=================================================================="

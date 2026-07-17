@@ -120,6 +120,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public bool HotwordDebugLog { get; set; }
 
         /// <summary>
+        /// After a successful ENGLISH transcription, immediately queue the
+        /// en->da translation on the same worker instead of waiting for the
+        /// nightly translate task - one flow, Danish subtitle by morning.
+        /// </summary>
+        public bool ChainTranslateAfterTranscribe { get; set; } = true;
+
+        /// <summary>
         /// Comma-separated path prefixes (as Jellyfin sees them). When set,
         /// the scheduled tasks only touch items under these paths - e.g.
         /// "/Media/Movies,/Media/Shows" keeps Standup/Western/etc. out of

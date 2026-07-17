@@ -187,6 +187,13 @@
               <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />
               <div class="fieldDescription">Emner der allerede har en tekst-undertekst i ét af disse sprog springes over af transskriptionsopgaven.</div>
             </div>
+            <div class="checkboxContainer checkboxContainer-withDescription">
+              <label>
+                <input id="SgChainTranslate" type="checkbox" is="emby-checkbox" />
+                <span>Oversæt automatisk efter transskription</span>
+              </label>
+              <div class="fieldDescription">Når en engelsk transskription lykkes, sættes en-&gt;da-oversættelsen straks i kø på samme worker - dansk undertekst i ét flow i stedet for at vente på den natlige oversættelsesopgave.</div>
+            </div>
           </div>
 
           <div class="sgCard">
@@ -233,6 +240,14 @@
 
         <!-- ======================== STATUS ======================= -->
         <div data-sg-tab="status">
+          <div class="sgCard" id="SgFailureCard" style="display:none;border-color:rgba(248,81,73,.4);">
+            <div class="sgCardTitle"><span class="material-icons report_problem" aria-hidden="true" style="color:#f85149;"></span>Fejl der kræver opmærksomhed</div>
+            <div class="sgCardDesc">Fejl de seneste 14 dage, grupperet efter årsag. Fejlede emner blokerer aldrig - de prøves igen automatisk af de natlige opgaver, eller med det samme her.</div>
+            <div id="SgFailureTriage" style="margin-top:.6em;"></div>
+            <button is="emby-button" type="button" id="SgRetryFailedBtn" class="raised emby-button" style="margin-top:.8em;min-width:auto;padding:.4em 1.2em;">
+              <span>Prøv fejlede igen nu</span>
+            </button>
+          </div>
           <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons insights" aria-hidden="true"></span>Pool-statistik</div>
             <div id="SgStatsTiles" class="sgTiles"></div>

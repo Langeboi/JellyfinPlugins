@@ -126,6 +126,20 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                 : path;
         }
 
+        /// <summary>Inverse of <see cref="MapPath"/>: worker path -> Jellyfin path.</summary>
+        public static string UnmapPath(string path)
+        {
+            var cfg = Plugin.Instance!.Configuration;
+            if (string.IsNullOrEmpty(cfg.PathMapFrom) || string.IsNullOrEmpty(cfg.PathMapTo))
+            {
+                return path;
+            }
+
+            return path.StartsWith(cfg.PathMapTo, StringComparison.Ordinal)
+                ? cfg.PathMapFrom + path.Substring(cfg.PathMapTo.Length)
+                : path;
+        }
+
         public static List<JObject> CollectJobs(BaseItem item)
         {
             var jobs = new List<JObject>();
@@ -420,6 +434,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
 
             var daily = new JObject();
             var totals = new JObject();
+            var failureKinds = new JObject();
             foreach (var r in results)
             {
                 if (r == null)
@@ -454,9 +469,23 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         totals[c.Name] = (totals[c.Name]?.Value<int>() ?? 0) + (c.Value.Value<int>());
                     }
                 }
+
+                if (r["failure_kinds"] is JObject fk)
+                {
+                    foreach (var c in fk.Properties())
+                    {
+                        failureKinds[c.Name] = (failureKinds[c.Name]?.Value<int>() ?? 0) + (c.Value.Value<int>());
+                    }
+                }
             }
 
-            return new JObject { ["days"] = days, ["daily"] = daily, ["totals"] = totals };
+            return new JObject
+            {
+                ["days"] = days,
+                ["daily"] = daily,
+                ["totals"] = totals,
+                ["failure_kinds"] = failureKinds
+            };
         }
 
         /// <summary>
