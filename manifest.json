@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.8.0.0",
+        "changelog": "Fejl-triage, historik-forbedringer, kvalitetspas, live fremdrift, auto-oversættelse og multi-GPU. Status-fanen får et rødt triage-kort der grupperer fejl efter årsag (skriverettigheder, manglende mount, model-cache osv.) med konkrete løsningsforslag og en 'Prøv fejlede igen nu'-knap der sætter alle tre opgaver i kø. Transskriptions-historikken viser nu seneste status PR. EMNE (gamle fejl forsvinder når et nyt forsøg lykkes) og fejlede rækker får en 'Prøv igen'-knap. Whisper-output renses for hallucinationer (thanks-for-watching/subtitles-by-boilerplate og gentagelses-loops). Emne-sidens 'Generér undertekster'-knap viser nu live fremdrift ('Transskriberer... 42%' -> 'Færdig'). Ny indstilling: automatisk en->da-oversættelse i kø straks efter en vellykket engelsk transskription (til som standard). Installeren understøtter nu flere instanser pr. maskine (INSTALL_DIR/SERVICE_NAME/WORKER_PORT/GPU_INDEX), så fx en 3080 + 2060 kører som to uafhængige workers. Worker-delen ruller selv ud via auto-opdateringen.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.8.0.0/subtitleguard_1.8.0.0.zip",
+        "checksum": "cea89a690be9d1ac5c64a6c2ab8b12fc",
+        "timestamp": "2026-07-17T10:00:00Z"
+      },
+      {
         "version": "1.7.0.0",
         "changelog": "Metadata-hotwords til Whisper. Før hver transskription bygges automatisk en kort, rangeret liste af navne og særegne termer fra emnets Jellyfin-metadata - serie-/film-/afsnitstitler, karakternavne, skuespillere, tags/collections og egennavne udtrukket lokalt fra resuméer (afsnit kombineres med serie-metadata) - og gives til faster-whisper's hotwords, så 'Chrisjen Avasarala' staves rigtigt i stedet for fonetisk gætværk. Dubletter fjernes (mest specifikke form vinder), apostroffer/bindestreger/accenter bevares, og listen er begrænset (75 termer / 800 tegn, konfigurerbart). Nye indstillinger under Transskription: aktivér (til), maks. termer/tegn, skuespillere (til), instruktører/forfattere (fra), resuméer (til), studier (fra), debug-log (fra - normalt logges kun antallet). Cachet pr. emne og ugyldiggjort ved metadata-ændringer; intet metadata forlader serveren. Worker-delen ruller selv ud via auto-opdateringen. Bemærk: hotwords er en bias, ikke en garanti - de øger sandsynligheden for korrekte stavemåder markant.",
         "targetAbi": "10.11.0.0",
