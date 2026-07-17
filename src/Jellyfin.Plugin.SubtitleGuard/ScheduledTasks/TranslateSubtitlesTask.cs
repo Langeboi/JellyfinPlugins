@@ -49,6 +49,12 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 return;
             }
 
+            if (!Plugin.Instance!.Configuration.EnableTranslation)
+            {
+                _logger.LogInformation("SubtitleGuard: translation disabled in settings, task skipped");
+                return;
+            }
+
             var items = _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode },

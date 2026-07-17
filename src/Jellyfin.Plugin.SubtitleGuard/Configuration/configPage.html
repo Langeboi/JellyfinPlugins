@@ -182,6 +182,13 @@
           <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons mic" aria-hidden="true"></span>Whisper &amp; oversættelse</div>
             <div class="sgCardDesc"><b>Generate missing subtitles</b> (kl. 01:00) transskriberer emner uden undertekst i målsprogene på GPU-workeren - det talte sprog afgør outputtet. <b>Translate subtitles to Danish</b> (kl. 02:00) maskinoversætter engelske undertekster til dansk (NLLB) for emner uden dansk undertekst.</div>
+            <div class="checkboxContainer checkboxContainer-withDescription" style="margin-top:.6em;">
+              <label>
+                <input id="SgEnableTranslation" type="checkbox" is="emby-checkbox" />
+                <span>Aktivér dansk oversættelse</span>
+              </label>
+              <div class="fieldDescription">Slår hele oversættelsesfunktionen fra (både den natlige opgave og auto-kæden efter transskription). Kræver NLLB-modellen på en GPU-worker.</div>
+            </div>
             <div class="inputContainer" style="margin-top:.8em;">
               <label class="inputLabel inputLabelUnfocused" for="SgTranscribeLanguages">Målsprog</label>
               <input id="SgTranscribeLanguages" type="text" is="emby-input" placeholder="da,en" />

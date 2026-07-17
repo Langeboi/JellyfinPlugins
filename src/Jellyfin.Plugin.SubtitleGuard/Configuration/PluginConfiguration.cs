@@ -120,9 +120,17 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         public bool HotwordDebugLog { get; set; }
 
         /// <summary>
+        /// Master switch for the English->Danish translation feature (the
+        /// nightly translate task AND the post-transcription chain). Off for
+        /// users who don't want machine-translated Danish subtitles.
+        /// </summary>
+        public bool EnableTranslation { get; set; } = true;
+
+        /// <summary>
         /// After a successful ENGLISH transcription, immediately queue the
         /// en->da translation on the same worker instead of waiting for the
         /// nightly translate task - one flow, Danish subtitle by morning.
+        /// Only takes effect while <see cref="EnableTranslation"/> is on.
         /// </summary>
         public bool ChainTranslateAfterTranscribe { get; set; } = true;
 

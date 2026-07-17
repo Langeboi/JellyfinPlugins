@@ -1094,7 +1094,7 @@
     // classify - every one of these has actually happened on this setup.
     var FAILURE_HINTS = {
       'permission': { label: 'Skriverettigheder', hint: 'Workeren må ikke skrive til mediefilerne. Tjek TrueNAS ACL-arven på Movies/Shows-datasettene - nye filer skal arve skriverettigheden, ellers kommer fejlen igen for nyt indhold.' },
-      'missing-file': { label: 'Fil ikke fundet', hint: 'Filen findes ikke på workerens mount. Tjek at stien er mountet på alle workers (fx mangler /Media/Standup på worker-maskinerne).' },
+      'missing-file': { label: 'Fil ikke fundet', hint: 'Filen findes ikke på workerens mount. Tjek at medierne er mountet på samme sti på alle workers (et bibliotek som Jellyfin ser, men en worker ikke har mountet, fejler her).' },
       'timeout': { label: 'Timeout', hint: 'Jobbet tog for lang tid - typisk en meget stor fil eller langsomt netværk til medie-mountet.' },
       'sync-failed': { label: 'Sync-analyse fejlede', hint: 'ffsubsync kunne ikke matche underteksten mod lydsporet - ofte et støjfyldt lydspor eller en undertekst der hører til en anden version af filmen.' },
       'no-speech': { label: 'Ingen tale', hint: 'Whisper fandt ingen tale i filen (musik/dokumentar uden dialog?).' },
@@ -1278,6 +1278,8 @@
       if (langInput) {
         langInput.value = cfg.TranscribeLanguages || 'da,en';
       }
+      var enableTranslationCb = page.querySelector('#SgEnableTranslation');
+      if (enableTranslationCb) { enableTranslationCb.checked = cfg.EnableTranslation !== false; }
       var chainCb = page.querySelector('#SgChainTranslate');
       if (chainCb) { chainCb.checked = cfg.ChainTranslateAfterTranscribe !== false; }
       Object.keys(hotwordControls).forEach(function (id) {
@@ -1482,6 +1484,8 @@
         if (langInput) {
           cfg.TranscribeLanguages = langInput.value.trim() || 'da,en';
         }
+        var enableTranslationCbSave = page.querySelector('#SgEnableTranslation');
+        if (enableTranslationCbSave) { cfg.EnableTranslation = enableTranslationCbSave.checked; }
         var chainCbSave = page.querySelector('#SgChainTranslate');
         if (chainCbSave) { cfg.ChainTranslateAfterTranscribe = chainCbSave.checked; }
         Object.keys(hotwordControls).forEach(function (id) {

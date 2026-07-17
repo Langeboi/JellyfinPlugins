@@ -76,7 +76,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 if (job != null)
                 {
                     var cfg = Plugin.Instance!.Configuration;
-                    job["chain_translate"] = cfg.ChainTranslateAfterTranscribe;
+                    job["chain_translate"] = cfg.EnableTranslation && cfg.ChainTranslateAfterTranscribe;
                     var hotwords = HotwordBuilder.BuildForItem(item, _libraryManager, cfg);
                     if (hotwords.Length > 0)
                     {
