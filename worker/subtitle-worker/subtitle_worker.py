@@ -110,6 +110,11 @@ WHISPER_VAD = os.environ.get("SUBWORKER_WHISPER_VAD", "1") != "0"
 WHISPER_VAD_THRESHOLD = os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD")
 WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
 
+# Max characters of the hotword prompt handed to Whisper. Kept well under
+# half the 448-token decoder context so hotwords + previous-text conditioning
+# can't overflow it (which crashes transcription). See use site for detail.
+HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "350"))
+
 
 def _whisper_vad_parameters():
     """Only override the default VAD tuning when explicitly asked to via env -
@@ -822,7 +827,17 @@ def process_transcribe_job(job: dict):
         # decoding window without replacing previous-text conditioning; on an
         # older faster-whisper without the parameter, fall back to a short
         # initial_prompt (weaker: only conditions the first window).
+        #
+        # HARD length clamp: Whisper's decoder context is 448 tokens; faster-
+        # whisper lets hotwords take up to half AND previous-text conditioning
+        # takes the other half, so a long hotword list + accumulated previous
+        # text overflows the window and CTranslate2 raises "maximum decoding
+        # length must be > 0" (transcription fails on every file). ~350 chars
+        # (~90-120 tokens) leaves ample decode budget and still fits a rich
+        # name list. Trimmed on a comma so a name is never cut in half.
         hotwords = (job.get("hotwords") or "").strip()
+        if len(hotwords) > HOTWORDS_MAX_CHARS:
+            hotwords = hotwords[:HOTWORDS_MAX_CHARS].rsplit(",", 1)[0].strip()
         if hotwords:
             import inspect
             if "hotwords" in inspect.signature(model.transcribe).parameters:
