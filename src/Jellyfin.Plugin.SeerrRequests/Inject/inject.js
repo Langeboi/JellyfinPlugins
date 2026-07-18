@@ -377,13 +377,13 @@
       // faded out only across the left, where the poster and text sit. That
       // keeps the art readable on the right while the copy stays legible.
       '.seerrCal-backdrop{position:absolute;inset:0;background-size:cover;background-position:center 25%;}' +
-      // Stays near-opaque across the whole text column, then drops away fast
-      // so the right third shows the art properly. Kept in sync with the
-      // max-width on .seerrCal-info below - text must never reach the clear
-      // part, or a long title becomes unreadable over bright artwork.
+      // The fade is pulled in tight over the text column so the CENTER of the
+      // card already shows the art nearly clear - kept in sync with the
+      // max-width on .seerrCal-info below (text must stop before the scrim
+      // thins out, or a long title lands on bright artwork).
       '.seerrCal-card::after{content:"";position:absolute;inset:0;pointer-events:none;' +
-        'background:linear-gradient(90deg,rgba(17,23,34,.97) 0%,rgba(17,23,34,.95) 45%,' +
-        'rgba(17,23,34,.86) 64%,rgba(17,23,34,.42) 84%,rgba(17,23,34,.15) 100%);}' +
+        'background:linear-gradient(90deg,rgba(17,23,34,.97) 0%,rgba(17,23,34,.93) 38%,' +
+        'rgba(17,23,34,.68) 52%,rgba(17,23,34,.26) 68%,rgba(17,23,34,.08) 100%);}' +
       '.seerrCal-cardInner{position:relative;z-index:1;display:flex;align-items:center;gap:1em;padding:.8em .9em;}' +
       '.seerrCal-poster{flex:0 0 auto;width:50px;height:75px;border-radius:8px;background-size:cover;' +
         'background-position:center;background-color:rgba(255,255,255,.09);' +
@@ -391,7 +391,10 @@
       '.seerrCal-posterEmpty{background-image:none;}' +
       // Capped so even a long title stops inside the faded zone (see the
       // ::after gradient above) instead of spilling over bright artwork.
-      '.seerrCal-info{flex:1 1 auto;min-width:0;max-width:62%;}' +
+      '.seerrCal-info{flex:1 1 auto;min-width:0;max-width:52%;}' +
+      // Belt-and-braces for the tighter fade: a soft shadow keeps the copy
+      // readable even where the scrim has started thinning.
+      '.seerrCal-title,.seerrCal-meta,.seerrCal-dateText{text-shadow:0 1px 4px rgba(0,0,0,.75);}' +
       '.seerrCal-titleRow{display:flex;align-items:center;gap:.5em;min-width:0;}' +
       '.seerrCal-title{font-weight:600;font-size:1.02em;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis;min-width:0;}' +
@@ -1015,8 +1018,10 @@
       return;
     }
 
+    // One flat, date-sorted list - no month headers. Movies and shows mixed.
+    // The backend only puts MOVIES in the undated tail (a series without a
+    // scheduled next episode is not listed at all).
     var html = '';
-    var currentMonth = null;
     var undated = [];
 
     items.forEach(function (item) {
@@ -1024,24 +1029,12 @@
         undated.push(item);
         return;
       }
-      var heading = monthHeading(item.date);
-      if (heading !== currentMonth) {
-        currentMonth = heading;
-        html += '<div class="seerrCal-month">' + escapeHtml(heading) + '</div>';
-      }
       html += calendarRowHtml(item);
     });
 
     if (undated.length) {
       html += '<div class="seerrCal-month seerrCal-monthMuted">Dato ukendt endnu</div>';
-      // The bucket holds both films awaiting a streaming date and running
-      // series with no scheduled episode, so only claim what is actually there.
-      if (undated.some(function (i) { return i.mediaType !== 'tv'; })) {
-        html += '<div class="seerrCal-note">Disse film har ingen streaming-dato fået endnu.</div>';
-      }
-      if (undated.some(function (i) { return i.mediaType === 'tv'; })) {
-        html += '<div class="seerrCal-note">Disse serier har ingen planlagt afsnitsdato endnu.</div>';
-      }
+      html += '<div class="seerrCal-note">Disse film har ingen streaming-dato fået endnu.</div>';
       undated.forEach(function (item) {
         html += calendarRowHtml(item);
       });

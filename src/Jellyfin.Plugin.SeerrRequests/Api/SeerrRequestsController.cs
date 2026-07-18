@@ -310,8 +310,14 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     var date = entry["date"]?.ToString();
                     if (!string.IsNullOrEmpty(date))
                     {
-                        // Past releases are simply out already - not "coming soon".
-                        if (DateTime.TryParse(date, out var parsed) && parsed.Date >= today)
+                        // A rolling 14-day window: past releases are out
+                        // already, and dates further ahead than two weeks are
+                        // noise for a "what lands soon" list. The item
+                        // reappears automatically once its date rolls into
+                        // range (the calendar cache is 30 min).
+                        if (DateTime.TryParse(date, out var parsed)
+                            && parsed.Date >= today
+                            && parsed.Date <= today.AddDays(14))
                         {
                             upcoming.Add(entry);
                         }
@@ -319,20 +325,15 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                         continue;
                     }
 
-                    // No date yet. What belongs here differs by type:
-                    //   * A movie still on the way (not fully in the library).
-                    //   * A series that is STILL RUNNING - even one already in
-                    //     the library. Between seasons there is often no
-                    //     scheduled episode, and those are precisely the shows
-                    //     worth listing ("næste afsnit ikke planlagt endnu").
-                    //     Gating this on mediaStatus < 5 silently dropped every
-                    //     ongoing show that was already downloaded.
+                    // No date yet. Only MOVIES belong in the undated bucket
+                    // (still waiting on a streaming date, not yet in the
+                    // library). A series with no scheduled next episode is
+                    // simply not shown - the calendar lists what has a date,
+                    // and "ikke planlagt endnu" rows were just noise.
                     var status = entry["mediaStatus"]?.Value<int?>() ?? 0;
-                    var seriesStatus = entry["seriesStatus"]?.ToString();
-                    var seriesFinished = seriesStatus == "Ended" || seriesStatus == "Canceled";
                     var isTv = entry["mediaType"]?.ToString() == "tv";
 
-                    if (status < 5 || (isTv && !seriesFinished))
+                    if (!isTv && status < 5)
                     {
                         undated.Add(entry);
                     }

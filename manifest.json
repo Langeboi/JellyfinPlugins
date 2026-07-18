@@ -402,6 +402,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.3.0",
+        "changelog": "Kalenderen viser nu et rullende 14-dages vindue: kun film og afsnit med udgivelsesdato inden for de næste to uger vises (emner dukker selv op igen når deres dato kommer i nærheden). Serier uden et planlagt næste afsnit vises ikke længere - kun film uden streaming-dato står på listen under \"Dato ukendt endnu\". Måneds-overskrifterne er fjernet, så film og serier står i én samlet dato-sorteret liste. Backdrop-kunsten er mere synlig: nedtoningen er trukket ind over tekst-kolonnen, så midten og højre side af kortet viser kunsten næsten klart, og teksten har fået en blød skygge så den stadig er let læsbar.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.3.0/seerrrequests_1.9.3.0.zip",
+        "checksum": "16d1cc7703b13115ab48a0e868239856",
+        "timestamp": "2026-07-18T11:00:00Z"
+      },
+      {
         "version": "1.9.2.0",
         "changelog": "Fanen hedder nu \"Udgivelseskalender\". Rettelse: serier manglede helt. Kalenderen filtrerede alt fra der allerede lå i biblioteket uden en kommende dato - hvilket rammer præcis de igangværende serier der er mellem to sæsoner. Kørende serier vises nu altid, også når næste afsnit endnu ikke er planlagt; kun afsluttede serier der allerede er hentet, udelades. Design: backdrop-kunsten vises nu i fuld styrke og tones kun ned hen over plakat og tekst, så kunsten er tydelig til højre mens teksten stadig er læsbar (teksten kan aldrig løbe ind i det lyse område). Status-mærket (\"Behandles\") er erstattet af selve udgivelsesdatoen, og kalender-feltet med dag/måned og spørgsmålstegnet i højre side er fjernet.",
         "targetAbi": "10.11.0.0",
