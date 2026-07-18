@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.0.0",
+        "changelog": "Subtitle Guard 2.0 - feature-komplet udgave klar til at dele. NYT: engelsk UI (vælger øverst på siden - hele pluginet kan nu skifte mellem dansk og engelsk); 'Getting Started'-knap med fuld opsætningsguide (erstatter '?'); førstegangs-velkomst på Workers-fanen når ingen workers er tilmeldt; worker-version vises pr. maskine med markering af maskiner der halter efter poolen; 'Gendan originale undertekster' (alle workers gendanner ALT de har ændret, fra .bak-backupper - med er-du-sikker-bekræftelse); 'Gendan standardindstillinger'-knap (nulstiller alt undtagen worker-tilmelding, stier og sprog); Whisper-panelet forudfyldt med de anbefalede standarder. FORBEDRET: transskriptions-progressbaren animerer nu; Status-fanen opdaterer sig selv hvert minut, har fået en 'Tjek igen'-knap, og fejl forsvinder AUTOMATISK når et senere forsøg lykkes (viser nuværende tilstand, ikke historik); Pool-status-kortet er fjernet. RETTET (worker 2.0.0, ruller selv ud): 'Ryd kø' kunne miste kapløbet mod arbejdstrådene så jobs alligevel kørte - køen ryddes nu atomisk og bevarer pause-tilstanden; en pauset men ledig worker kunne stjæle nyindsendte jobs - de holdes nu i køen til der genoptages. Alt funktionelt testet mod en kørende worker-instans (21/21 checks, inkl. æøå gennem SRT-skriveren).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.0.0/subtitleguard_2.0.0.0.zip",
+        "checksum": "a1973aecd9955e7d439ad9e0714d012f",
+        "timestamp": "2026-07-18T19:30:00Z"
+      },
+      {
         "version": "1.9.0.0",
         "changelog": "Indbygget opsætningsguide, CPU-transskription igen, og en Whisper-indstillings-UI. Et nyt '?' i toppen af plugin-siden åbner en fuld trin-for-trin guide til at sætte workers op - med et fremhævet afsnit om at worker-kontoen SKAL have skriverettigheder til medierne (ellers fejler alt med 'permission denied'), inkl. SERVICE_USER og gruppe-fix. CPU-workers kan nu transskribere igen: routingen er ikke længere CUDA-only, men styres af transskriptions-rollen - Workers-listen advarer om at CPU giver lavere kvalitet og anbefaler GPU. Ny sektion under Transskription: Whisper-indstillinger (model, beam size, VAD + tærskel/padding) med en forklaring til hver, som genererer en færdig kopier-og-indsæt-kommando du kører på den ønskede worker (indstillingerne sidder pr. worker, så de gemmes ikke i pluginet). Desuden en ny 'Aktivér dansk oversættelse'-kontakt, så hele oversættelsesfunktionen kan slås fra. Nye CPU-workers vælger nu selv Whisper-model ud fra kerner/RAM ved installation (small, eller medium på ≥4 kerner og ≥6 GB RAM; large-v3 er GPU-only i auto-valget, men kan stadig vælges manuelt). Selve pluginet kræver ingen worker-opdatering; auto-modelvalget gælder ved (gen)installation af en worker.",
         "targetAbi": "10.11.0.0",

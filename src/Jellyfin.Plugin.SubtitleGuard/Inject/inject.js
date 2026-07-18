@@ -13,6 +13,426 @@
 
   var config = null;
 
+  // ---- UI language (config field PluginConfiguration.UiLanguage, "da"/"en") ----
+  // Danish is the source language everywhere in this file; SG_EN maps exact
+  // Danish source strings (and text-node FRAGMENTS as split by inline tags
+  // like <b>/<code>/<i>/<u> in configPage.html) to their English text. SG_LANG
+  // is set from the loaded plugin config in two places: loadConfig() below
+  // (player/item pages) and wireConfigPageIfPresent()'s own config load (the
+  // config page can be opened without ever touching a player page first).
+  var SG_LANG = 'da';
+
+  var SG_EN = {
+    // -- Hero / tabs --
+    'Undertekster der passer, synker og altid vises — på tværs af hele poolen.':
+      'Subtitles that fit, sync, and always show — across the whole pool.',
+    'Synkronisering': 'Synchronization',
+    'Undertekster': 'Subtitles',
+    'Transskription': 'Transcription',
+
+    // -- Workers tab: worker pool card + enroll card --
+    'Worker-pool': 'Worker pool',
+    'Maskinerne der udfører selve undertekst-arbejdet. Jobs fordeles mellem online workers efter deres roller, og ledige maskiner stjæler automatisk arbejde fra den travleste.':
+      'The machines that do the actual subtitle work. Jobs are distributed among online workers according to their roles, and idle machines automatically steal work from the busiest one.',
+    'Tilmeld ny worker': 'Enroll new worker',
+    'Kør installeren på en Debian/Ubuntu-maskine der har medierne mountet:':
+      'Run the installer on a Debian/Ubuntu machine that has the media mounted:',
+    'Installeren udskriver en ': 'The installer prints out a ',
+    ' og en ': ' and an ',
+    'enrollment-kode': 'enrollment code',
+    ' — indsæt dem herunder.': ' — paste them in below.',
+    'Vælg maskinens roller og tryk ': 'Select the roles of the machine and press ',
+    'Tilmeld worker': 'Enroll worker',
+    'Navn': 'Name',
+    'fx GPU-maskinen': 'e.g. GPU machine',
+    'Enrollment-kode': 'Enrollment code',
+    'Roller (hvad denne maskine må lave):': 'Roles (what this machine may do):',
+    'Oversættelse': 'Translation',
+    'Tip: CPU-maskiner egner sig bedst til synkronisering. De ':
+      'Tip: CPU machines are best suited for synchronization. They ',
+    'kan': 'can',
+    ' transskribere (mindre model, lavere kvalitet og langsommere) — men oversættelse og transskription i fuld kvalitet kræver reelt en GPU-maskine.':
+      ' transcribe (smaller model, lower quality and slower) — but full-quality translation and transcription really requires a GPU machine.',
+
+    // -- Workers tab: paths card --
+    'Stier': 'Paths',
+    'Path mapping: Jellyfin-prefix': 'Path mapping: Jellyfin prefix',
+    'Lad begge felter stå tomme hvis workerne mounter medierne på samme stier som Jellyfin.':
+      'Leave both fields empty if the workers mount the media on the same paths as Jellyfin.',
+    'Path mapping: worker-prefix': 'Path mapping: worker prefix',
+    'Inkluderede biblioteker (sti-prefixer)': 'Included libraries (path prefixes)',
+    'Når sat rører de planlagte opgaver kun emner under disse stier. Tom = hele biblioteket. Knapperne på emne-sider ignorerer bevidst dette.':
+      'When set, the scheduled tasks only touch items under these paths. Empty = the whole library. The buttons on item pages deliberately ignore this.',
+
+    // -- Sync tab --
+    'Seneste rettelser': 'Recent fixes',
+    'De seneste undertekster poolen faktisk har omskrevet. "Fortryd rettelse" gendanner originalen (.bak-backuppen) og fortæller poolen at den ikke skal rettes igen.':
+      'The most recent subtitles the pool has actually rewritten. "Undo fix" restores the original (the .bak backup) and tells the pool not to fix it again.',
+    'Sådan virker det': 'How it works',
+    'Den natlige opgave ': 'The nightly task ',
+    ' (kl. 04:00, kan ændres under Dashboard > Scheduled Tasks) sender alle eksterne tekst-undertekster til poolen. ffsubsync måler forskydningen mod lydsporet og retter kun filer der reelt er skæve; resten markeres som i-sync og springes over næste gang. En original gemmes altid som ':
+      ' (at 04:00, can be changed under Dashboard > Scheduled Tasks) sends all external text subtitles to the pool. ffsubsync measures the offset against the audio track and only fixes files that are actually out of sync; the rest are marked in-sync and skipped next time. An original is always saved as ',
+    ' ved siden af filen.': ' next to the file.',
+    'Resultater med en usandsynligt stor forskydning (>60 sek.) afvises som fejlmålinger, så en god undertekst aldrig ødelægges.':
+      'Results with an implausibly large offset (>60 sec.) are rejected as measurement errors, so a good subtitle is never ruined.',
+    'Gendan originale undertekster': 'Restore original subtitles',
+    'Får alle workers til at gendanne de undertekster de har ændret, tilbage til den oprindeligt downloadede version (fx fra OpenSubtitles). Kan ikke fortrydes.':
+      'Makes all workers restore the subtitles they have changed back to the originally downloaded version (e.g. from OpenSubtitles). Cannot be undone.',
+    'Gendan alle undertekster': 'Restore all subtitles',
+
+    // -- Subs tab: appearance card --
+    'Udseende': 'Appearance',
+    'Standardiseret størrelse': 'Standardized size',
+    'Én konsistent størrelse på alle enheder, beregnet ud fra afspillerens højde.':
+      'One consistent size on all devices, calculated from the height of the player.',
+    'Størrelse (procent)': 'Size (percent)',
+    '100 = standardstørrelsen (50-200). Skalerer med afspilleren på desktop, mobil og TV-web.':
+      '100 = the standard size (50-200). Scales with the player on desktop, mobile, and TV web.',
+    'Skrifttype': 'Font',
+    'Standard (afspillerens egen)': 'Default (the player’s own)',
+    'Verdana (bred, læsevenlig)': 'Verdana (wide, readable)',
+    'Anvendes på alle undertekster, på tværs af enheder.': 'Applied to all subtitles, across devices.',
+    'Kantlinje (px)': 'Outline (px)',
+    'Sort kant rundt om teksten for læsbarhed mod lyse baggrunde. 0 = ingen.':
+      'Black outline around the text for readability against light backgrounds. 0 = none.',
+    'Baggrundsboks (opacitet, %)': 'Background box (opacity, %)',
+    'Sort boks bag teksten. 0 = ingen; 60-70 giver det klassiske TV-look.':
+      'Black box behind the text. 0 = none; 60-70 gives the classic TV look.',
+    'Skygge (0-4)': 'Shadow (0-4)',
+    'Blød slagskygge under teksten. Kan kombineres med kantlinjen. 0 = ingen.':
+      'Soft drop shadow under the text. Can be combined with the outline. 0 = none.',
+
+    // -- Subs tab: display & devices card --
+    'Visning & enheder': 'Display & devices',
+    'Rendering-watchdog': 'Rendering watchdog',
+    'Genanvender automatisk den valgte undertekst når den er valgt men ikke faktisk vises.':
+      'Automatically re-applies the selected subtitle when it is selected but not actually shown.',
+    'Indbrænd undertekster på iOS (Safari)': 'Burn in subtitles on iOS (Safari)',
+    'iPhone/iPad viser undertekster i fuldskærm ved at brænde dem ind i videoen - Apples indbyggede afspiller ignorerer Jellyfins overlay, så tekst-undertekster forsvinder ellers i fuldskærm. Kun iOS; andre enheder bruger fortsat det stylede overlay. Kræver transkodning på iOS-afspilning.':
+      'iPhone/iPad shows subtitles in fullscreen by burning them into the video - the built-in Apple player ignores the Jellyfin overlay, so text subtitles would otherwise disappear in fullscreen. iOS only; other devices continue to use the styled overlay. Requires transcoding on iOS playback.',
+    'Ryd op i undertekst-menuen': 'Clean up the subtitle menu',
+    'Skjuler uønskede spor i afspillerens undertekst-menu: sprog uden for listen herunder, hørehæmmede-varianter (SDH/CC) og dubletter - ét rent valg pr. sprog.':
+      'Hides unwanted tracks in the subtitle menu of the player: languages outside the list below, hearing-impaired variants (SDH/CC), and duplicates - one clean choice per language.',
+    'Synlige undertekst-sprog': 'Visible subtitle languages',
+    'Kommaseparerede to-bogstavs koder. Spor uden sprog-tag beholdes.':
+      'Comma-separated two-letter codes. Tracks without a language tag are kept.',
+
+    // -- Trans tab: Whisper & translation card --
+    'Whisper & oversættelse': 'Whisper & translation',
+    ' (kl. 01:00) transskriberer emner uden undertekst i målsprogene på GPU-workeren - det talte sprog afgør outputtet. ':
+      ' (at 01:00) transcribes items without a subtitle in the target languages on the GPU worker - the spoken language determines the output. ',
+    ' (kl. 02:00) maskinoversætter engelske undertekster til dansk (NLLB) for emner uden dansk undertekst.':
+      ' (at 02:00) machine-translates English subtitles to Danish (NLLB) for items without a Danish subtitle.',
+    'Aktivér dansk oversættelse': 'Enable Danish translation',
+    'Slår hele oversættelsesfunktionen fra (både den natlige opgave og auto-kæden efter transskription). Kræver NLLB-modellen på en GPU-worker.':
+      'Turns off the entire translation feature (both the nightly task and the auto-chain after transcription). Requires the NLLB model on a GPU worker.',
+    'Målsprog': 'Target languages',
+    'Emner der allerede har en tekst-undertekst i ét af disse sprog springes over af transskriptionsopgaven.':
+      'Items that already have a text subtitle in one of these languages are skipped by the transcription task.',
+    'Oversæt automatisk efter transskription': 'Automatically translate after transcription',
+    'Når en engelsk transskription lykkes, sættes en->da-oversættelsen straks i kø på samme worker - dansk undertekst i ét flow i stedet for at vente på den natlige oversættelsesopgave.':
+      'When an English transcription succeeds, the en->da translation is queued immediately on the same worker - a Danish subtitle in one flow instead of waiting for the nightly translation task.',
+
+    // -- Trans tab: hotwords card --
+    'Hotwords (navne & termer)': 'Hotwords (names & terms)',
+    'Bygger automatisk en kort liste af navne og særegne termer fra emnets Jellyfin-metadata (titler, karakternavne, skuespillere, tags, resuméer) og giver den til Whisper, så "Chrisjen Avasarala" ikke bliver til fonetisk gætværk. Alt sker lokalt - intet metadata forlader serveren.':
+      'Automatically builds a short list of names and distinctive terms from the Jellyfin metadata of the item (titles, character names, cast, tags, overviews) and gives it to Whisper, so "Chrisjen Avasarala" does not turn into phonetic guesswork. Everything happens locally - no metadata leaves the server.',
+    'Metadata-hotwords': 'Metadata hotwords',
+    'Maks. antal termer': 'Max number of terms',
+    'Maks. tegn i alt': 'Max characters total',
+    'Medtag skuespillernavne': 'Include cast names',
+    'Medtag instruktører/forfattere': 'Include directors/writers',
+    'Udtræk termer fra resuméer': 'Extract terms from overviews',
+    'Medtag studier/netværk': 'Include studios/networks',
+    'Debug-log den fulde termliste': 'Debug-log the full term list',
+    'Normalt logges kun antallet af termer.': 'Normally only the number of terms is logged.',
+
+    // -- Trans tab: whisper-settings card --
+    'Whisper-indstillinger (pr. worker)': 'Whisper settings (per worker)',
+    'Finjustér selve transskriberingen. Disse indstillinger sidder på ':
+      'Fine-tune the transcription itself. These settings live on ',
+    'hver enkelt worker': 'each individual worker',
+    ' (den læser dem ved opstart) — de gemmes derfor ikke her i pluginet. Vælg dine værdier herunder, kopiér kommandoen nederst og kør den på den worker du vil ændre. Lad felter stå tomme for at bruge standard.':
+      ' (it reads them at startup) — so they are not saved here in the plugin. Choose your values below, copy the command at the bottom, and run it on the worker you want to change. Leave fields empty to use the default.',
+    'Standardværdierne herunder er de anbefalede indstillinger.': 'The default values below are the recommended settings.',
+    'Standard (large-v3 på GPU / auto small/medium på CPU)': 'Default (large-v3 on GPU / auto small/medium on CPU)',
+    'large-v3 – bedst (GPU: ~10 GB VRAM. Kører også på CPU, men meget langsomt)':
+      'large-v3 – best (GPU: ~10 GB VRAM. Also runs on CPU, but very slowly)',
+    'large-v2 – næsten lige så god': 'large-v2 – almost as good',
+    'medium – god balance (auto-valgt på stærkere CPU\'er)': 'medium – good balance (auto-selected on stronger CPUs)',
+    'small – hurtig, lavere kvalitet': 'small – fast, lower quality',
+    'base – meget hurtig, ringe kvalitet': 'base – very fast, poor quality',
+    'Større model = bedre tekst (især dansk), men langsommere. På GPU måles pladsen i VRAM; på CPU er det almindelig RAM (large-v3 ved int8 fylder kun ~2–4 GB, så en CPU ':
+      'Bigger model = better text (especially Danish), but slower. On GPU the space is measured in VRAM; on CPU it is regular RAM (large-v3 at int8 only takes ~2–4 GB, so a CPU ',
+    ' godt køre den — den er bare langsom, tit flere timer pr. film). Nye CPU-workers vælger selv ':
+      ' run it just fine — it is just slow, often several hours per movie). New CPU workers pick ',
+    ' eller ': ' or ',
+    ' ud fra kerner/RAM ved installation; sæt en værdi her for at overstyre.':
+      ' on their own based on cores/RAM at install time; set a value here to override.',
+    'Hvor mange tekst-hypoteser dekoderen overvejer. Højere = færre oversete/gættede ord og bedre tegnsætning, men langsommere (beam 8 ≈ 1,5× beam 5). Standard 8. Sænk til 5 for mere fart.':
+      'How many text hypotheses the decoder considers. Higher = fewer missed/guessed words and better punctuation, but slower (beam 8 ≈ 1.5× beam 5). Default 8. Lower to 5 for more speed.',
+    'Filtrerer stilhed/musik fra, så modellen ikke "hallucinerer" en linje hen over tavshed. Anbefales tændt. Slås den fra bliver alt lydspor transskriberet (mest grundigt, men large-v3 kan finde på at digte).':
+      'Filters out silence/music, so the model does not "hallucinate" a line over silence. Recommended on. If turned off, the entire audio track is transcribed (most thorough, but large-v3 may start making things up).',
+    'VAD-tærskel (avanceret)': 'VAD threshold (advanced)',
+    'standard': 'default',
+    '0.1–0.9. Lavere fanger svagere/mumlet tale, men risikerer at medtage støj. ':
+      '0.1–0.9. Lower catches weaker/mumbled speech, but risks picking up noise. ',
+    'Tom = faster-whispers gennemprøvede standard': 'Empty = the proven default of faster-whisper',
+    ' — at overstyre den re-chunker lyden og fjernede al tegnsætning i test, så rør kun ved den hvis du bevidst eksperimenterer.':
+      ' — overriding it re-chunks the audio and removed all punctuation in testing, so only touch it if you are deliberately experimenting.',
+    'VAD-padding (ms, avanceret)': 'VAD padding (ms, advanced)',
+    'Ekstra lyd der beholdes i hver ende af et tale-segment, så ord ikke klippes af. Tom = standard.':
+      'Extra audio kept at each end of a speech segment, so words are not cut off. Empty = default.',
+    'Tjenestenavn (ved flere instanser)': 'Service name (for multiple instances)',
+    'Kun relevant hvis du kører flere workers på samme maskine (fx ':
+      'Only relevant if you run multiple workers on the same machine (e.g. ',
+    ' til et ekstra GPU). Kommandoen tilpasser både sti og genstart efter dette navn.':
+      ' for an extra GPU). The command adjusts both the path and the restart to match this name.',
+    'Kør denne kommando på workeren (root/sudo):': 'Run this command on the worker (root/sudo):',
+    'Kopiér kommando': 'Copy command',
+    'Kopieret!': 'Copied!',
+
+    // -- Trans tab: history card --
+    'Transskriptions-historik': 'Transcription history',
+    'De seneste transskriptioner på tværs af poolen, nyeste først.':
+      'The most recent transcriptions across the pool, newest first.',
+
+    // -- Status tab --
+    'Fejl der kræver opmærksomhed': 'Failures that need attention',
+    'Tjek igen': 'Check again',
+    'Fejl de seneste 14 dage, grupperet efter årsag. Fejlede emner blokerer aldrig - de prøves igen automatisk af de natlige opgaver, eller med det samme her.':
+      'Failures from the last 14 days, grouped by cause. Failed items never block - they are retried automatically by the nightly tasks, or immediately here.',
+    'Prøv fejlede igen nu': 'Retry failed now',
+    'Pool-statistik': 'Pool statistics',
+    'Gem': 'Save',
+    'Gendan standardindstillinger': 'Restore default settings',
+
+    // -- Help / setup guide modal --
+    'Opsætningsguide – workers': 'Setup guide – workers',
+    'Luk': 'Close',
+    'En ': 'A ',
+    ' er en Debian/Ubuntu-maskine (fysisk, VM eller LXC) der har dit mediebibliotek mountet og udfører det tunge arbejde: sync, transskription (Whisper) og oversættelse (NLLB). Alt kører lokalt — intet forlader dine servere. Du kan starte med ':
+      ' is a Debian/Ubuntu machine (physical, VM, or LXC) that has your media library mounted and does the heavy lifting: sync, transcription (Whisper), and translation (NLLB). Everything runs locally — nothing leaves your servers. You can start with ',
+    'én': 'one',
+    ' maskine og udvide senere.': ' machine and expand later.',
+    'Installér pluginet i Jellyfin': 'Install the plugin in Jellyfin',
+    'Du har allerede pluginet (du står i det). Sørg også for at ':
+      'You already have the plugin (you are in it right now). Also make sure the ',
+    '-pluginet er installeret fra samme katalog — det injicerer frontend-scriptet der giver undertekst-knapperne og denne side. Genstart Jellyfin efter installation.':
+      ' plugin is installed from the same catalog — it injects the frontend script that provides the subtitle buttons and this page. Restart Jellyfin after installing.',
+    'Tilmeld en worker': 'Enroll a worker',
+    'Kør installeren på maskinen (som root/sudo):': 'Run the installer on the machine (as root/sudo):',
+    'Installeren opdager selv om maskinen har en NVIDIA-GPU. Til sidst udskriver den en ':
+      'The installer automatically detects whether the machine has an NVIDIA GPU. At the end it prints a ',
+    '. Åbn ': '. Open ',
+    '-fanen her, indsæt begge, vælg maskinens roller og tryk ':
+      '-tab here, paste both, select the roles of the machine, and press ',
+    'CPU-maskine': 'CPU machine',
+    ' → bedst til ': ' → best for ',
+    '. Kan transskribere med en mindre model, men langsommere og i lavere kvalitet.':
+      '. Can transcribe with a smaller model, but slower and at lower quality.',
+    'GPU-maskine': 'GPU machine',
+    'transskription': 'transcription',
+    ' (Whisper large-v3) og ': ' (Whisper large-v3) and ',
+    'oversættelse': 'translation',
+    ' (NLLB) i fuld kvalitet.': ' (NLLB) in full quality.',
+    'Rettigheder til medierne (vigtigt!)': 'Permissions on the media (important!)',
+    'Dette er det trin folk oftest snubler over.': 'This is the step people most often trip over.',
+    ' Workeren skriver de rettede/nye undertekst-filer direkte ned ':
+      ' The worker writes the fixed/new subtitle files directly ',
+    'ved siden af medie-filerne': 'next to the media files',
+    '. Den skal derfor have ': '. It therefore needs ',
+    'skriveadgang': 'write access',
+    ' til de mapper — ellers fejler hvert eneste job med "permission denied", selvom alt andet er sat korrekt op.':
+      ' to those folders — otherwise every single job fails with "permission denied", even if everything else is set up correctly.',
+    'Kør workeren som en bruger der ejer (eller er i gruppen for) medie-filerne. To gode fremgangsmåder:':
+      'Run the worker as a user that owns (or is in the group for) the media files. Two good approaches:',
+    'A) Kør tjenesten som en medie-ejende bruger': 'A) Run the service as a media-owning user',
+    ' — sæt en dedikeret ': ' — set up a dedicated ',
+    '-konto (eller din normale mediebruger) ved installation:': ' account (or your normal media user) at install time:',
+    'B) Læg tjeneste-brugeren i medie-gruppen': 'B) Add the service user to the media group',
+    ' — hvis medierne ejes af fx gruppen ': ' — if the media is owned by, e.g., the group ',
+    'Undgå en konto uden adgang.': 'Avoid an account without access.',
+    ' Ved netværks-mounts (SMB/NFS/CIFS) er det ': ' With network mounts (SMB/NFS/CIFS), it is the ',
+    'serverens': 'server’s',
+    ' bruger-mapping der bestemmer — det er ikke nok at den lokale Linux-bruger ser filerne, den mountede identitet skal have skriveret på storage-serveren.':
+      ' user mapping that decides — it is not enough that the local Linux user can see the files; the mounted identity needs write access on the storage server.',
+    'Undtagelse: eksterne undertekster som workeren ikke må overskrive (fx fra OpenSubtitles-pluginet) kan den selv overtage ejerskabet af ved at slette og genskabe filen — men det kræver stadig skriveret til ':
+      'Exception: external subtitles that the worker is not allowed to overwrite (e.g. from the OpenSubtitles plugin) it can take ownership of itself by deleting and recreating the file — but that still requires write access to the ',
+    'mappen': 'folder',
+    '. Uden mappe-adgang virker intet.': '. Without folder access, nothing works.',
+    'Stier (kun hvis de er forskellige)': 'Paths (only if they differ)',
+    'Mounter workeren medierne på ': 'If the worker mounts the media at the ',
+    'samme sti': 'same path',
+    ' som Jellyfin ser dem, skal du intet gøre. Er stierne forskellige, sæt ':
+      ' that Jellyfin sees them, you do not need to do anything. If the paths differ, set ',
+    ' på Workers-fanen (Jellyfin-prefix → worker-prefix).': ' on the Workers tab (Jellyfin prefix → worker prefix).',
+    'Automatisk opdatering (anbefales)': 'Automatic updates (recommended)',
+    'Kør én gang pr. worker, så de selv henter fremtidige opdateringer dagligt:':
+      'Run once per worker, so they automatically fetch future updates daily:',
+    'Roller & planlagte opgaver': 'Roles & scheduled tasks',
+    'Rollerne (Sync / Transskription / Oversættelse) på hver worker afgør hvilke jobs den må tage — giv fx kun GPU-maskinen transskriptions-rollen. Under ':
+      'The roles (Sync / Transcription / Translation) on each worker determine which jobs it may take — e.g. only give the GPU machine the transcription role. Under ',
+    ' ligger de natlige opgaver, som du kan tidsindstille eller slå fra.':
+      ' you will find the nightly tasks, which you can schedule or turn off.',
+
+    // -- Dynamic: worker list / status glyphs / activity labels --
+    'Online, ledig': 'Online, idle',
+    'Arbejder': 'Working',
+    'Pauset': 'Paused',
+    'Offline': 'Offline',
+    'Tjekker…': 'Checking…',
+    'Tjekker status...': 'Checking status...',
+    'Transskriberer: ': 'Transcribing: ',
+    'Oversætter: ': 'Translating: ',
+    'Synkroniserer: ': 'Syncing: ',
+    ' · Oversættelse: NLLB': ' · Translation: NLLB',
+    '⚠ Ældre worker-version (v': '⚠ Older worker version (v',
+    ' - nyeste i poolen er v': ' - newest in the pool is v',
+    '). Opdaterer normalt selv inden for et døgn.': '). Normally updates itself within a day.',
+    '⚠ CPU-transskription: lavere kvalitet og markant langsommere. GPU anbefales.':
+      '⚠ CPU transcription: lower quality and significantly slower. GPU recommended.',
+    ' venter i kø)': ' waiting in queue)',
+    ' i kø': ' in queue',
+    ' klaret': ' done',
+    ' fejlet': ' failed',
+    'Fortsæt': 'Resume',
+    'Tøm køen (': 'Clear the queue (',
+    'Ryd kø': 'Clear queue',
+    'Fjern': 'Remove',
+    'Ingen workers endnu': 'No workers yet',
+    'Subtitle Guard skal bruge mindst én worker-maskine til sync, transskription og oversættelse. Guiden tager dig igennem det hele - inkl. rettighederne, som er det vigtigste trin.':
+      'Subtitle Guard needs at least one worker machine for sync, transcription, and translation. The guide walks you through all of it - including the permissions, which is the most important step.',
+
+    // -- Dynamic: restore-OpenSubtitles flow --
+    'Er du sikker? Klik igen for at gendanne': 'Are you sure? Click again to restore',
+    'Gendanner...': 'Restoring...',
+    'Noget gik galt - prøv igen.': 'Something went wrong - try again.',
+    ' gendannet, ': ' restored, ',
+    ' sprunget over, ': ' skipped, ',
+    ' fejlede.': ' failed.',
+    'Kunne ikke kontakte workerne - prøv igen.': 'Could not contact the workers - try again.',
+
+    // -- Dynamic: stats tiles / chart / failure triage --
+    'Rettet': 'Fixed',
+    'I sync': 'In sync',
+    'Transskriberet': 'Transcribed',
+    'Oversat': 'Translated',
+    'Fejlet': 'Failed',
+    'Kunne ikke hente statistik (er workerne opdateret og online?).':
+      'Could not fetch statistics (are the workers updated and online?).',
+    'Skriverettigheder': 'Write permissions',
+    'Workeren må ikke skrive til mediefilerne. Tjek TrueNAS ACL-arven på Movies/Shows-datasettene - nye filer skal arve skriverettigheden, ellers kommer fejlen igen for nyt indhold.':
+      'The worker is not allowed to write to the media files. Check the TrueNAS ACL inheritance on the Movies/Shows datasets - new files need to inherit the write permission, otherwise the error will recur for new content.',
+    'Fil ikke fundet': 'File not found',
+    'Filen findes ikke på workerens mount. Tjek at medierne er mountet på samme sti på alle workers (et bibliotek som Jellyfin ser, men en worker ikke har mountet, fejler her).':
+      'The file does not exist on the worker mount. Check that the media is mounted at the same path on all workers (a library Jellyfin sees but a worker has not mounted will fail here).',
+    'Jobbet tog for lang tid - typisk en meget stor fil eller langsomt netværk til medie-mountet.':
+      'The job took too long - typically a very large file or a slow network to the media mount.',
+    'Sync-analyse fejlede': 'Sync analysis failed',
+    'ffsubsync kunne ikke matche underteksten mod lydsporet - ofte et støjfyldt lydspor eller en undertekst der hører til en anden version af filmen.':
+      'ffsubsync could not match the subtitle against the audio track - often a noisy audio track or a subtitle that belongs to a different version of the movie.',
+    'Ingen tale': 'No speech',
+    'Whisper fandt ingen tale i filen (musik/dokumentar uden dialog?).':
+      'Whisper found no speech in the file (music/documentary without dialogue?).',
+    'Forkert worker': 'Wrong worker',
+    'Et transskriptionsjob ramte en worker uden Whisper - tjek rollerne på Workers-fanen.':
+      'A transcription job hit a worker without Whisper - check the roles on the Workers tab.',
+    'Model kunne ikke indlæses': 'Model could not be loaded',
+    'Whisper/NLLB-modellen kunne ikke indlæses på workeren - tjek HF-cachen og offline-flagene i /opt/subtitle-worker/env.':
+      'The Whisper/NLLB model could not be loaded on the worker - check the HF cache and the offline flags in /opt/subtitle-worker/env.',
+    'Andet': 'Other',
+    'Ukendte fejl - se journalen på workeren: journalctl -u subtitle-worker.':
+      'Unknown errors - check the journal on the worker: journalctl -u subtitle-worker.',
+    'Opgaver sat i kø ✓': 'Tasks queued ✓',
+    'Fejl - prøv igen': 'Error - try again',
+
+    // -- Dynamic: transcription history --
+    'Ingen transskriptioner endnu.': 'No transcriptions yet.',
+    'Prøv igen': 'Retry',
+    'Kunne ikke hente historik (er workerne opdateret og online?).':
+      'Could not fetch history (are the workers updated and online?).',
+    'Sender...': 'Sending...',
+    'Fejl': 'Error',
+    'I kø ✓': 'Queued ✓',
+
+    // -- Dynamic: reset-defaults flow --
+    'Er du sikker? Klik igen for at nulstille': 'Are you sure? Click again to reset',
+    'Nulstiller...': 'Resetting...',
+    'Kunne ikke gemme standardindstillingerne - prøv igen.': 'Could not save the default settings - try again.',
+    'Kunne ikke hente konfigurationen - prøv igen.': 'Could not fetch the configuration - try again.',
+
+    // -- Dynamic: add-worker / role validation alerts --
+    'Worker URL og enrollment-kode skal udfyldes.': 'Worker URL and enrollment code must be filled in.',
+    'Vælg mindst én rolle for workeren.': 'Select at least one role for the worker.',
+    'En worker skal have mindst én rolle.': 'A worker must have at least one role.',
+
+    // -- Dynamic: item-page player buttons --
+    'Fix undertekst-sync': 'Fix subtitle sync',
+    'Generér undertekster': 'Generate subtitles',
+    'Synkroniser underteksterne til lyden': 'Synchronize the subtitles to the audio',
+    'Transskribér undertekster med Whisper (GPU-worker)': 'Transcribe subtitles with Whisper (GPU worker)',
+    'Intet at gøre': 'Nothing to do',
+    'Transskriberer... ': 'Transcribing... ',
+    'Færdig ✓': 'Done ✓'
+  };
+
+  function sgT(s) {
+    return (SG_LANG === 'en' && Object.prototype.hasOwnProperty.call(SG_EN, s)) ? SG_EN[s] : s;
+  }
+
+  // Translates attributes (placeholder/title/aria-label) on one element when
+  // their current value is an exact Danish source string. "Getting Started"
+  // is deliberately never a key in SG_EN, so that button/title/aria-label
+  // stay "Getting Started" in both languages, per spec.
+  function sgTranslateAttrs(el) {
+    ['placeholder', 'title', 'aria-label'].forEach(function (attr) {
+      var v = el.getAttribute ? el.getAttribute(attr) : null;
+      if (v != null && Object.prototype.hasOwnProperty.call(SG_EN, v)) {
+        el.setAttribute(attr, SG_EN[v]);
+      }
+    });
+  }
+
+  // Walks the STATIC text of the config page (everything already baked into
+  // configPage.html - card titles/descriptions, labels, the help modal, tab
+  // labels) and swaps each exact-match text-node fragment for its English
+  // translation, preserving surrounding whitespace. Only ever called with
+  // the #SubtitleGuardConfigPage element as root, so this never touches a
+  // player page. Dynamically-generated HTML (worker list, stats, etc.) is
+  // translated at its own generation sites via sgT(), not here.
+  function translateConfigPageStaticText(root) {
+    if (!root || !document.createTreeWalker) { return; }
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+    var node;
+    while ((node = walker.nextNode())) {
+      var raw = node.nodeValue;
+      // Try an EXACT (untrimmed) match first: many dictionary keys are
+      // connector fragments like ' og en ' or ' eller ' that keep their
+      // single leading/trailing space on purpose, to preserve the word
+      // boundary either side of an inline <b>/<code>/<i>/<u> tag - a
+      // trimmed lookup would never find those. Sentence-level keys (whole
+      // card descriptions etc.) fall back to the trimmed match below,
+      // which preserves whatever incidental HTML-indentation whitespace
+      // surrounds them.
+      if (Object.prototype.hasOwnProperty.call(SG_EN, raw)) {
+        node.nodeValue = SG_EN[raw];
+        continue;
+      }
+      var trimmed = raw.trim();
+      if (!trimmed || !Object.prototype.hasOwnProperty.call(SG_EN, trimmed)) { continue; }
+      var leadMatch = raw.match(/^\s*/);
+      var trailMatch = raw.match(/\s*$/);
+      var leading = leadMatch ? leadMatch[0] : '';
+      var trailing = trailMatch ? trailMatch[0] : '';
+      node.nodeValue = leading + SG_EN[trimmed] + trailing;
+    }
+    var all = root.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+      sgTranslateAttrs(all[i]);
+    }
+  }
+
   function loadConfig() {
     if (config) {
       return Promise.resolve(config);
@@ -31,6 +451,7 @@
           EnableTrackFilter: data.EnableTrackFilter !== false,
           VisibleSubtitleLanguages: data.VisibleSubtitleLanguages || 'da,en'
         };
+        SG_LANG = data.UiLanguage === 'en' ? 'en' : 'da';
         return config;
       })
       .catch(function () {
@@ -46,6 +467,7 @@
           EnableTrackFilter: true,
           VisibleSubtitleLanguages: 'da,en'
         };
+        SG_LANG = 'da';
         return config;
       });
   }
@@ -580,7 +1002,7 @@
     if (existing) {
       // Page instance reused for a different item: repoint both buttons.
       if (existing.getAttribute('data-item-id') !== itemId) {
-        var labels = { 'subtitleGuard-syncBtn': 'Fix undertekst-sync', 'subtitleGuard-transcribeBtn': 'Generér undertekster' };
+        var labels = { 'subtitleGuard-syncBtn': sgT('Fix undertekst-sync'), 'subtitleGuard-transcribeBtn': sgT('Generér undertekster') };
         Object.keys(labels).forEach(function (cls) {
           var b = buttons.querySelector('.' + cls);
           if (b) {
@@ -596,15 +1018,15 @@
     makeDetailButton(buttons, itemId, {
       cls: 'subtitleGuard-syncBtn',
       icon: 'subtitles',
-      label: 'Fix undertekst-sync',
-      title: 'Synkroniser underteksterne til lyden',
+      label: sgT('Fix undertekst-sync'),
+      title: sgT('Synkroniser underteksterne til lyden'),
       endpoint: 'SubtitleGuard/sync/'
     });
     makeDetailButton(buttons, itemId, {
       cls: 'subtitleGuard-transcribeBtn',
       icon: 'mic',
-      label: 'Generér undertekster',
-      title: 'Transskribér undertekster med Whisper (GPU-worker)',
+      label: sgT('Generér undertekster'),
+      title: sgT('Transskribér undertekster med Whisper (GPU-worker)'),
       endpoint: 'SubtitleGuard/transcribe/'
     });
   }
@@ -624,7 +1046,7 @@
       var apiClient = window.ApiClient;
       var label = btn.querySelector('.subtitleGuard-btnLabel');
       btn.disabled = true;
-      label.textContent = 'Sender...';
+      label.textContent = sgT('Sender...');
       fetch(apiClient.getUrl(opts.endpoint + btn.getAttribute('data-item-id')), {
         method: 'POST',
         headers: { 'X-Emby-Token': apiClient.accessToken() }
@@ -632,19 +1054,19 @@
         .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; }); })
         .then(function (r) {
           if (!r.ok || r.data.error) {
-            label.textContent = r.data.error || 'Fejl - prøv igen';
+            label.textContent = r.data.error || sgT('Fejl - prøv igen');
             btn.disabled = false;
             return;
           }
           label.textContent = r.data.queued > 0
-            ? 'I kø ✓'
-            : (r.data.message || 'Intet at gøre');
+            ? sgT('I kø ✓')
+            : (r.data.message || sgT('Intet at gøre'));
           if (r.data.queued > 0 && opts.endpoint.indexOf('transcribe') !== -1) {
             pollTranscribeProgress(btn, label);
           }
         })
         .catch(function () {
-          label.textContent = 'Fejl - prøv igen';
+          label.textContent = sgT('Fejl - prøv igen');
           btn.disabled = false;
         });
     });
@@ -670,9 +1092,9 @@
         .then(function (d) {
           if (d.active) {
             sawActive = true;
-            label.textContent = 'Transskriberer... ' + (typeof d.pct === 'number' ? d.pct + '%' : '');
+            label.textContent = sgT('Transskriberer... ') + (typeof d.pct === 'number' ? d.pct + '%' : '');
           } else if (sawActive) {
-            label.textContent = 'Færdig ✓';
+            label.textContent = sgT('Færdig ✓');
             clearInterval(timer);
           }
           // Not active and never seen: still queued behind other ML jobs -
@@ -742,6 +1164,9 @@
         '.sgHeroSub{opacity:.65;font-size:.9em;margin-top:.15em;}' +
         // Help "?" button (top-right of the hero) + guide modal
         '.sgHero>div:first-child{flex:1;}' +
+        // Compact UI-language picker, right of the Getting Started button.
+        '.sgLangWrap{flex:0 0 auto;max-width:8em;}' +
+        '.sgLangWrap select{min-width:0;}' +
         '.sgHelpBtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:.4em;border-radius:999px;' +
         'padding:.45em 1.1em;font-size:.9em;font-weight:600;cursor:pointer;' +
         'color:#fff;background:rgba(59,130,246,.85);border:1px solid rgba(88,166,255,.6);line-height:1.2;' +
@@ -901,6 +1326,24 @@
       });
     })();
 
+    // UI language picker (PluginConfiguration.UiLanguage). A full reload is
+    // the sanctioned way to re-render every static/dynamic string on the
+    // page in the new language - simpler and more robust than trying to
+    // re-translate an already-translated DOM in place.
+    (function wireLangSelect() {
+      var langSelect = page.querySelector('#SgUiLanguage');
+      if (!langSelect) { return; }
+      langSelect.addEventListener('change', function () {
+        var newLang = langSelect.value === 'en' ? 'en' : 'da';
+        apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+          cfg.UiLanguage = newLang;
+          apiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function () {
+            window.location.reload();
+          });
+        });
+      });
+    })();
+
     // Whisper-settings panel: these live in each worker's env file, not in the
     // plugin config, so instead of saving them we generate an idempotent
     // command the operator pastes on the worker box. Choices persist in
@@ -973,7 +1416,7 @@
         copyBtn.addEventListener('click', function () {
           var text = cmdBox.textContent;
           var label = copyBtn.querySelector('span:last-child');
-          function ok() { if (label) { var o = label.textContent; label.textContent = 'Kopieret!'; setTimeout(function () { label.textContent = o; }, 1600); } }
+          function ok() { if (label) { var o = label.textContent; label.textContent = sgT('Kopieret!'); setTimeout(function () { label.textContent = o; }, 1600); } }
           if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(ok, fallbackCopy);
           } else { fallbackCopy(); }
@@ -1006,7 +1449,7 @@
         mode = 'idle';
       }
       return '<span class="sgGlyph sgGlyph-' + mode + '" title="' +
-        ({ idle: 'Online, ledig', work: 'Arbejder', pause: 'Pauset', off: 'Offline', unknown: 'Tjekker…' })[mode] +
+        ({ idle: sgT('Online, ledig'), work: sgT('Arbejder'), pause: sgT('Pauset'), off: sgT('Offline'), unknown: sgT('Tjekker…') })[mode] +
         '"><span class="sgGlyphDot"></span></span>';
     }
 
@@ -1015,12 +1458,12 @@
     function formatActivity(label) {
       var s = String(label);
       if (s.indexOf('[whisper] ') === 0) {
-        return 'Transskriberer: ' + s.slice(10);
+        return sgT('Transskriberer: ') + s.slice(10);
       }
       if (s.indexOf('[oversætter] ') === 0) {
-        return 'Oversætter: ' + s.slice(13);
+        return sgT('Oversætter: ') + s.slice(13);
       }
-      return 'Synkroniserer: ' + s.split(/[\\/]/).pop();
+      return sgT('Synkroniserer: ') + s.split(/[\\/]/).pop();
     }
 
     // Worker pool state, kept in sync with cfg.WorkersJson.
@@ -1048,7 +1491,7 @@
           return '<button type="button" data-sg-role="' + r.key + '" data-sg-worker="' + i + '" ' +
             'style="border:1px solid ' + (on ? 'rgba(59,130,246,.9)' : 'rgba(255,255,255,.2)') + ';' +
             'background:' + (on ? 'rgba(59,130,246,.85)' : 'transparent') + ';color:' + (on ? '#fff' : 'rgba(255,255,255,.55)') + ';' +
-            'border-radius:999px;padding:.12em .7em;font-size:.75em;cursor:pointer;">' + r.label + '</button>';
+            'border-radius:999px;padding:.12em .7em;font-size:.75em;cursor:pointer;">' + sgT(r.label) + '</button>';
         }).join('') + '</span>';
     }
 
@@ -1063,8 +1506,8 @@
         workerList.innerHTML =
           '<div style="text-align:center;padding:2em 1em;">' +
             '<span class="material-icons rocket_launch" aria-hidden="true" style="font-size:44px;color:rgba(59,130,246,.9);"></span>' +
-            '<div style="font-weight:700;font-size:1.1em;margin-top:.5em;">Ingen workers endnu</div>' +
-            '<div style="opacity:.7;font-size:.9em;margin:.4em auto .9em;max-width:34em;">Subtitle Guard skal bruge mindst én worker-maskine til sync, transskription og oversættelse. Guiden tager dig igennem det hele - inkl. rettighederne, som er det vigtigste trin.</div>' +
+            '<div style="font-weight:700;font-size:1.1em;margin-top:.5em;">' + sgT('Ingen workers endnu') + '</div>' +
+            '<div style="opacity:.7;font-size:.9em;margin:.4em auto .9em;max-width:34em;">' + sgT('Subtitle Guard skal bruge mindst én worker-maskine til sync, transskription og oversættelse. Guiden tager dig igennem det hele - inkl. rettighederne, som er det vigtigste trin.') + '</div>' +
             '<button type="button" is="emby-button" class="raised button-submit emby-button" data-sg-openguide="1" style="min-width:auto;padding:.5em 1.4em;">Getting Started</button>' +
           '</div>';
         var guideBtn = workerList.querySelector('[data-sg-openguide]');
@@ -1107,7 +1550,7 @@
             (st.whisper_model ? ' (' + st.whisper_model + ')' : '');
         }
         if (st && st.online && st.translate) {
-          caps += ' · Oversættelse: NLLB';
+          caps += sgT(' · Oversættelse: NLLB');
         }
         if (st && st.online && st.version) {
           caps += ' · v' + st.version;
@@ -1119,8 +1562,8 @@
         if (st && st.online && st.version && newestVersion
             && sgCmpVer(st.version, newestVersion) < 0) {
           versionWarn = '<span style="display:block;color:#d29922;font-size:.78em;margin-top:.15em;">' +
-            '⚠ Ældre worker-version (v' + st.version + ' - nyeste i poolen er v' + newestVersion +
-            '). Opdaterer normalt selv inden for et døgn.</span>';
+            sgT('⚠ Ældre worker-version (v') + st.version + sgT(' - nyeste i poolen er v') + newestVersion +
+            sgT('). Opdaterer normalt selv inden for et døgn.') + '</span>';
         }
 
         // CPU boxes can transcribe again, but the smaller model means poorer
@@ -1128,21 +1571,21 @@
         var cpuWarn = '';
         if (st && st.online && st.transcribe === 'cpu' && workerActiveRoles(w).transcribe) {
           cpuWarn = '<span style="display:block;color:#d29922;font-size:.78em;margin-top:.15em;">' +
-            '⚠ CPU-transskription: lavere kvalitet og markant langsommere. GPU anbefales.</span>';
+            sgT('⚠ CPU-transskription: lavere kvalitet og markant langsommere. GPU anbefales.') + '</span>';
         }
 
         var detail = '';
         if (paused) {
-          detail = 'Pauset' + (st.queue_depth > 0 ? ' (' + st.queue_depth + ' venter i kø)' : '');
+          detail = sgT('Pauset') + (st.queue_depth > 0 ? ' (' + st.queue_depth + sgT(' venter i kø)') : '');
         } else if (st && st.online) {
-          detail = st.queue_depth > 0 ? 'Online, ' + st.queue_depth + ' i kø' : 'Online, ledig';
+          detail = st.queue_depth > 0 ? 'Online, ' + st.queue_depth + sgT(' i kø') : sgT('Online, ledig');
           if (st.done > 0 || st.failed > 0) {
-            detail += ' · ' + st.done + ' klaret' + (st.failed > 0 ? ', ' + st.failed + ' fejlet' : '');
+            detail += ' · ' + st.done + sgT(' klaret') + (st.failed > 0 ? ', ' + st.failed + sgT(' fejlet') : '');
           }
         } else if (st) {
-          detail = 'Offline' + (st.error ? ' (' + st.error + ')' : '');
+          detail = sgT('Offline') + (st.error ? ' (' + st.error + ')' : '');
         } else {
-          detail = 'Tjekker status...';
+          detail = sgT('Tjekker status...');
         }
 
         // One line per running job: "Synkroniserer: X" / "Transskriberer: Y".
@@ -1186,10 +1629,10 @@
         if (st && st.online) {
           controls += '<button type="button" is="emby-button" class="raised emby-button" data-sg-control="' +
             (paused ? 'resume' : 'pause') + '" data-sg-url="' + w.Url.replace(/"/g, '') + '" style="' + ctrlBtnStyle + '">' +
-            (paused ? 'Fortsæt' : 'Pause') + '</button>';
+            (paused ? sgT('Fortsæt') : sgT('Pause')) + '</button>';
           if (st.queue_depth > 0) {
             controls += '<button type="button" is="emby-button" class="raised emby-button" data-sg-control="clear" data-sg-url="' +
-              w.Url.replace(/"/g, '') + '" style="' + ctrlBtnStyle + '" title="Tøm køen (' + st.queue_depth + ' jobs)">Ryd kø</button>';
+              w.Url.replace(/"/g, '') + '" style="' + ctrlBtnStyle + '" title="' + sgT('Tøm køen (') + st.queue_depth + ' jobs)">' + sgT('Ryd kø') + '</button>';
           }
         }
         return (
@@ -1205,7 +1648,7 @@
               roleChipsHtml(w, i) +
             '</span>' +
             controls +
-            '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="' + ctrlBtnStyle + '">Fjern</button>' +
+            '<button type="button" is="emby-button" class="raised emby-button" data-sg-remove="' + i + '" style="' + ctrlBtnStyle + '">' + sgT('Fjern') + '</button>' +
           '</div>'
         );
       }).join('');
@@ -1311,17 +1754,17 @@
       restoreOsBtn.addEventListener('click', function () {
         if (!restoreOsArmed) {
           restoreOsArmed = true;
-          setBtnLabel(restoreOsBtn, 'Er du sikker? Klik igen for at gendanne');
+          setBtnLabel(restoreOsBtn, sgT('Er du sikker? Klik igen for at gendanne'));
           restoreOsArmTimer = setTimeout(function () {
             restoreOsArmed = false;
-            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
+            setBtnLabel(restoreOsBtn, sgT(restoreOsDefaultLabel));
           }, 6000);
           return;
         }
         clearTimeout(restoreOsArmTimer);
         restoreOsArmed = false;
         restoreOsBtn.disabled = true;
-        setBtnLabel(restoreOsBtn, 'Gendanner...');
+        setBtnLabel(restoreOsBtn, sgT('Gendanner...'));
         if (restoreOsStatus) { restoreOsStatus.textContent = ''; }
         fetch(apiClient.getUrl('SubtitleGuard/restore-opensubtitles'), {
           method: 'POST',
@@ -1332,20 +1775,20 @@
           })
           .then(function (r) {
             restoreOsBtn.disabled = false;
-            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
+            setBtnLabel(restoreOsBtn, sgT(restoreOsDefaultLabel));
             if (!r.ok || r.data.error) {
-              if (restoreOsStatus) { restoreOsStatus.textContent = r.data.error || 'Noget gik galt - prøv igen.'; }
+              if (restoreOsStatus) { restoreOsStatus.textContent = r.data.error || sgT('Noget gik galt - prøv igen.'); }
               return;
             }
             if (restoreOsStatus) {
-              restoreOsStatus.textContent = (r.data.restored || 0) + ' gendannet, ' + (r.data.skipped || 0) +
-                ' sprunget over, ' + (r.data.failed || 0) + ' fejlede.';
+              restoreOsStatus.textContent = (r.data.restored || 0) + sgT(' gendannet, ') + (r.data.skipped || 0) +
+                sgT(' sprunget over, ') + (r.data.failed || 0) + sgT(' fejlede.');
             }
           })
           .catch(function () {
             restoreOsBtn.disabled = false;
-            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
-            if (restoreOsStatus) { restoreOsStatus.textContent = 'Kunne ikke kontakte workerne - prøv igen.'; }
+            setBtnLabel(restoreOsBtn, sgT(restoreOsDefaultLabel));
+            if (restoreOsStatus) { restoreOsStatus.textContent = sgT('Kunne ikke kontakte workerne - prøv igen.'); }
           });
       });
     }
@@ -1388,8 +1831,8 @@
         return '<div style="display:flex;gap:.8em;align-items:baseline;padding:.45em 0;border-bottom:1px solid rgba(255,255,255,.07);">' +
           '<span style="flex:0 0 auto;background:rgba(248,81,73,.15);border:1px solid rgba(248,81,73,.4);color:#ffb4ae;' +
           'border-radius:8px;padding:.1em .6em;font-size:.8em;font-weight:700;">' + kinds[k] + '</span>' +
-          '<span style="min-width:0;"><b style="font-size:.9em;">' + def.label + '</b>' +
-          '<span style="display:block;font-size:.8em;opacity:.65;line-height:1.4;">' + def.hint + '</span></span>' +
+          '<span style="min-width:0;"><b style="font-size:.9em;">' + sgT(def.label) + '</b>' +
+          '<span style="display:block;font-size:.8em;opacity:.65;line-height:1.4;">' + sgT(def.hint) + '</span></span>' +
         '</div>';
       }).join('');
     }
@@ -1406,7 +1849,7 @@
           var totals = data.totals || {};
           tiles.innerHTML = STAT_CATS.map(function (c) {
             return '<div class="sgTile"><span class="sgTileNum" style="color:' + c.color + ';">' +
-              (totals[c.key] || 0) + '</span><span class="sgTileLabel">' + c.label + '</span></div>';
+              (totals[c.key] || 0) + '</span><span class="sgTileLabel">' + sgT(c.label) + '</span></div>';
           }).join('');
 
           // Stacked daily bars for the last 14 days, pure inline SVG.
@@ -1436,7 +1879,7 @@
               y -= h;
               segs += '<rect x="' + (x + 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + (bw - 4).toFixed(1) +
                 '" height="' + h.toFixed(1) + '" rx="2" fill="' + c.color + '"><title>' + d + ': ' + n + ' ' +
-                c.label.toLowerCase() + '</title></rect>';
+                sgT(c.label).toLowerCase() + '</title></rect>';
             });
             var dayLabel = di % 2 === 0 ? d.slice(8, 10) + '/' + d.slice(5, 7) : '';
             var label = dayLabel
@@ -1450,13 +1893,13 @@
             '<div class="sgChartWrap"><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-width:' + W + 'px;display:block;">' +
             bars + '</svg></div>' +
             '<div class="sgLegend">' + STAT_CATS.map(function (c) {
-              return '<span><span class="sgLegendDot" style="background:' + c.color + ';"></span>' + c.label + '</span>';
+              return '<span><span class="sgLegendDot" style="background:' + c.color + ';"></span>' + sgT(c.label) + '</span>';
             }).join('') + '</div>';
 
           renderFailureTriage(data.failure_kinds);
         })
         .catch(function () {
-          tiles.innerHTML = '<div style="opacity:.6;">Kunne ikke hente statistik (er workerne opdateret og online?).</div>';
+          tiles.innerHTML = '<div style="opacity:.6;">' + sgT('Kunne ikke hente statistik (er workerne opdateret og online?).') + '</div>';
           chart.innerHTML = '';
         });
     }
@@ -1472,7 +1915,7 @@
         .then(function (data) {
           var items = data.items || [];
           if (!items.length) {
-            box.innerHTML = '<div style="opacity:.6;">Ingen transskriptioner endnu.</div>';
+            box.innerHTML = '<div style="opacity:.6;">' + sgT('Ingen transskriptioner endnu.') + '</div>';
             return;
           }
           box.innerHTML = items.map(function (it) {
@@ -1490,7 +1933,7 @@
             var retryBtn = ok ? '' :
               '<button type="button" is="emby-button" class="raised emby-button" data-sg-retrypath="' +
               String(it.media_path || '').replace(/"/g, '&quot;').replace(/</g, '&lt;') +
-              '" style="min-width:auto;padding:.25em .8em;font-size:.78em;flex:0 0 auto;">Prøv igen</button>';
+              '" style="min-width:auto;padding:.25em .8em;font-size:.78em;flex:0 0 auto;">' + sgT('Prøv igen') + '</button>';
             return '<div class="sgHistRow">' +
               '<span class="material-icons ' + (ok ? 'check_circle' : 'error') + '" style="color:' + (ok ? '#3fb950' : '#f85149') + ';"></span>' +
               '<span class="sgHistMain">' +
@@ -1504,7 +1947,7 @@
           }).join('');
         })
         .catch(function () {
-          box.innerHTML = '<div style="opacity:.6;">Kunne ikke hente historik (er workerne opdateret og online?).</div>';
+          box.innerHTML = '<div style="opacity:.6;">' + sgT('Kunne ikke hente historik (er workerne opdateret og online?).') + '</div>';
         });
     }
 
@@ -1586,6 +2029,15 @@
 
     window.Dashboard.showLoadingMsg();
     apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+      // Config page's own config load - the second of the two places
+      // SG_LANG is set (the other is loadConfig(), for player/item pages).
+      // Everything that renders text below this point (static-text walk,
+      // then populateConfigUi()'s dynamic renders via sgT()) runs after
+      // SG_LANG is correct.
+      SG_LANG = cfg.UiLanguage === 'en' ? 'en' : 'da';
+      if (SG_LANG === 'en') { translateConfigPageStaticText(page); }
+      var langSelect = page.querySelector('#SgUiLanguage');
+      if (langSelect) { langSelect.value = SG_LANG; }
       populateConfigUi(cfg);
       window.Dashboard.hideLoadingMsg();
     });
@@ -1615,7 +2067,7 @@
         var url = page.querySelector('#SgNewWorkerUrl').value.trim().replace(/\/+$/, '');
         var key = page.querySelector('#SgNewWorkerKey').value.trim();
         if (!url || !key) {
-          window.Dashboard.alert('Worker URL og enrollment-kode skal udfyldes.');
+          window.Dashboard.alert(sgT('Worker URL og enrollment-kode skal udfyldes.'));
           return;
         }
         var roles = [];
@@ -1623,7 +2075,7 @@
           if (cb.checked) { roles.push(cb.getAttribute('data-sg-newrole')); }
         });
         if (!roles.length) {
-          window.Dashboard.alert('Vælg mindst én rolle for workeren.');
+          window.Dashboard.alert(sgT('Vælg mindst én rolle for workeren.'));
           return;
         }
         workers.push({ Name: name || url, Url: url, ApiKey: key, Roles: roles });
@@ -1662,7 +2114,7 @@
           active[role] = !active[role];
           var next = ROLE_DEFS.map(function (r) { return r.key; }).filter(function (k) { return active[k]; });
           if (!next.length) {
-            window.Dashboard.alert('En worker skal have mindst én rolle.');
+            window.Dashboard.alert(sgT('En worker skal have mindst én rolle.'));
             return;
           }
           w.Roles = next;
@@ -1694,10 +2146,10 @@
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            retryFailedBtn.querySelector('span').textContent = d.error ? d.error : 'Opgaver sat i kø ✓';
+            retryFailedBtn.querySelector('span').textContent = d.error ? d.error : sgT('Opgaver sat i kø ✓');
           })
           .catch(function () {
-            retryFailedBtn.querySelector('span').textContent = 'Fejl - prøv igen';
+            retryFailedBtn.querySelector('span').textContent = sgT('Fejl - prøv igen');
             retryFailedBtn.disabled = false;
           });
       });
@@ -1724,7 +2176,7 @@
         var btn = e.target.closest ? e.target.closest('[data-sg-retrypath]') : null;
         if (!btn) { return; }
         btn.disabled = true;
-        setBtnLabel(btn, 'Sender...');
+        setBtnLabel(btn, sgT('Sender...'));
         fetch(apiClient.getUrl('SubtitleGuard/transcribe-path'), {
           method: 'POST',
           headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
@@ -1732,11 +2184,11 @@
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            setBtnLabel(btn, d.error ? (d.error.length > 30 ? 'Fejl' : d.error) : 'I kø ✓');
+            setBtnLabel(btn, d.error ? (d.error.length > 30 ? sgT('Fejl') : d.error) : sgT('I kø ✓'));
             if (d.error) { btn.disabled = false; }
           })
           .catch(function () {
-            setBtnLabel(btn, 'Fejl');
+            setBtnLabel(btn, sgT('Fejl'));
             btn.disabled = false;
           });
       });
@@ -1833,17 +2285,17 @@
       resetDefaultsBtn.addEventListener('click', function () {
         if (!resetDefaultsArmed) {
           resetDefaultsArmed = true;
-          setBtnLabel(resetDefaultsBtn, 'Er du sikker? Klik igen for at nulstille');
+          setBtnLabel(resetDefaultsBtn, sgT('Er du sikker? Klik igen for at nulstille'));
           resetDefaultsArmTimer = setTimeout(function () {
             resetDefaultsArmed = false;
-            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+            setBtnLabel(resetDefaultsBtn, sgT(resetDefaultsLabel));
           }, 6000);
           return;
         }
         clearTimeout(resetDefaultsArmTimer);
         resetDefaultsArmed = false;
         resetDefaultsBtn.disabled = true;
-        setBtnLabel(resetDefaultsBtn, 'Nulstiller...');
+        setBtnLabel(resetDefaultsBtn, sgT('Nulstiller...'));
         window.Dashboard.showLoadingMsg();
         apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
           Object.keys(SG_DEFAULT_CONFIG).forEach(function (key) {
@@ -1856,18 +2308,18 @@
             window.Dashboard.hideLoadingMsg();
             window.Dashboard.processPluginConfigurationUpdateResult(result);
             resetDefaultsBtn.disabled = false;
-            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+            setBtnLabel(resetDefaultsBtn, sgT(resetDefaultsLabel));
           }).catch(function () {
             window.Dashboard.hideLoadingMsg();
             resetDefaultsBtn.disabled = false;
-            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
-            window.Dashboard.alert('Kunne ikke gemme standardindstillingerne - prøv igen.');
+            setBtnLabel(resetDefaultsBtn, sgT(resetDefaultsLabel));
+            window.Dashboard.alert(sgT('Kunne ikke gemme standardindstillingerne - prøv igen.'));
           });
         }).catch(function () {
           window.Dashboard.hideLoadingMsg();
           resetDefaultsBtn.disabled = false;
-          setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
-          window.Dashboard.alert('Kunne ikke hente konfigurationen - prøv igen.');
+          setBtnLabel(resetDefaultsBtn, sgT(resetDefaultsLabel));
+          window.Dashboard.alert(sgT('Kunne ikke hente konfigurationen - prøv igen.'));
         });
       });
     }

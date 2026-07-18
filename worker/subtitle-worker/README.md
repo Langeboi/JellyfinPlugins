@@ -83,6 +83,14 @@ INSTALL_DIR=/opt/subtitle-worker2 SERVICE_NAME=subtitle-worker2 \
 
 Tilmeld den anden instans i pluginet som en helt almindelig worker.
 
+## Gendan originale undertekster
+
+Fortryder du alle rettelser (fx for at starte forfra), kan hele poolen
+gendanne de undertekster den har ændret: **Synkronisering → Gendan originale
+undertekster** i pluginet. Hver worker gendanner fra sine egne `.bak`-filer,
+og backupperne slettes ikke, så du kan gendanne igen senere. Enkelte emner
+kan stadig fortrydes fra listen **Seneste rettelser**.
+
 ## Nyttige kommandoer på en worker
 
 ```bash
@@ -92,6 +100,10 @@ sudo systemctl start subtitle-worker-update    # opdatér nu
 # Pin en maskine til kun sync: tilføj SUBWORKER_TRANSCRIBE=0 til
 # /opt/subtitle-worker/env og genstart tjenesten.
 ```
+
+Workerens version vises på Workers-fanen i pluginet - maskiner der halter
+efter poolens nyeste version markeres, og indhenter normalt selv forskellen
+via den daglige auto-opdatering.
 
 ## Krav
 
