@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
@@ -214,6 +217,283 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 _logger.LogWarning(ex, "SeerrRequests: failed to resolve media details for {MediaType}/{TmdbId}", mediaType, tmdbId);
                 return null;
             }
+        }
+
+        // ---- "Kommer Snart" release calendar ----
+        // Aggregates EVERY request in Seerr (all users - this is a shared
+        // household calendar) into one date-sorted list of what actually
+        // lands next. Two deliberate rules:
+        //   * Movies report the DIGITAL/streaming date, never the theatrical
+        //     one - a cinema date must not masquerade as "on a streamer".
+        //   * Already-available series stay on the calendar as long as they
+        //     still have a next episode, so "S3E7 on tuesday" keeps showing
+        //     after the show is in the library.
+        private static readonly ConcurrentDictionary<string, (JObject Entry, DateTime ExpiresAt)> ReleaseCache = new();
+        private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromHours(12);
+        private static readonly TimeSpan CalendarCacheTtl = TimeSpan.FromMinutes(30);
+        private static (string? Json, DateTime ExpiresAt) _calendarCache;
+
+        // One detail call per unique requested title would hammer Seerr on a
+        // big library, so cap the parallelism and lean on the 12h item cache.
+        private static readonly SemaphoreSlim DetailLimiter = new(5);
+
+        // Digital dates are per-country and TMDB often has no DK entry at
+        // all, so US is the pragmatic fallback before "whatever exists".
+        private static readonly string[] PreferredRegions = { "DK", "US" };
+
+        // TMDB release types: 1 premiere, 2 theatrical (limited), 3 theatrical,
+        // 4 digital, 5 physical, 6 TV. We want what lands on a streamer, so
+        // 4 first, then 6, then 5 - and NEVER 2/3.
+        private static readonly int[] DigitalTypePriority = { 4, 6, 5 };
+
+        [HttpGet("calendar")]
+        public async Task<ActionResult> Calendar([FromQuery] int take = 100)
+        {
+            var config = Plugin.Instance!.Configuration;
+            if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))
+            {
+                return Json(new JObject { ["results"] = new JArray() });
+            }
+
+            if (_calendarCache.Json != null && _calendarCache.ExpiresAt > DateTime.UtcNow)
+            {
+                return new ContentResult { Content = _calendarCache.Json, ContentType = "application/json", StatusCode = 200 };
+            }
+
+            try
+            {
+                using var request = BuildRequest(HttpMethod.Get, $"/api/v1/request?take={Math.Clamp(take, 1, 200)}");
+                using var response = await HttpClient.SendAsync(request);
+                var text = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return Json(new JObject { ["error"] = $"Seerr returned {(int)response.StatusCode}" }, (int)response.StatusCode);
+                }
+
+                var results = JObject.Parse(text)["results"] as JArray ?? new JArray();
+
+                // Several users requesting the same title must not produce
+                // duplicate calendar rows.
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var targets = new List<(string MediaType, int TmdbId, int MediaStatus)>();
+                foreach (var item in results)
+                {
+                    var media = item["media"];
+                    var tmdbId = media?["tmdbId"]?.Value<int?>();
+                    var mediaType = media?["mediaType"]?.ToString();
+                    if (tmdbId == null || (mediaType != "movie" && mediaType != "tv"))
+                    {
+                        continue;
+                    }
+
+                    if (seen.Add(mediaType + ":" + tmdbId.Value))
+                    {
+                        targets.Add((mediaType!, tmdbId.Value, media?["status"]?.Value<int?>() ?? 0));
+                    }
+                }
+
+                var resolved = await Task.WhenAll(targets.Select(t => ResolveCalendarEntry(t.MediaType, t.TmdbId, t.MediaStatus)));
+
+                // Today in local terms: a title releasing "today" is still
+                // news, so the cutoff is the start of the current day.
+                var today = DateTime.UtcNow.Date;
+                var upcoming = new List<JObject>();
+                var undated = new List<JObject>();
+
+                foreach (var entry in resolved)
+                {
+                    if (entry == null)
+                    {
+                        continue;
+                    }
+
+                    var date = entry["date"]?.ToString();
+                    if (!string.IsNullOrEmpty(date))
+                    {
+                        // Past releases are simply out already - not "coming soon".
+                        if (DateTime.TryParse(date, out var parsed) && parsed.Date >= today)
+                        {
+                            upcoming.Add(entry);
+                        }
+                    }
+                    else if ((entry["mediaStatus"]?.Value<int?>() ?? 0) < 5)
+                    {
+                        // No date known yet, and not fully in the library:
+                        // genuinely still pending, so it belongs on the list.
+                        undated.Add(entry);
+                    }
+                }
+
+                upcoming.Sort((a, b) => string.CompareOrdinal(a["date"]?.ToString(), b["date"]?.ToString()));
+
+                var payload = new JObject
+                {
+                    ["results"] = new JArray(upcoming.Concat(undated))
+                };
+
+                var serialized = payload.ToString();
+                _calendarCache = (serialized, DateTime.UtcNow.Add(CalendarCacheTtl));
+                return new ContentResult { Content = serialized, ContentType = "application/json", StatusCode = 200 };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SeerrRequests: calendar failed");
+                return Json(new JObject { ["error"] = "Could not reach Seerr." }, 502);
+            }
+        }
+
+        private async Task<JObject?> ResolveCalendarEntry(string mediaType, int tmdbId, int mediaStatus)
+        {
+            var cacheKey = mediaType + ":" + tmdbId;
+            if (ReleaseCache.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
+            {
+                return WithStatus(cached.Entry, mediaStatus);
+            }
+
+            await DetailLimiter.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                using var request = BuildRequest(HttpMethod.Get, $"/api/v1/{mediaType}/{tmdbId}");
+                using var response = await HttpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                var details = JObject.Parse(await response.Content.ReadAsStringAsync());
+                var title = (mediaType == "movie" ? details["title"] : details["name"])?.ToString();
+                if (string.IsNullOrEmpty(title))
+                {
+                    return null;
+                }
+
+                var entry = new JObject
+                {
+                    ["mediaType"] = mediaType,
+                    ["tmdbId"] = tmdbId,
+                    ["title"] = title,
+                    ["posterPath"] = details["posterPath"]?.ToString(),
+                    ["jellyfinMediaId"] = details["mediaInfo"]?["jellyfinMediaId"]?.ToString()
+                };
+
+                if (mediaType == "movie")
+                {
+                    var (date, kind) = ExtractDigitalRelease(details["releases"] as JObject);
+                    entry["date"] = date;
+                    entry["dateKind"] = kind;
+                }
+                else
+                {
+                    // Overseerr camel-cases its own model fields but passes
+                    // raw TMDB objects through underneath, so read both.
+                    var next = details["nextEpisodeToAir"] as JObject ?? details["next_episode_to_air"] as JObject;
+                    if (next != null)
+                    {
+                        entry["date"] = NormalizeDate(FirstProp(next, "airDate", "air_date"));
+                        entry["dateKind"] = "episode";
+                        entry["episodeName"] = FirstProp(next, "name");
+                        var season = FirstProp(next, "seasonNumber", "season_number");
+                        var episode = FirstProp(next, "episodeNumber", "episode_number");
+                        if (season != null && episode != null)
+                        {
+                            entry["episodeLabel"] = $"S{season.PadLeft(2, '0')}E{episode.PadLeft(2, '0')}";
+                        }
+                    }
+                }
+
+                ReleaseCache[cacheKey] = (entry, DateTime.UtcNow.Add(ReleaseCacheTtl));
+                return WithStatus(entry, mediaStatus);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SeerrRequests: calendar lookup failed for {MediaType}/{TmdbId}", mediaType, tmdbId);
+                return null;
+            }
+            finally
+            {
+                DetailLimiter.Release();
+            }
+        }
+
+        // mediaStatus is per-request, the cached entry is per-title, so stamp
+        // it onto a copy instead of poisoning the shared cache entry.
+        private static JObject WithStatus(JObject entry, int mediaStatus)
+        {
+            var clone = (JObject)entry.DeepClone();
+            clone["mediaStatus"] = mediaStatus;
+            return clone;
+        }
+
+        private static (string? Date, string? Kind) ExtractDigitalRelease(JObject? releases)
+        {
+            if (releases?["results"] is not JArray countries)
+            {
+                return (null, null);
+            }
+
+            // Type wins over region: a digital date anywhere beats a TV date
+            // in Denmark, since the question is "when can we stream it".
+            foreach (var wantedType in DigitalTypePriority)
+            {
+                foreach (var region in PreferredRegions.Append(null))
+                {
+                    foreach (var country in countries)
+                    {
+                        if (region != null
+                            && !string.Equals(country["iso_3166_1"]?.ToString(), region, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        if (country["release_dates"] is not JArray dates)
+                        {
+                            continue;
+                        }
+
+                        foreach (var entry in dates)
+                        {
+                            if (entry["type"]?.Value<int?>() != wantedType)
+                            {
+                                continue;
+                            }
+
+                            var normalized = NormalizeDate(entry["release_date"]?.ToString());
+                            if (normalized != null)
+                            {
+                                return (normalized, wantedType == 4 ? "digital" : wantedType == 6 ? "tv" : "physical");
+                            }
+                        }
+                    }
+                }
+            }
+
+            return (null, null);
+        }
+
+        // TMDB hands back "2026-08-15T00:00:00.000Z"; the calendar only ever
+        // needs the calendar day.
+        private static string? NormalizeDate(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return null;
+            }
+
+            return raw.Length >= 10 ? raw.Substring(0, 10) : raw;
+        }
+
+        private static string? FirstProp(JObject source, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                var value = source[name];
+                if (value != null && value.Type != JTokenType.Null)
+                {
+                    return value.ToString();
+                }
+            }
+
+            return null;
         }
 
         public class CreateRequestBody

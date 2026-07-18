@@ -1,0 +1,4 @@
+# .NET build output - the release zips are committed deliberately, the
+# intermediate build artifacts are not.
+bin/
+obj/

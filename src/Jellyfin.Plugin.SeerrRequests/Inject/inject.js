@@ -3,6 +3,15 @@
 
   var BUTTON_MARKER = 'data-seerr-requests-button';
   var TAB_CONTENT_ID = 'seerrRequestsTab';
+  // Second injected sibling tab: the "Kommer Snart" release calendar.
+  var CAL_BUTTON_MARKER = 'data-seerr-calendar-button';
+  var CAL_TAB_CONTENT_ID = 'seerrCalendarTab';
+
+  // Any tab button we injected ourselves - native Jellyfin tabs must be told
+  // apart from ours in the click watcher, and there are two of ours now.
+  function isInjectedTabButton(btn) {
+    return !!btn && (btn.hasAttribute(BUTTON_MARKER) || btn.hasAttribute(CAL_BUTTON_MARKER));
+  }
   var searchDebounceTimer = null;
   var genreCache = {}; // mediaType -> [{id,name}]
   var filmGenreId = null;
@@ -341,6 +350,36 @@
       '.seerrRequests-uhTitle{font-size:1.05em;margin-bottom:.2em;}' +
       '.seerrRequests-uhOverview{font-size:.78em;-webkit-line-clamp:2;}' +
       '.seerrRequests-uhAction{margin-top:.6em;}' +
+      '}' +
+      // ---- "Kommer Snart" calendar ----
+      '.seerrCal-root{padding:1.5em 3.3% 3em;max-width:1100px;margin:0 auto;}' +
+      '.seerrCal-intro{opacity:.7;font-size:.92em;line-height:1.5;margin-bottom:1.4em;}' +
+      '.seerrCal-empty{opacity:.6;padding:2em 0;text-align:center;}' +
+      '.seerrCal-month{font-size:1.15em;font-weight:700;margin:1.6em 0 .6em;padding-bottom:.35em;' +
+        'border-bottom:1px solid rgba(255,255,255,.12);}' +
+      '.seerrCal-month:first-child{margin-top:0;}' +
+      '.seerrCal-monthMuted{opacity:.55;}' +
+      '.seerrCal-note{opacity:.55;font-size:.82em;margin:-.2em 0 .7em;}' +
+      '.seerrCal-row{display:flex;align-items:center;gap:1em;padding:.6em .5em;border-radius:10px;}' +
+      '.seerrCal-row:hover{background:rgba(255,255,255,.05);}' +
+      '.seerrCal-clickable{cursor:pointer;}' +
+      '.seerrCal-poster{flex:0 0 auto;width:46px;height:69px;border-radius:6px;background-size:cover;' +
+        'background-position:center;background-color:rgba(255,255,255,.08);}' +
+      '.seerrCal-posterEmpty{background-image:none;}' +
+      '.seerrCal-info{flex:1;min-width:0;}' +
+      '.seerrCal-title{font-weight:600;font-size:1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
+      '.seerrCal-meta{opacity:.65;font-size:.83em;margin-top:.2em;white-space:nowrap;overflow:hidden;' +
+        'text-overflow:ellipsis;}' +
+      '.seerrCal-badge{display:inline-block;background:rgba(59,130,246,.22);border:1px solid rgba(59,130,246,.5);' +
+        'color:#bfdbfe;border-radius:5px;padding:.05em .45em;font-size:.9em;font-weight:600;margin-right:.5em;}' +
+      '.seerrCal-when{flex:0 0 auto;text-align:right;}' +
+      '.seerrCal-date{font-size:.92em;font-weight:600;}' +
+      '.seerrCal-rel{font-size:.78em;opacity:.55;margin-top:.1em;}' +
+      '.seerrCal-unknown{opacity:.5;font-weight:400;}' +
+      '@media (max-width:600px){' +
+        '.seerrCal-root{padding:1.2em 4% 2.5em;}' +
+        '.seerrCal-poster{width:38px;height:57px;}' +
+        '.seerrCal-rel{display:none;}' +
       '}';
     document.head.appendChild(style);
   }
@@ -372,7 +411,12 @@
     // flag - confirmed live that Jellyfin rebuilds this tab row's contents
     // on unrelated changes, silently wiping our button out from under a
     // stale flag that assumed otherwise.
-    if (slider.querySelector('[' + BUTTON_MARKER + ']')) {
+    addTabButton(slider, BUTTON_MARKER, 'Tilføj Film/Serie', activateSeerrTab);
+    addTabButton(slider, CAL_BUTTON_MARKER, 'Kommer Snart', activateCalendarTab);
+  }
+
+  function addTabButton(slider, marker, label, onClick) {
+    if (slider.querySelector('[' + marker + ']')) {
       return;
     }
 
@@ -381,8 +425,8 @@
     // as emby-scroller elsewhere in this plugin family).
     var wrapper = document.createElement('div');
     wrapper.innerHTML =
-      '<button type="button" is="emby-button" class="emby-tab-button emby-button" ' + BUTTON_MARKER + '="true">' +
-        '<div class="emby-button-foreground">Tilføj Film/Serie</div>' +
+      '<button type="button" is="emby-button" class="emby-tab-button emby-button" ' + marker + '="true">' +
+        '<div class="emby-button-foreground">' + escapeHtml(label) + '</div>' +
       '</button>';
     var btn = wrapper.firstElementChild;
 
@@ -393,7 +437,7 @@
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
-      activateSeerrTab();
+      onClick();
     }, true);
 
     slider.appendChild(btn);
@@ -411,8 +455,10 @@
     slider.setAttribute('data-seerr-native-tab-watcher', 'true');
     slider.addEventListener('click', function (e) {
       var nativeBtn = e.target.closest('.emby-tab-button');
-      if (nativeBtn && !nativeBtn.hasAttribute(BUTTON_MARKER)) {
+      // A real Jellyfin tab was clicked - stand down BOTH of our tabs.
+      if (nativeBtn && !isInjectedTabButton(nativeBtn)) {
         deactivateSeerrTab();
+        deactivateCalendarTab();
       }
     });
   }
@@ -518,27 +564,34 @@
     return tab;
   }
 
+  // Shared by both injected tabs: clear whatever is active (native tabs AND
+  // our other injected tab, which is a sibling .tabContent just like theirs),
+  // then light up ours.
+  function activateInjectedTab(homePage, tab, marker) {
+    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
+      el.classList.remove('is-active');
+    });
+    document.querySelectorAll('.emby-tab-button.emby-tab-button-active').forEach(function (el) {
+      if (!el.hasAttribute(marker)) {
+        el.classList.remove('emby-tab-button-active');
+      }
+    });
+
+    tab.classList.add('is-active');
+    var ourBtn = document.querySelector('[' + marker + ']');
+    if (ourBtn) {
+      ourBtn.classList.add('emby-tab-button-active');
+    }
+  }
+
   function activateSeerrTab() {
     var homePage = getActiveHomePage();
     if (!homePage) {
       return;
     }
 
-    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
-      el.classList.remove('is-active');
-    });
-    document.querySelectorAll('.emby-tab-button.emby-tab-button-active').forEach(function (el) {
-      if (!el.hasAttribute(BUTTON_MARKER)) {
-        el.classList.remove('emby-tab-button-active');
-      }
-    });
-
     var tab = getOrCreateSeerrTab(homePage);
-    tab.classList.add('is-active');
-    var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
-    if (ourBtn) {
-      ourBtn.classList.add('emby-tab-button-active');
-    }
+    activateInjectedTab(homePage, tab, BUTTON_MARKER);
 
     loadUpcomingHero(tab);
     loadMyRequests(tab);
@@ -747,6 +800,184 @@
     }
   }
 
+  // ---- "Kommer Snart" release calendar tab ----
+
+  function getOrCreateCalendarTab(homePage) {
+    var tab = homePage.querySelector('#' + CAL_TAB_CONTENT_ID);
+    if (tab) {
+      return tab;
+    }
+
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML =
+      '<div id="' + CAL_TAB_CONTENT_ID + '" class="tabContent pageTabContent">' +
+        '<div class="sections seerrCal-root">' +
+          '<div class="seerrCal-intro">Udgivelsesdatoer for alt der er ønsket via Seerr. Film viser <b>streaming-datoen</b> &ndash; ikke biograf-premieren.</div>' +
+          '<div class="seerrCal-list"></div>' +
+        '</div>' +
+      '</div>';
+
+    tab = wrapper.firstElementChild;
+    homePage.appendChild(tab);
+    return tab;
+  }
+
+  function activateCalendarTab() {
+    var homePage = getActiveHomePage();
+    if (!homePage) {
+      return;
+    }
+
+    var tab = getOrCreateCalendarTab(homePage);
+    activateInjectedTab(homePage, tab, CAL_BUTTON_MARKER);
+    loadCalendar(tab);
+  }
+
+  function deactivateCalendarTab(homePage) {
+    homePage = homePage || getActiveHomePage();
+    if (!homePage) {
+      return;
+    }
+    var tab = homePage.querySelector('#' + CAL_TAB_CONTENT_ID);
+    if (tab && tab.classList.contains('is-active')) {
+      tab.classList.remove('is-active');
+      restoreNativeActiveTab(homePage);
+    }
+    var ourBtn = document.querySelector('[' + CAL_BUTTON_MARKER + ']');
+    if (ourBtn) {
+      ourBtn.classList.remove('emby-tab-button-active');
+    }
+  }
+
+  function loadCalendar(tab) {
+    var list = tab.querySelector('.seerrCal-list');
+    list.innerHTML = '<div class="seerrCal-empty">Henter udgivelsesdatoer...</div>';
+    apiGet('calendar')
+      .then(function (data) {
+        renderCalendar(list, (data && data.results) || []);
+      })
+      .catch(function () {
+        list.innerHTML = '<div class="seerrCal-empty">Kunne ikke hente data fra Seerr.</div>';
+      });
+  }
+
+  // "om 3 dage" / "på fredag" reads better at a glance than a bare date, so
+  // both are shown - the date for precision, the relative bit for feel.
+  function relativeDanishDays(dateStr) {
+    var target = new Date(dateStr + 'T00:00:00');
+    if (isNaN(target.getTime())) {
+      return '';
+    }
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var days = Math.round((target - today) / 86400000);
+    if (days <= 0) {
+      return 'i dag';
+    }
+    if (days === 1) {
+      return 'i morgen';
+    }
+    if (days < 7) {
+      return 'om ' + days + ' dage';
+    }
+    if (days < 14) {
+      return 'om en uge';
+    }
+    if (days < 61) {
+      return 'om ' + Math.round(days / 7) + ' uger';
+    }
+    return 'om ' + Math.round(days / 30) + ' måneder';
+  }
+
+  function monthHeading(dateStr) {
+    var date = new Date(dateStr + 'T00:00:00');
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    var label = date.toLocaleDateString('da-DK', { month: 'long', year: 'numeric' });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  function calendarRowHtml(item) {
+    var posterUrl = tmdbImageUrl(item.posterPath, 154);
+    var poster = posterUrl
+      ? '<div class="seerrCal-poster" style="background-image:url(&quot;' + posterUrl + '&quot;)"></div>'
+      : '<div class="seerrCal-poster seerrCal-posterEmpty"></div>';
+
+    var typeLabel = item.mediaType === 'tv' ? 'Serie' : 'Film';
+    var meta = '';
+    if (item.mediaType === 'tv' && item.episodeLabel) {
+      meta = item.episodeLabel + (item.episodeName ? ' &middot; ' + escapeHtml(item.episodeName) : '');
+    } else if (item.dateKind === 'digital') {
+      meta = 'Streaming-udgivelse';
+    } else if (item.dateKind === 'tv') {
+      meta = 'TV-premiere';
+    } else if (item.dateKind === 'physical') {
+      meta = 'Fysisk udgivelse';
+    }
+
+    var when = item.date
+      ? '<div class="seerrCal-date">' + escapeHtml(formatDanishDate(item.date)) + '</div>' +
+        '<div class="seerrCal-rel">' + escapeHtml(relativeDanishDays(item.date)) + '</div>'
+      : '<div class="seerrCal-date seerrCal-unknown">Ukendt</div>';
+
+    var clickable = item.jellyfinMediaId ? ' data-jf-id="' + escapeHtml(item.jellyfinMediaId) + '"' : '';
+    return (
+      '<div class="seerrCal-row"' + clickable + '>' +
+        poster +
+        '<div class="seerrCal-info">' +
+          '<div class="seerrCal-title">' + escapeHtml(item.title) + '</div>' +
+          '<div class="seerrCal-meta"><span class="seerrCal-badge">' + typeLabel + '</span>' + meta + '</div>' +
+        '</div>' +
+        '<div class="seerrCal-when">' + when + '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderCalendar(list, items) {
+    if (!items.length) {
+      list.innerHTML = '<div class="seerrCal-empty">Intet på vej lige nu. Anmod om noget under &quot;Tilføj Film/Serie&quot;.</div>';
+      return;
+    }
+
+    var html = '';
+    var currentMonth = null;
+    var undated = [];
+
+    items.forEach(function (item) {
+      if (!item.date) {
+        undated.push(item);
+        return;
+      }
+      var heading = monthHeading(item.date);
+      if (heading !== currentMonth) {
+        currentMonth = heading;
+        html += '<div class="seerrCal-month">' + escapeHtml(heading) + '</div>';
+      }
+      html += calendarRowHtml(item);
+    });
+
+    if (undated.length) {
+      html += '<div class="seerrCal-month seerrCal-monthMuted">Dato ukendt endnu</div>';
+      html += '<div class="seerrCal-note">TMDB har endnu ikke en streaming-dato for disse &ndash; typisk fordi de stadig er i biografen.</div>';
+      undated.forEach(function (item) {
+        html += calendarRowHtml(item);
+      });
+    }
+
+    list.innerHTML = html;
+
+    list.querySelectorAll('.seerrCal-row[data-jf-id]').forEach(function (row) {
+      row.classList.add('seerrCal-clickable');
+      row.addEventListener('click', function () {
+        var id = row.getAttribute('data-jf-id');
+        if (id) {
+          window.location.hash = '#/details?id=' + encodeURIComponent(id);
+        }
+      });
+    });
+  }
+
   function deactivateSeerrTab(homePage) {
     homePage = homePage || getActiveHomePage();
     if (!homePage) {
@@ -785,6 +1016,7 @@
   function deactivateAllSeerrTabs() {
     document.querySelectorAll('.page.homePage').forEach(function (homePage) {
       deactivateSeerrTab(homePage);
+      deactivateCalendarTab(homePage);
     });
   }
 
