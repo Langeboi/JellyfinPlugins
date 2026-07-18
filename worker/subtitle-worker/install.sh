@@ -179,6 +179,11 @@ HF_HOME=$HF_CACHE_DIR
 # Set to 0 to pin this box to its current worker version (skips the daily
 # self-update timer).
 # SUBWORKER_AUTOUPDATE=0
+# NLLB (translation) shares the GPU with Whisper by default. Having both
+# large-v3 and NLLB resident at once can exhaust VRAM the first time a
+# translation actually runs - uncomment to run translation on CPU instead
+# (slower, but eliminates that shared-VRAM risk entirely).
+# SUBWORKER_NLLB_DEVICE=cpu
 EOF
 if [ -n "${CUDA_LIBS:-}" ]; then
   echo "LD_LIBRARY_PATH=$CUDA_LIBS" >> "$INSTALL_DIR/env"

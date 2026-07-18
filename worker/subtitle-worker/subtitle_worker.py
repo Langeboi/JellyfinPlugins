@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.0.0"
+WORKER_VERSION = "2.0.1"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -180,6 +180,14 @@ def _srt_timestamp(seconds: float) -> str:
 # which was explicitly the acceptable trade-off.
 NLLB_DIR = os.environ.get("SUBWORKER_NLLB_DIR", "/opt/subtitle-worker/nllb-ct2")
 NLLB_TOKENIZER = os.environ.get("SUBWORKER_NLLB_TOKENIZER", "facebook/nllb-200-distilled-1.3B")
+# Independent device override: NLLB shares WHISPER_DEVICE by default (both
+# models on the same GPU), which risks CUDA OOM the first time translation
+# actually loads NLLB alongside an already-resident large-v3 Whisper model -
+# a failure mode that can crash or hang the WHOLE process (a CUDA-level
+# fault bypasses Python's exception handling, unlike every other error path
+# in this file). Set SUBWORKER_NLLB_DEVICE=cpu to run translation on CPU
+# instead, trading speed for eliminating that shared-VRAM risk entirely.
+NLLB_DEVICE = os.environ.get("SUBWORKER_NLLB_DEVICE") or WHISPER_DEVICE
 
 try:
     import ctranslate2  # noqa: F401
@@ -212,8 +220,8 @@ def get_translator():
                     NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=False)
             _translator = ctranslate2.Translator(
                 NLLB_DIR,
-                device=WHISPER_DEVICE,
-                compute_type="float16" if WHISPER_DEVICE == "cuda" else "int8",
+                device=NLLB_DEVICE,
+                compute_type="float16" if NLLB_DEVICE == "cuda" else "int8",
             )
         return _translator, _nllb_tokenizer
 
@@ -1020,6 +1028,15 @@ def ml_loop():
                     process_transcribe_job(job)
                 else:
                     process_translate_job(job)
+        except Exception as exc:  # noqa: BLE001 - the single ML thread must
+            # never die silently. process_transcribe_job/process_translate_job
+            # already self-catch everything they know how to fail at, so
+            # reaching this handler means something unexpected slipped
+            # through - without this, an unhandled exception here would kill
+            # this daemon thread for good (Python does not restart threads),
+            # leaving every future transcribe/translate job queued forever
+            # with nothing processing them, silently, with no crash to notice.
+            print(f"[ml-worker] unexpected error, thread stays alive: {exc}", flush=True)
         finally:
             with state_lock:
                 state["processing"].pop(name, None)
@@ -1455,6 +1472,7 @@ def status(x_api_key: str = Header(default="")):
         "translate": TRANSLATE_CAPABILITY,
     }
     snapshot["whisper_model"] = WHISPER_MODEL_NAME if TRANSCRIBE_CAPABILITY else None
+    snapshot["translate_device"] = NLLB_DEVICE if TRANSLATE_CAPABILITY else None
     snapshot["version"] = WORKER_VERSION
     # Persisted outcome breakdown so problems are visible without opening
     # the database by hand (e.g. a wall of "ffsubsync-failed" is a very

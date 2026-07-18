@@ -83,6 +83,23 @@ INSTALL_DIR=/opt/subtitle-worker2 SERVICE_NAME=subtitle-worker2 \
 
 Tilmeld den anden instans i pluginet som en helt almindelig worker.
 
+## Oversættelse deler GPU'en med Whisper
+
+NLLB (oversættelse) kører som standard på samme GPU som Whisper. Har
+maskinen kun ét kort, og large-v3 allerede ligger i VRAM'en, kan det første
+rigtige oversættelsesforsøg presse VRAM'en så hårdt at hele workeren går
+offline (kræver manuel genstart af tjenesten) - en CUDA-fejl af den art
+rammer under Pythons fejlhåndtering, i modsætning til stort set alle andre
+fejl i workeren, som fanges og logges uden at noget går ned.
+
+Kør oversættelsen på CPU i stedet for at fjerne risikoen helt (langsommere,
+men uden delt VRAM):
+
+```bash
+echo "SUBWORKER_NLLB_DEVICE=cpu" | sudo tee -a /opt/subtitle-worker/env
+sudo systemctl restart subtitle-worker
+```
+
 ## Gendan originale undertekster
 
 Fortryder du alle rettelser (fx for at starte forfra), kan hele poolen
