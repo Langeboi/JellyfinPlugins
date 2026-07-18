@@ -272,6 +272,25 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             };
         }
 
+        /// <summary>
+        /// "Gendan originale undertekster": every worker restores the
+        /// subtitles it modified back to the originally downloaded content
+        /// (via its own ledger + backups). Fan-out and aggregation live in
+        /// SyncWorker.RestoreAllSubtitles.
+        /// </summary>
+        [Authorize]
+        [HttpPost("restore-opensubtitles")]
+        public async Task<ActionResult> RestoreOpenSubtitles(CancellationToken cancellationToken)
+        {
+            if (!SyncWorker.IsConfigured)
+            {
+                return Json(new JObject { ["error"] = "Ingen workers konfigureret." }, 503);
+            }
+
+            var result = await SyncWorker.RestoreAllSubtitles(cancellationToken).ConfigureAwait(false);
+            return Content(result.ToString(), "application/json");
+        }
+
         public class TranscribePathBody
         {
             public string MediaPath { get; set; } = string.Empty;

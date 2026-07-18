@@ -724,7 +724,6 @@
     var pathsInput = page.querySelector('#SgIncludedPaths');
     var workerList = page.querySelector('#SgWorkerList');
     var recentList = page.querySelector('#SgRecentList');
-    var poolSummary = page.querySelector('#SgPoolSummary');
 
     // ---- Tabs ----
     // Pure CSS/JS tabs so each feature area has room to grow without
@@ -743,10 +742,12 @@
         '.sgHeroSub{opacity:.65;font-size:.9em;margin-top:.15em;}' +
         // Help "?" button (top-right of the hero) + guide modal
         '.sgHero>div:first-child{flex:1;}' +
-        '.sgHelpBtn{flex:0 0 auto;width:38px;height:38px;border-radius:50%;font-size:1.15em;font-weight:800;cursor:pointer;' +
-        'color:#fff;background:rgba(59,130,246,.85);border:1px solid rgba(88,166,255,.6);line-height:1;' +
+        '.sgHelpBtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:.4em;border-radius:999px;' +
+        'padding:.45em 1.1em;font-size:.9em;font-weight:600;cursor:pointer;' +
+        'color:#fff;background:rgba(59,130,246,.85);border:1px solid rgba(88,166,255,.6);line-height:1.2;' +
         'box-shadow:0 2px 12px rgba(59,130,246,.35);transition:background .15s,transform .1s;}' +
-        '.sgHelpBtn:hover{background:rgba(59,130,246,1);transform:scale(1.06);}' +
+        '.sgHelpBtn .material-icons{font-size:18px;}' +
+        '.sgHelpBtn:hover{background:rgba(59,130,246,1);transform:scale(1.03);}' +
         '.sgHelpOverlay{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.62);' +
         'display:flex;align-items:flex-start;justify-content:center;padding:4vh 1em;overflow-y:auto;}' +
         '.sgHelpModal{background:#1c2230;border:1px solid rgba(255,255,255,.12);border-radius:16px;' +
@@ -838,6 +839,19 @@
       document.head.appendChild(tabStyle);
     }
 
+    // Status tab auto-refresh: while it's the active tab, poll renderStats()
+    // every 60s so the failure triage / stats tiles stay current without a
+    // manual reload. Cleared on every tab switch and when the page is left
+    // (see the lifeCheck interval further down) - guards against stacking
+    // multiple intervals.
+    var statsAutoTimer = null;
+    function stopStatsAutoRefresh() {
+      if (statsAutoTimer) {
+        clearInterval(statsAutoTimer);
+        statsAutoTimer = null;
+      }
+    }
+
     function showTab(name) {
       page.querySelectorAll('[data-sg-tab]').forEach(function (panel) {
         panel.style.display = panel.getAttribute('data-sg-tab') === name ? '' : 'none';
@@ -845,6 +859,16 @@
       page.querySelectorAll('[data-sg-tabbtn]').forEach(function (b) {
         b.classList.toggle('sgTabActive', b.getAttribute('data-sg-tabbtn') === name);
       });
+      stopStatsAutoRefresh();
+      if (name === 'status') {
+        statsAutoTimer = setInterval(function () {
+          if (!document.body.contains(page)) {
+            stopStatsAutoRefresh();
+            return;
+          }
+          renderStats();
+        }, 60000);
+      }
     }
 
     page.querySelectorAll('[data-sg-tabbtn]').forEach(function (b) {
@@ -1033,10 +1057,47 @@
         return;
       }
       if (!workers.length) {
-        workerList.innerHTML = '<div style="opacity:.7;padding:.5em 0;">Ingen workers tilmeldt endnu.</div>';
+        // First-run empty state: a proper invitation instead of a shrug.
+        // The button just clicks the real Getting Started button, so the
+        // guide modal wiring stays in exactly one place.
+        workerList.innerHTML =
+          '<div style="text-align:center;padding:2em 1em;">' +
+            '<span class="material-icons rocket_launch" aria-hidden="true" style="font-size:44px;color:rgba(59,130,246,.9);"></span>' +
+            '<div style="font-weight:700;font-size:1.1em;margin-top:.5em;">Ingen workers endnu</div>' +
+            '<div style="opacity:.7;font-size:.9em;margin:.4em auto .9em;max-width:34em;">Subtitle Guard skal bruge mindst én worker-maskine til sync, transskription og oversættelse. Guiden tager dig igennem det hele - inkl. rettighederne, som er det vigtigste trin.</div>' +
+            '<button type="button" is="emby-button" class="raised button-submit emby-button" data-sg-openguide="1" style="min-width:auto;padding:.5em 1.4em;">Getting Started</button>' +
+          '</div>';
+        var guideBtn = workerList.querySelector('[data-sg-openguide]');
+        if (guideBtn) {
+          guideBtn.addEventListener('click', function () {
+            var helpBtn = page.querySelector('#SgHelpButton');
+            if (helpBtn) { helpBtn.click(); }
+          });
+        }
         return;
       }
       var ctrlBtnStyle = 'min-width:auto;padding:.3em .9em;font-size:.85em;';
+
+      // Newest worker version present in the pool - used to flag stragglers.
+      // Versions are dotted ints; compare numerically, not as strings.
+      function sgCmpVer(a, b) {
+        var pa = String(a).split('.'), pb = String(b).split('.');
+        for (var k = 0; k < Math.max(pa.length, pb.length); k++) {
+          var na = parseInt(pa[k] || '0', 10), nb = parseInt(pb[k] || '0', 10);
+          if (na !== nb) { return na - nb; }
+        }
+        return 0;
+      }
+      var newestVersion = null;
+      if (statusByUrl) {
+        Object.keys(statusByUrl).forEach(function (u) {
+          var s = statusByUrl[u];
+          if (s && s.online && s.version
+              && (newestVersion === null || sgCmpVer(s.version, newestVersion) > 0)) {
+            newestVersion = s.version;
+          }
+        });
+      }
       workerList.innerHTML = workers.map(function (w, i) {
         var st = statusByUrl ? statusByUrl[w.Url] : null;
         var paused = st && st.online && st.paused;
@@ -1047,6 +1108,19 @@
         }
         if (st && st.online && st.translate) {
           caps += ' · Oversættelse: NLLB';
+        }
+        if (st && st.online && st.version) {
+          caps += ' · v' + st.version;
+        }
+
+        // Behind the newest version in the pool: say so, calmly - the daily
+        // self-update timer normally closes the gap within a day.
+        var versionWarn = '';
+        if (st && st.online && st.version && newestVersion
+            && sgCmpVer(st.version, newestVersion) < 0) {
+          versionWarn = '<span style="display:block;color:#d29922;font-size:.78em;margin-top:.15em;">' +
+            '⚠ Ældre worker-version (v' + st.version + ' - nyeste i poolen er v' + newestVersion +
+            '). Opdaterer normalt selv inden for et døgn.</span>';
         }
 
         // CPU boxes can transcribe again, but the smaller model means poorer
@@ -1086,8 +1160,22 @@
             var filled = Math.round(pct / 20);
             var blocks = '';
             for (var b = 0; b < 5; b++) {
-              blocks += '<span style="flex:1;height:6px;border-radius:3px;' +
-                'background:' + (b < filled ? 'rgba(59,130,246,.95)' : 'rgba(255,255,255,.15)') + ';"></span>';
+              var blockStyle = 'flex:1;height:6px;border-radius:3px;';
+              if (b < filled) {
+                // Filled blocks get a subtle shimmer sweep; the leading
+                // (most recently filled) block also gets a gentle pulse so
+                // it reads as "actively working" even though the whole bar
+                // is rebuilt from scratch on every poll (no width transition
+                // survives that, so the animation has to live on the block).
+                blockStyle += 'background:linear-gradient(90deg,rgba(59,130,246,.7),rgba(96,165,250,1),rgba(59,130,246,.7));' +
+                  'background-size:200% 100%;';
+                blockStyle += (b === filled - 1)
+                  ? 'animation:sgMlShimmer 1.6s linear infinite,sgPulse 1.3s ease-in-out infinite;box-shadow:0 0 6px 1px rgba(59,130,246,.55);'
+                  : 'animation:sgMlShimmer 1.6s linear infinite;';
+              } else {
+                blockStyle += 'background:rgba(255,255,255,.15);';
+              }
+              blocks += '<span style="' + blockStyle + '"></span>';
             }
             activityHtml += '<span style="display:flex;align-items:center;gap:4px;margin-top:.25em;max-width:340px;">' +
               blocks + '<span style="font-size:.72em;opacity:.65;flex:0 0 auto;">' + pct + '%</span></span>';
@@ -1111,6 +1199,7 @@
               '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
               '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
                 w.Url.replace(/</g, '&lt;') + ' - ' + detail.replace(/</g, '&lt;') + caps.replace(/</g, '&lt;') + '</span>' +
+              versionWarn +
               cpuWarn +
               activityHtml +
               roleChipsHtml(w, i) +
@@ -1123,7 +1212,9 @@
       if (!document.getElementById('sgPulseStyle')) {
         var pulse = document.createElement('style');
         pulse.id = 'sgPulseStyle';
-        pulse.textContent = '@keyframes sgPulse{0%,100%{opacity:1;}50%{opacity:.35;}}';
+        pulse.textContent =
+          '@keyframes sgPulse{0%,100%{opacity:1;}50%{opacity:.35;}}' +
+          '@keyframes sgMlShimmer{0%{background-position:0% 0;}100%{background-position:200% 0;}}';
         document.head.appendChild(pulse);
       }
     }
@@ -1141,31 +1232,6 @@
           }
         });
       });
-    }
-
-    function renderPoolSummary(workers) {
-      if (!poolSummary) {
-        return;
-      }
-      var totals = { fixed: 0, insync: 0, transcribed: 0, translated: 0, suspect: 0, failed: 0 };
-      // Statuses that mean "resolved, nothing wrong" - never counted as failures.
-      var benign = { 'already-has-sub': 1, 'rolled-back': 1, 'suspect-offset': 1 };
-      workers.forEach(function (s) {
-        var o = s.outcomes || {};
-        Object.keys(o).forEach(function (k) {
-          if (k === 'fixed') { totals.fixed += o[k]; }
-          else if (k === 'in-sync') { totals.insync += o[k]; }
-          else if (k.indexOf('transcribed:') === 0) { totals.transcribed += o[k]; }
-          else if (k === 'translated') { totals.translated += o[k]; }
-          else if (k === 'suspect-offset') { totals.suspect += o[k]; }
-          else if (!benign[k]) { totals.failed += o[k]; }
-        });
-      });
-      poolSummary.textContent =
-        'I alt på tværs af workers: ' + totals.fixed + ' undertekster rettet · ' +
-        totals.insync + ' var allerede i sync · ' + totals.transcribed + ' genereret (Whisper) · ' +
-        totals.translated + ' oversat til dansk · ' + totals.suspect + ' sprunget over (for skæve) · ' +
-        totals.failed + ' fejlet';
     }
 
     function renderRecentFixes() {
@@ -1230,6 +1296,58 @@
           });
       });
       renderRecentFixes();
+    }
+
+    // "Gendan alle undertekster" (restore-opensubtitles): destructive and
+    // pool-wide, so it needs a real confirmation - two-click arm/fire
+    // instead of window.confirm (blocked/awkward inside the dashboard iframe
+    // on this server, same reasoning as elsewhere in this file).
+    var restoreOsBtn = page.querySelector('#SgRestoreOsBtn');
+    if (restoreOsBtn) {
+      var restoreOsStatus = page.querySelector('#SgRestoreOsStatus');
+      var restoreOsDefaultLabel = 'Gendan alle undertekster';
+      var restoreOsArmed = false;
+      var restoreOsArmTimer = null;
+      restoreOsBtn.addEventListener('click', function () {
+        if (!restoreOsArmed) {
+          restoreOsArmed = true;
+          setBtnLabel(restoreOsBtn, 'Er du sikker? Klik igen for at gendanne');
+          restoreOsArmTimer = setTimeout(function () {
+            restoreOsArmed = false;
+            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
+          }, 6000);
+          return;
+        }
+        clearTimeout(restoreOsArmTimer);
+        restoreOsArmed = false;
+        restoreOsBtn.disabled = true;
+        setBtnLabel(restoreOsBtn, 'Gendanner...');
+        if (restoreOsStatus) { restoreOsStatus.textContent = ''; }
+        fetch(apiClient.getUrl('SubtitleGuard/restore-opensubtitles'), {
+          method: 'POST',
+          headers: { 'X-Emby-Token': apiClient.accessToken() }
+        })
+          .then(function (resp) {
+            return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; });
+          })
+          .then(function (r) {
+            restoreOsBtn.disabled = false;
+            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
+            if (!r.ok || r.data.error) {
+              if (restoreOsStatus) { restoreOsStatus.textContent = r.data.error || 'Noget gik galt - prøv igen.'; }
+              return;
+            }
+            if (restoreOsStatus) {
+              restoreOsStatus.textContent = (r.data.restored || 0) + ' gendannet, ' + (r.data.skipped || 0) +
+                ' sprunget over, ' + (r.data.failed || 0) + ' fejlede.';
+            }
+          })
+          .catch(function () {
+            restoreOsBtn.disabled = false;
+            setBtnLabel(restoreOsBtn, restoreOsDefaultLabel);
+            if (restoreOsStatus) { restoreOsStatus.textContent = 'Kunne ikke kontakte workerne - prøv igen.'; }
+          });
+      });
     }
 
     // ---- Stats tiles + daily activity chart (Status tab) ----
@@ -1399,15 +1517,17 @@
           var byUrl = {};
           (data.workers || []).forEach(function (s) { byUrl[s.url] = s; });
           renderWorkers(byUrl);
-          renderPoolSummary(data.workers || []);
         })
         .catch(function () {
           renderWorkers(null);
         });
     }
 
-    window.Dashboard.showLoadingMsg();
-    apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+    // Pushes a fetched (or locally-mutated) plugin config into every control
+    // on the page and re-renders the data-driven panels. Shared by the
+    // initial load and by "Gendan standardindstillinger" (task 7) so both
+    // paths stay in sync instead of drifting apart.
+    function populateConfigUi(cfg) {
       sizeCheckbox.checked = cfg.EnableStandardSize !== false;
       percentInput.value = cfg.SubtitleSizePercent || 100;
       if (fontFamilySelect) { fontFamilySelect.value = cfg.SubtitleFontFamily || ''; }
@@ -1462,6 +1582,11 @@
       refreshStatuses();
       renderStats();
       renderTransHistory();
+    }
+
+    window.Dashboard.showLoadingMsg();
+    apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+      populateConfigUi(cfg);
       window.Dashboard.hideLoadingMsg();
     });
 
@@ -1479,6 +1604,7 @@
       if (!document.body.contains(page)) {
         clearInterval(statusTimer);
         clearInterval(lifeCheck);
+        stopStatsAutoRefresh();
       }
     }, 30000);
 
@@ -1577,6 +1703,15 @@
       });
     }
 
+    // "Tjek igen": immediate manual refresh of the failure triage / stats,
+    // independent of the 60s auto-refresh while the Status tab is open.
+    var recheckBtn = page.querySelector('#SgRecheckBtn');
+    if (recheckBtn) {
+      recheckBtn.addEventListener('click', function () {
+        renderStats();
+      });
+    }
+
     function setBtnLabel(btn, text) {
       var span = btn.querySelector('span');
       if (span) { span.textContent = text; } else { btn.textContent = text; }
@@ -1659,6 +1794,83 @@
         });
       });
     });
+
+    // "Gendan standardindstillinger": resets subtitle appearance, sync,
+    // transcription, hotwords and translation settings to their
+    // PluginConfiguration.cs defaults. Deliberately EXCLUDES worker/pool
+    // fields (WorkersJson, WorkerUrl, WorkerApiKey, PathMapFrom, PathMapTo,
+    // IncludedPathPrefixes) - resetting those would disconnect the user's
+    // enrolled workers, which this button has no business doing.
+    var SG_DEFAULT_CONFIG = {
+      EnableStandardSize: true,
+      SubtitleSizePercent: 100,
+      SubtitleFontFamily: '',
+      SubtitleOutlineWidth: 2,
+      SubtitleBackgroundOpacity: 0,
+      SubtitleShadowStrength: 0,
+      EnableWatchdog: true,
+      IosBurnInSubtitles: true,
+      TranscribeLanguages: 'da,en',
+      EnableMetadataHotwords: true,
+      HotwordMaxTerms: 75,
+      HotwordMaxChars: 800,
+      HotwordIncludeCast: true,
+      HotwordIncludeCrew: false,
+      HotwordFromOverview: true,
+      HotwordIncludeStudios: false,
+      HotwordDebugLog: false,
+      EnableTranslation: true,
+      ChainTranslateAfterTranscribe: true,
+      EnableTrackFilter: true,
+      VisibleSubtitleLanguages: 'da,en'
+    };
+
+    var resetDefaultsBtn = page.querySelector('#SgResetDefaultsBtn');
+    if (resetDefaultsBtn) {
+      var resetDefaultsLabel = 'Gendan standardindstillinger';
+      var resetDefaultsArmed = false;
+      var resetDefaultsArmTimer = null;
+      resetDefaultsBtn.addEventListener('click', function () {
+        if (!resetDefaultsArmed) {
+          resetDefaultsArmed = true;
+          setBtnLabel(resetDefaultsBtn, 'Er du sikker? Klik igen for at nulstille');
+          resetDefaultsArmTimer = setTimeout(function () {
+            resetDefaultsArmed = false;
+            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+          }, 6000);
+          return;
+        }
+        clearTimeout(resetDefaultsArmTimer);
+        resetDefaultsArmed = false;
+        resetDefaultsBtn.disabled = true;
+        setBtnLabel(resetDefaultsBtn, 'Nulstiller...');
+        window.Dashboard.showLoadingMsg();
+        apiClient.getPluginConfiguration(PLUGIN_ID).then(function (cfg) {
+          Object.keys(SG_DEFAULT_CONFIG).forEach(function (key) {
+            cfg[key] = SG_DEFAULT_CONFIG[key];
+          });
+          apiClient.updatePluginConfiguration(PLUGIN_ID, cfg).then(function (result) {
+            config = null;
+            loadConfig().then(injectSizeStyle);
+            populateConfigUi(cfg);
+            window.Dashboard.hideLoadingMsg();
+            window.Dashboard.processPluginConfigurationUpdateResult(result);
+            resetDefaultsBtn.disabled = false;
+            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+          }).catch(function () {
+            window.Dashboard.hideLoadingMsg();
+            resetDefaultsBtn.disabled = false;
+            setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+            window.Dashboard.alert('Kunne ikke gemme standardindstillingerne - prøv igen.');
+          });
+        }).catch(function () {
+          window.Dashboard.hideLoadingMsg();
+          resetDefaultsBtn.disabled = false;
+          setBtnLabel(resetDefaultsBtn, resetDefaultsLabel);
+          window.Dashboard.alert('Kunne ikke hente konfigurationen - prøv igen.');
+        });
+      });
+    }
   }
 
   // window.ApiClient is set by Jellyfin's own bootstrap AFTER

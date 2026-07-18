@@ -14,7 +14,7 @@
             <h2 class="sgHeroTitle">Subtitle Guard</h2>
             <div class="sgHeroSub">Undertekster der passer, synker og altid vises &mdash; på tværs af hele poolen.</div>
           </div>
-          <button type="button" id="SgHelpButton" class="sgHelpBtn" title="Opsætningsguide" aria-label="Opsætningsguide">?</button>
+          <button type="button" id="SgHelpButton" class="sgHelpBtn" title="Getting Started" aria-label="Getting Started"><span class="material-icons rocket_launch" aria-hidden="true"></span>Getting Started</button>
         </div>
 
         <!-- Tab bar: each button toggles one data-sg-tab panel. Wired in
@@ -99,6 +99,14 @@
             <div class="sgCardTitle"><span class="material-icons info" aria-hidden="true"></span>Sådan virker det</div>
             <p>Den natlige opgave <b>Fix subtitle sync</b> (kl. 04:00, kan ændres under Dashboard &gt; Scheduled Tasks) sender alle eksterne tekst-undertekster til poolen. ffsubsync måler forskydningen mod lydsporet og retter kun filer der reelt er skæve; resten markeres som i-sync og springes over næste gang. En original gemmes altid som <code>.bak</code> ved siden af filen.</p>
             <p>Resultater med en usandsynligt stor forskydning (&gt;60&nbsp;sek.) afvises som fejlmålinger, så en god undertekst aldrig ødelægges.</p>
+          </div>
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons settings_backup_restore" aria-hidden="true"></span>Gendan originale undertekster</div>
+            <div class="sgCardDesc">Får alle workers til at gendanne de undertekster de har ændret, tilbage til den oprindeligt downloadede version (fx fra OpenSubtitles). Kan ikke fortrydes.</div>
+            <button is="emby-button" type="button" id="SgRestoreOsBtn" class="raised emby-button" style="margin-top:.8em;min-width:auto;padding:.4em 1.2em;">
+              <span>Gendan alle undertekster</span>
+            </button>
+            <div id="SgRestoreOsStatus" class="fieldDescription" style="margin-top:.5em;"></div>
           </div>
         </div>
 
@@ -242,6 +250,7 @@
           <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons tune" aria-hidden="true"></span>Whisper-indstillinger (pr. worker)</div>
             <div class="sgCardDesc">Finjustér selve transskriberingen. Disse indstillinger sidder på <b>hver enkelt worker</b> (den læser dem ved opstart) &mdash; de gemmes derfor ikke her i pluginet. Vælg dine værdier herunder, kopiér kommandoen nederst og kør den på den worker du vil ændre. Lad felter stå tomme for at bruge standard.</div>
+            <div class="fieldDescription" style="margin-top:.4em;">Standardværdierne herunder er de anbefalede indstillinger.</div>
 
             <div class="inputContainer" style="margin-top:.8em;">
               <label class="inputLabel inputLabelUnfocused" for="SgWsModel">Model</label>
@@ -258,7 +267,7 @@
 
             <div class="inputContainer">
               <label class="inputLabel inputLabelUnfocused" for="SgWsBeam">Beam size</label>
-              <input id="SgWsBeam" type="number" is="emby-input" min="1" max="10" step="1" placeholder="8" />
+              <input id="SgWsBeam" type="number" is="emby-input" min="1" max="10" step="1" placeholder="8" value="8" />
               <div class="fieldDescription">Hvor mange tekst-hypoteser dekoderen overvejer. Højere = færre oversete/gættede ord og bedre tegnsætning, men langsommere (beam 8 ≈ 1,5× beam 5). Standard 8. Sænk til 5 for mere fart.</div>
             </div>
 
@@ -305,7 +314,12 @@
         <!-- ======================== STATUS ======================= -->
         <div data-sg-tab="status">
           <div class="sgCard" id="SgFailureCard" style="display:none;border-color:rgba(248,81,73,.4);">
-            <div class="sgCardTitle"><span class="material-icons report_problem" aria-hidden="true" style="color:#f85149;"></span>Fejl der kræver opmærksomhed</div>
+            <div class="sgCardTitle" style="justify-content:space-between;">
+              <span style="display:flex;align-items:center;gap:.5em;"><span class="material-icons report_problem" aria-hidden="true" style="color:#f85149;"></span>Fejl der kræver opmærksomhed</span>
+              <button is="emby-button" type="button" id="SgRecheckBtn" class="raised emby-button" style="min-width:auto;padding:.3em .9em;font-size:.8em;">
+                <span>Tjek igen</span>
+              </button>
+            </div>
             <div class="sgCardDesc">Fejl de seneste 14 dage, grupperet efter årsag. Fejlede emner blokerer aldrig - de prøves igen automatisk af de natlige opgaver, eller med det samme her.</div>
             <div id="SgFailureTriage" style="margin-top:.6em;"></div>
             <button is="emby-button" type="button" id="SgRetryFailedBtn" class="raised emby-button" style="margin-top:.8em;min-width:auto;padding:.4em 1.2em;">
@@ -317,15 +331,16 @@
             <div id="SgStatsTiles" class="sgTiles"></div>
             <div id="SgStatsChart" style="margin-top:1em;"></div>
           </div>
-          <div class="sgCard">
-            <div class="sgCardTitle"><span class="material-icons monitor_heart" aria-hidden="true"></span>Pool-status</div>
-            <div id="SgPoolSummary" style="opacity:.9;"></div>
-          </div>
         </div>
 
         <div style="margin-top:1.5em;">
           <button is="emby-button" type="button" id="SubtitleGuardSaveButton" class="raised button-submit block emby-button">
             <span>Gem</span>
+          </button>
+        </div>
+        <div style="margin-top:.6em;">
+          <button is="emby-button" type="button" id="SgResetDefaultsBtn" class="raised emby-button">
+            <span>Gendan standardindstillinger</span>
           </button>
         </div>
       </div>

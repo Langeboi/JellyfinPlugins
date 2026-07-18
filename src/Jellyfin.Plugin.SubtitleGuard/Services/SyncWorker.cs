@@ -549,6 +549,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["transcribe"] = body["capabilities"]?["transcribe"];
                         entry["translate"] = body["capabilities"]?["translate"];
                         entry["whisper_model"] = body["whisper_model"];
+                        entry["version"] = body["version"];
                         entry["paused"] = body["paused"];
                         entry["active"] = body["active"];
                         entry["concurrency"] = body["concurrency"];
@@ -779,6 +780,58 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             }
 
             return text;
+        }
+
+        /// <summary>
+        /// "Gendan originale undertekster": fan POST /restore-all out to EVERY
+        /// configured worker. Ledgers (and backups) are per-worker, so each
+        /// box restores exactly the files it modified itself - running on all
+        /// of them cannot double-restore. Unreachable workers are tallied
+        /// instead of failing the whole operation, so one offline box doesn't
+        /// block restoring everything the others changed.
+        /// </summary>
+        public static async Task<JObject> RestoreAllSubtitles(CancellationToken cancellationToken)
+        {
+            var restored = 0;
+            var skipped = 0;
+            var failed = 0;
+            var reached = 0;
+            var unreachable = 0;
+
+            foreach (var worker in GetWorkers())
+            {
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Post, worker.Url + "/restore-all");
+                    request.Headers.Add("X-Api-Key", worker.ApiKey);
+                    using var response = await Http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                    var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        unreachable++;
+                        continue;
+                    }
+
+                    var body = JObject.Parse(text);
+                    restored += body["restored"]?.Value<int>() ?? 0;
+                    skipped += body["skipped"]?.Value<int>() ?? 0;
+                    failed += body["failed"]?.Value<int>() ?? 0;
+                    reached++;
+                }
+                catch (Exception)
+                {
+                    unreachable++;
+                }
+            }
+
+            return new JObject
+            {
+                ["restored"] = restored,
+                ["skipped"] = skipped,
+                ["failed"] = failed,
+                ["workers"] = reached,
+                ["workers_unreachable"] = unreachable
+            };
         }
 
         public static async Task SubmitBatch(WorkerEntry worker, IReadOnlyCollection<JObject> jobs, CancellationToken cancellationToken)

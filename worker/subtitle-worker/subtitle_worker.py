@@ -30,6 +30,11 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
+# Surfaced in /status so the plugin's worker list can show which version each
+# box runs and flag stragglers. Bump on every worker release - the self-update
+# timer ships this file alone, so this constant IS the deployed version.
+WORKER_VERSION = "2.0.0"
+
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
 # Offsets smaller than this are considered "already in sync" - the original
@@ -959,6 +964,15 @@ def worker_loop():
         except queue.Empty:
             continue
 
+        # A thread already blocked in get() when /pause engages still wins the
+        # next submitted job (confirmed by test: pause -> submit -> the job ran
+        # anyway). Hand it back and go respect the gate instead of processing
+        # while "paused".
+        if not pause_event.is_set():
+            job_queue.put(job)
+            job_queue.task_done()
+            continue
+
         # ML jobs never belong on sync threads (see enqueue_job) - reroute
         # any stray one instead of letting it block a sync slot on the lock.
         if job.get("type") in ("transcribe", "translate"):
@@ -987,6 +1001,13 @@ def ml_loop():
         try:
             job = ml_queue.get(timeout=1)
         except queue.Empty:
+            continue
+
+        # Same pause-vs-get race as worker_loop: hand the job back if pause
+        # engaged while we were blocked in get().
+        if not pause_event.is_set():
+            ml_queue.put(job)
+            ml_queue.task_done()
             continue
 
         prefix = "[whisper] " if job.get("type") == "transcribe" else "[oversætter] "
@@ -1138,6 +1159,54 @@ def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
     return {"restored": sub}
 
 
+@app.post("/restore-all")
+def restore_all(x_api_key: str = Header(default="")):
+    """Bulk version of /rollback: reverts every subtitle this worker has
+    placed a corrected copy over, back to its pre-modification original,
+    using the same .bak that /rollback restores from. Only 'fixed' rows are
+    real in-place modifications - in-sync/suspect-offset/etc never touch the
+    file - so that's the set iterated (one row per sub_path, since sub_path
+    is the ledger's PRIMARY KEY).
+
+    No extra locking/pause-gating here: /rollback (the existing per-item
+    mechanism) does a bare file copy with no lock and no pause check, so
+    this mirrors that rather than inventing new coordination. Workers only
+    stop pulling NEW jobs while paused (see worker_loop/ml_loop) - they
+    never hold a lock on a subtitle file, so there is nothing for this to
+    contend with beyond the same race /rollback already accepts (a nightly
+    resync could be mid-flight on one of these paths). Callers who want a
+    clean restore should pause first, same as before clearing the queue.
+
+    Safe to call twice: a restored row's status flips to 'rolled-back'
+    (mirrors /rollback), so it is no longer 'fixed' and a second call finds
+    nothing left to redo for it - the backup itself is never deleted, so a
+    restore stays repeatable by hand via /rollback if needed later."""
+    check_key(x_api_key)
+    conn = db()
+    try:
+        rows = conn.execute("SELECT sub_path FROM processed WHERE status = 'fixed'").fetchall()
+    finally:
+        conn.close()
+
+    restored = 0
+    skipped = 0
+    failed = 0
+    for (sub,) in rows:
+        bak = sub + ".bak"
+        if not os.path.exists(bak) or not os.path.exists(sub):
+            skipped += 1
+            continue
+        try:
+            shutil.copy2(bak, sub)
+            record(sub, os.path.getmtime(sub), None, "rolled-back")
+            restored += 1
+        except Exception:  # noqa: BLE001 - one bad file must not stop the batch
+            failed += 1
+
+    print(f"[restore-all] restored={restored} skipped={skipped} failed={failed}", flush=True)
+    return {"restored": restored, "skipped": skipped, "failed": failed}
+
+
 @app.post("/jobs")
 def submit_job(job: Job, x_api_key: str = Header(default="")):
     check_key(x_api_key)
@@ -1184,15 +1253,28 @@ def resume(x_api_key: str = Header(default="")):
 @app.post("/queue/clear")
 def clear_queue(x_api_key: str = Header(default="")):
     check_key(x_api_key)
-    removed = 0
-    for q in (job_queue, ml_queue):
-        try:
-            while True:
-                q.get_nowait()
-                q.task_done()
-                removed += 1
-        except queue.Empty:
-            pass
+    # Pause-drain-restore: without the pause, worker threads race the drain -
+    # a thread finishing its current job can pull the next queued item between
+    # our get_nowait() calls, so jobs "cleared" would still run. Holding the
+    # pause gate closed during the drain stops threads at the wait() before
+    # their next get(), making the removed count trustworthy. The previous
+    # pause state is restored afterwards, so clearing a running worker doesn't
+    # leave it paused.
+    was_running = pause_event.is_set()
+    pause_event.clear()
+    try:
+        removed = 0
+        for q in (job_queue, ml_queue):
+            try:
+                while True:
+                    q.get_nowait()
+                    q.task_done()
+                    removed += 1
+            except queue.Empty:
+                pass
+    finally:
+        if was_running:
+            pause_event.set()
     return {"removed": removed, "queue_depth": total_queue_depth()}
 
 
@@ -1295,18 +1377,31 @@ def stats(days: int = 14, x_api_key: str = Header(default="")):
             (f"-{days} days",),
         ).fetchall()
         totals_rows = conn.execute("SELECT status, count(*) FROM processed").fetchall()
+        # failure_kinds must reflect CURRENT state, not history: a status
+        # counts here only if it is the LATEST row for that sub_path (the
+        # same latest-per-item dedupe /history uses - MAX(processed_at)
+        # GROUP BY sub_path) and that latest row is within the window, so a
+        # sub_path whose error was later fixed stops showing up as a failure.
+        latest_rows = conn.execute(
+            "SELECT sub_path, status FROM ("
+            "  SELECT sub_path, status, MAX(processed_at) AS at FROM processed GROUP BY sub_path"
+            ") WHERE at >= datetime('now', ?)",
+            (f"-{days} days",),
+        ).fetchall()
     finally:
         conn.close()
 
     daily: dict = {}
-    failure_kinds: dict = {}
     for d, status_val, n in rows:
         bucket = daily.setdefault(d, {})
         cat = _stat_category(status_val)
         bucket[cat] = bucket.get(cat, 0) + n
+
+    failure_kinds: dict = {}
+    for sub_path, status_val in latest_rows:
         kind = _failure_kind(status_val)
         if kind:
-            failure_kinds[kind] = failure_kinds.get(kind, 0) + n
+            failure_kinds[kind] = failure_kinds.get(kind, 0) + 1
 
     totals: dict = {}
     for status_val, n in totals_rows:
@@ -1360,6 +1455,7 @@ def status(x_api_key: str = Header(default="")):
         "translate": TRANSLATE_CAPABILITY,
     }
     snapshot["whisper_model"] = WHISPER_MODEL_NAME if TRANSCRIBE_CAPABILITY else None
+    snapshot["version"] = WORKER_VERSION
     # Persisted outcome breakdown so problems are visible without opening
     # the database by hand (e.g. a wall of "ffsubsync-failed" is a very
     # different problem from "missing-file").

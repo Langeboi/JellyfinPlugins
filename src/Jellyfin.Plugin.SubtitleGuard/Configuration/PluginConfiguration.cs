@@ -5,6 +5,14 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
     public class PluginConfiguration : BasePluginConfiguration
     {
         /// <summary>
+        /// UI language for the config page and player-facing texts: "da"
+        /// (default) or "en". Strings live in inject.js; this just selects
+        /// the set. Deliberately NOT reset by "Gendan standardindstillinger" -
+        /// flipping someone's language on reset would be hostile.
+        /// </summary>
+        public string UiLanguage { get; set; } = "da";
+
+        /// <summary>
         /// Apply the standardized, viewport-scaled subtitle size (covers both
         /// the browser's native cue rendering and Jellyfin's HTML overlay).
         /// </summary>
