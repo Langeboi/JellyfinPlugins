@@ -351,35 +351,74 @@
       '.seerrRequests-uhOverview{font-size:.78em;-webkit-line-clamp:2;}' +
       '.seerrRequests-uhAction{margin-top:.6em;}' +
       '}' +
-      // ---- "Kommer Snart" calendar ----
-      '.seerrCal-root{padding:1.5em 3.3% 3em;max-width:1100px;margin:0 auto;}' +
-      '.seerrCal-intro{opacity:.7;font-size:.92em;line-height:1.5;margin-bottom:1.4em;}' +
-      '.seerrCal-empty{opacity:.6;padding:2em 0;text-align:center;}' +
-      '.seerrCal-month{font-size:1.15em;font-weight:700;margin:1.6em 0 .6em;padding-bottom:.35em;' +
-        'border-bottom:1px solid rgba(255,255,255,.12);}' +
+      // ---- "Kommer Snart" calendar (Seerr's card language - backdrop art
+      // under a heavy scrim, pill badges, rounded cards - rendered in
+      // Jellyfin's own blue accent and type scale) ----
+      '.seerrCal-root{padding:1.6em 3.3% 3.5em;max-width:1180px;margin:0 auto;}' +
+      '.seerrCal-intro{opacity:.7;font-size:.92em;line-height:1.55;margin-bottom:1.6em;}' +
+      '.seerrCal-empty{opacity:.6;padding:2.5em 0;text-align:center;}' +
+      // Month header: small accent bar + uppercase label, very Seerr.
+      '.seerrCal-month{display:flex;align-items:center;gap:.6em;font-size:.92em;font-weight:700;' +
+        'letter-spacing:.08em;text-transform:uppercase;opacity:.85;margin:2em 0 .8em;}' +
       '.seerrCal-month:first-child{margin-top:0;}' +
-      '.seerrCal-monthMuted{opacity:.55;}' +
-      '.seerrCal-note{opacity:.55;font-size:.82em;margin:-.2em 0 .7em;}' +
-      '.seerrCal-row{display:flex;align-items:center;gap:1em;padding:.6em .5em;border-radius:10px;}' +
-      '.seerrCal-row:hover{background:rgba(255,255,255,.05);}' +
+      '.seerrCal-month::before{content:"";width:3px;height:1.1em;border-radius:2px;' +
+        'background:linear-gradient(180deg,rgba(88,166,255,.95),rgba(59,130,246,.75));}' +
+      '.seerrCal-monthMuted{opacity:.5;}' +
+      '.seerrCal-monthMuted::before{background:rgba(255,255,255,.25);}' +
+      '.seerrCal-note{opacity:.5;font-size:.82em;margin:-.4em 0 .9em;}' +
+      // Card
+      '.seerrCal-card{position:relative;border-radius:12px;overflow:hidden;margin-bottom:.7em;' +
+        'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);' +
+        'transition:transform .16s ease,border-color .16s ease,background .16s ease;}' +
       '.seerrCal-clickable{cursor:pointer;}' +
-      '.seerrCal-poster{flex:0 0 auto;width:46px;height:69px;border-radius:6px;background-size:cover;' +
-        'background-position:center;background-color:rgba(255,255,255,.08);}' +
+      '.seerrCal-clickable:hover{transform:translateY(-2px);border-color:rgba(88,166,255,.5);' +
+        'background:rgba(255,255,255,.07);}' +
+      // Backdrop art, heavily scrimmed so text stays readable.
+      '.seerrCal-backdrop{position:absolute;inset:0;background-size:cover;background-position:center 20%;' +
+        'opacity:.16;}' +
+      '.seerrCal-card::after{content:"";position:absolute;inset:0;pointer-events:none;' +
+        'background:linear-gradient(90deg,rgba(20,26,38,.94) 0%,rgba(20,26,38,.82) 45%,rgba(20,26,38,.62) 100%);}' +
+      '.seerrCal-cardInner{position:relative;z-index:1;display:flex;align-items:center;gap:1em;padding:.75em .9em;}' +
+      '.seerrCal-poster{flex:0 0 auto;width:50px;height:75px;border-radius:8px;background-size:cover;' +
+        'background-position:center;background-color:rgba(255,255,255,.09);' +
+        'box-shadow:0 2px 10px rgba(0,0,0,.4);}' +
       '.seerrCal-posterEmpty{background-image:none;}' +
       '.seerrCal-info{flex:1;min-width:0;}' +
-      '.seerrCal-title{font-weight:600;font-size:1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}' +
-      '.seerrCal-meta{opacity:.65;font-size:.83em;margin-top:.2em;white-space:nowrap;overflow:hidden;' +
+      '.seerrCal-titleRow{display:flex;align-items:center;gap:.5em;min-width:0;}' +
+      '.seerrCal-title{font-weight:600;font-size:1.02em;white-space:nowrap;overflow:hidden;' +
+        'text-overflow:ellipsis;min-width:0;}' +
+      '.seerrCal-type{flex:0 0 auto;border-radius:5px;padding:.08em .45em;font-size:.68em;font-weight:700;' +
+        'letter-spacing:.05em;text-transform:uppercase;}' +
+      '.seerrCal-typeMovie{background:rgba(59,130,246,.22);border:1px solid rgba(59,130,246,.5);color:#bfdbfe;}' +
+      '.seerrCal-typeTv{background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.5);color:#e9d5ff;}' +
+      '.seerrCal-meta{opacity:.72;font-size:.85em;margin-top:.25em;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis;}' +
-      '.seerrCal-badge{display:inline-block;background:rgba(59,130,246,.22);border:1px solid rgba(59,130,246,.5);' +
-        'color:#bfdbfe;border-radius:5px;padding:.05em .45em;font-size:.9em;font-weight:600;margin-right:.5em;}' +
-      '.seerrCal-when{flex:0 0 auto;text-align:right;}' +
-      '.seerrCal-date{font-size:.92em;font-weight:600;}' +
-      '.seerrCal-rel{font-size:.78em;opacity:.55;margin-top:.1em;}' +
-      '.seerrCal-unknown{opacity:.5;font-weight:400;}' +
-      '@media (max-width:600px){' +
+      '.seerrCal-pills{margin-top:.35em;display:flex;gap:.4em;flex-wrap:wrap;}' +
+      '.seerrCal-pill{border-radius:999px;padding:.1em .6em;font-size:.72em;font-weight:600;}' +
+      '.seerrCal-pillGreen{background:rgba(34,197,94,.18);border:1px solid rgba(34,197,94,.45);color:#bbf7d0;}' +
+      '.seerrCal-pillTeal{background:rgba(20,184,166,.18);border:1px solid rgba(20,184,166,.45);color:#99f6e4;}' +
+      '.seerrCal-pillBlue{background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.45);color:#bfdbfe;}' +
+      '.seerrCal-pillAmber{background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.45);color:#fde68a;}' +
+      // Calendar date tile on the right
+      '.seerrCal-when{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:.25em;min-width:74px;}' +
+      '.seerrCal-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+        'width:52px;height:52px;border-radius:10px;background:rgba(59,130,246,.16);' +
+        'border:1px solid rgba(88,166,255,.4);line-height:1;}' +
+      '.seerrCal-tileDay{font-size:1.35em;font-weight:800;}' +
+      '.seerrCal-tileMon{font-size:.62em;font-weight:700;letter-spacing:.08em;opacity:.75;margin-top:.2em;}' +
+      '.seerrCal-tileUnknown{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.18);}' +
+      '.seerrCal-tileQ{font-size:1.3em;font-weight:800;opacity:.45;}' +
+      '.seerrCal-fullDate{font-size:.72em;opacity:.6;white-space:nowrap;}' +
+      '.seerrCal-rel{font-size:.7em;opacity:.45;white-space:nowrap;}' +
+      '@media (max-width:700px){' +
         '.seerrCal-root{padding:1.2em 4% 2.5em;}' +
-        '.seerrCal-poster{width:38px;height:57px;}' +
-        '.seerrCal-rel{display:none;}' +
+        '.seerrCal-cardInner{gap:.75em;padding:.65em .7em;}' +
+        '.seerrCal-poster{width:42px;height:63px;}' +
+        '.seerrCal-when{min-width:56px;}' +
+        '.seerrCal-tile{width:44px;height:44px;}' +
+        '.seerrCal-tileDay{font-size:1.15em;}' +
+        '.seerrCal-fullDate,.seerrCal-rel{display:none;}' +
+        '.seerrCal-card::after{background:linear-gradient(90deg,rgba(20,26,38,.95) 0%,rgba(20,26,38,.88) 100%);}' +
       '}';
     document.head.appendChild(style);
   }
@@ -898,38 +937,106 @@
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
+  // Overseerr MediaStatus: 1 unknown, 2 pending, 3 processing,
+  // 4 partially available, 5 available. Same colour language as Seerr's own
+  // status pills so the two surfaces feel related.
+  function calendarStatusPill(status) {
+    var map = {
+      5: ['Tilgængelig', 'seerrCal-pillGreen'],
+      4: ['Delvist klar', 'seerrCal-pillTeal'],
+      3: ['Behandles', 'seerrCal-pillBlue'],
+      2: ['Afventer', 'seerrCal-pillAmber']
+    };
+    var hit = map[status];
+    return hit ? '<span class="seerrCal-pill ' + hit[1] + '">' + hit[0] + '</span>' : '';
+  }
+
+  // The one line under the title that says what is actually happening.
+  function calendarMetaLine(item) {
+    if (item.mediaType === 'tv') {
+      if (item.dateKind === 'season-premiere') {
+        return 'Sæson ' + escapeHtml(item.seasonNumber || '?') + ' premiere' +
+          (item.episodeName ? ' &middot; ' + escapeHtml(item.episodeName) : '');
+      }
+      if (item.dateKind === 'season') {
+        return 'Sæson ' + escapeHtml(item.seasonNumber || '?') + ' premiere';
+      }
+      if (item.dateKind === 'episode') {
+        return escapeHtml(item.episodeLabel || '') +
+          (item.episodeName ? ' &middot; ' + escapeHtml(item.episodeName) : '');
+      }
+      // No upcoming date - explain why rather than leaving it blank.
+      if (item.seriesStatus === 'Ended' || item.seriesStatus === 'Canceled') {
+        return 'Serien er afsluttet';
+      }
+      return 'Næste afsnit ikke planlagt endnu';
+    }
+
+    if (item.dateKind === 'digital') { return 'Streaming-udgivelse'; }
+    if (item.dateKind === 'tv') { return 'TV-premiere'; }
+    if (item.dateKind === 'physical') { return 'Fysisk udgivelse'; }
+    return 'Streaming-dato ikke annonceret';
+  }
+
+  function calendarDateTile(dateStr) {
+    if (!dateStr) {
+      return '<div class="seerrCal-tile seerrCal-tileUnknown"><span class="seerrCal-tileQ">?</span></div>';
+    }
+    var date = new Date(dateStr + 'T00:00:00');
+    if (isNaN(date.getTime())) {
+      return '<div class="seerrCal-tile seerrCal-tileUnknown"><span class="seerrCal-tileQ">?</span></div>';
+    }
+    var month = date.toLocaleDateString('da-DK', { month: 'short' }).replace('.', '').toUpperCase();
+    return (
+      '<div class="seerrCal-tile">' +
+        '<span class="seerrCal-tileDay">' + date.getDate() + '</span>' +
+        '<span class="seerrCal-tileMon">' + escapeHtml(month) + '</span>' +
+      '</div>'
+    );
+  }
+
   function calendarRowHtml(item) {
     var posterUrl = tmdbImageUrl(item.posterPath, 154);
     var poster = posterUrl
       ? '<div class="seerrCal-poster" style="background-image:url(&quot;' + posterUrl + '&quot;)"></div>'
       : '<div class="seerrCal-poster seerrCal-posterEmpty"></div>';
 
-    var typeLabel = item.mediaType === 'tv' ? 'Serie' : 'Film';
-    var meta = '';
-    if (item.mediaType === 'tv' && item.episodeLabel) {
-      meta = item.episodeLabel + (item.episodeName ? ' &middot; ' + escapeHtml(item.episodeName) : '');
-    } else if (item.dateKind === 'digital') {
-      meta = 'Streaming-udgivelse';
-    } else if (item.dateKind === 'tv') {
-      meta = 'TV-premiere';
-    } else if (item.dateKind === 'physical') {
-      meta = 'Fysisk udgivelse';
-    }
+    // Seerr leans on backdrop art behind a heavy scrim - the same trick reads
+    // well here and keeps the row from being a plain grey bar.
+    var backdropUrl = tmdbImageUrl(item.backdropPath, 780);
+    var backdrop = backdropUrl
+      ? '<div class="seerrCal-backdrop" style="background-image:url(&quot;' + backdropUrl + '&quot;)"></div>'
+      : '';
 
-    var when = item.date
-      ? '<div class="seerrCal-date">' + escapeHtml(formatDanishDate(item.date)) + '</div>' +
-        '<div class="seerrCal-rel">' + escapeHtml(relativeDanishDays(item.date)) + '</div>'
-      : '<div class="seerrCal-date seerrCal-unknown">Ukendt</div>';
+    var typeLabel = item.mediaType === 'tv' ? 'Serie' : 'Film';
+    var typeClass = item.mediaType === 'tv' ? 'seerrCal-typeTv' : 'seerrCal-typeMovie';
+    var rel = item.date
+      ? '<div class="seerrCal-rel">' + escapeHtml(relativeDanishDays(item.date)) + '</div>'
+      : '';
+    var fullDate = item.date
+      ? '<div class="seerrCal-fullDate">' + escapeHtml(formatDanishDate(item.date)) + '</div>'
+      : '';
 
     var clickable = item.jellyfinMediaId ? ' data-jf-id="' + escapeHtml(item.jellyfinMediaId) + '"' : '';
     return (
-      '<div class="seerrCal-row"' + clickable + '>' +
-        poster +
-        '<div class="seerrCal-info">' +
-          '<div class="seerrCal-title">' + escapeHtml(item.title) + '</div>' +
-          '<div class="seerrCal-meta"><span class="seerrCal-badge">' + typeLabel + '</span>' + meta + '</div>' +
+      '<div class="seerrCal-card"' + clickable + '>' +
+        backdrop +
+        '<div class="seerrCal-cardInner">' +
+          poster +
+          '<div class="seerrCal-info">' +
+            '<div class="seerrCal-titleRow">' +
+              '<span class="seerrCal-type ' + typeClass + '">' + typeLabel + '</span>' +
+              '<span class="seerrCal-title">' + escapeHtml(item.title) + '</span>' +
+            '</div>' +
+            '<div class="seerrCal-meta">' + calendarMetaLine(item) + '</div>' +
+            '<div class="seerrCal-pills">' + calendarStatusPill(item.mediaStatus) + '</div>' +
+          '</div>' +
+          '<div class="seerrCal-when">' +
+            calendarDateTile(item.date) +
+            fullDate +
+            rel +
+          '</div>' +
         '</div>' +
-        '<div class="seerrCal-when">' + when + '</div>' +
       '</div>'
     );
   }
@@ -967,7 +1074,7 @@
 
     list.innerHTML = html;
 
-    list.querySelectorAll('.seerrCal-row[data-jf-id]').forEach(function (row) {
+    list.querySelectorAll('.seerrCal-card[data-jf-id]').forEach(function (row) {
       row.classList.add('seerrCal-clickable');
       row.addEventListener('click', function () {
         var id = row.getAttribute('data-jf-id');

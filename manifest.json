@@ -402,6 +402,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.1.0",
+        "changelog": "Nyt design på \"Kommer Snart\" + fuld sæson-understøttelse for serier. Kalenderen er tegnet om i Seerr's kortsprog - backdrop-kunst bag et kraftigt scrim, plakat, farvede status-pills (Tilgængelig/Behandles/Afventer) og et kalender-felt med dag og måned - men holdt i Jellyfins blå accent og typografi. Serier viser nu ikke bare næste afsnit: sæson-premierer markeres særskilt (\"Sæson 3 premiere\"), og står der ingen afsnitsdato endnu, bruges sæsonens premieredato i stedet - så en serie mellem to sæsoner ikke fejlagtigt havner under \"Dato ukendt\". Afsluttede serier siger nu \"Serien er afsluttet\" frem for at stå tomme. Film er uændret: altid streaming-datoen, aldrig biograf-premieren.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerr-v1.9.1.0/seerrrequests_1.9.1.0.zip",
+        "checksum": "61c28a1667dc2f50f3f07c0a4be23c53",
+        "timestamp": "2026-07-18T09:30:00Z"
+      },
+      {
         "version": "1.9.0.0",
         "changelog": "Ny \"Kommer Snart\"-fane på forsiden. Ved siden af Hjem/Favoritter ligger nu en udgivelseskalender over alt der er ønsket via Seerr - på tværs af alle brugere, så hele husstanden kan se hvad der lander hvornår. Film viser STREAMING-datoen (TMDB's digitale udgivelse), aldrig biograf-premieren; findes der ingen digital dato bruges TV- eller fysisk udgivelse, og ellers havner titlen under \"Dato ukendt endnu\" i stedet for at vise en misvisende dato. Serier viser næste afsnit med SxxEyy og afsnitstitel - også for serier du allerede har i biblioteket, så \"S3E7 på tirsdag\" bliver ved med at stå der. Listen er grupperet pr. måned med relativ tekst (\"om 3 dage\"), og rækker der matcher noget i biblioteket kan klikkes direkte. Datoer caches 12 timer pr. titel, så fanen er hurtig at åbne.",
         "targetAbi": "10.11.0.0",

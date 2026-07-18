@@ -373,6 +373,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     ["tmdbId"] = tmdbId,
                     ["title"] = title,
                     ["posterPath"] = details["posterPath"]?.ToString(),
+                    ["backdropPath"] = details["backdropPath"]?.ToString(),
                     ["jellyfinMediaId"] = details["mediaInfo"]?["jellyfinMediaId"]?.ToString()
                 };
 
@@ -384,19 +385,44 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 }
                 else
                 {
+                    // "Returning Series" / "Ended" / "Canceled" - lets the UI
+                    // say why a show has no upcoming date instead of just
+                    // dumping it in the unknown bucket unexplained.
+                    entry["seriesStatus"] = details["status"]?.ToString();
+                    entry["seasonCount"] = details["numberOfSeasons"]?.Value<int?>();
+
                     // Overseerr camel-cases its own model fields but passes
                     // raw TMDB objects through underneath, so read both.
                     var next = details["nextEpisodeToAir"] as JObject ?? details["next_episode_to_air"] as JObject;
                     if (next != null)
                     {
-                        entry["date"] = NormalizeDate(FirstProp(next, "airDate", "air_date"));
-                        entry["dateKind"] = "episode";
-                        entry["episodeName"] = FirstProp(next, "name");
                         var season = FirstProp(next, "seasonNumber", "season_number");
                         var episode = FirstProp(next, "episodeNumber", "episode_number");
+                        entry["date"] = NormalizeDate(FirstProp(next, "airDate", "air_date"));
+                        entry["episodeName"] = FirstProp(next, "name");
+                        entry["seasonNumber"] = season;
+                        entry["episodeNumber"] = episode;
                         if (season != null && episode != null)
                         {
                             entry["episodeLabel"] = $"S{season.PadLeft(2, '0')}E{episode.PadLeft(2, '0')}";
+                        }
+
+                        // Episode 1 is a season premiere - a much bigger deal
+                        // than "the next episode", so the UI flags it.
+                        entry["dateKind"] = episode == "1" ? "season-premiere" : "episode";
+                    }
+                    else
+                    {
+                        // Between seasons TMDB usually knows the SEASON air
+                        // date well before individual episodes are scheduled,
+                        // so a show isn't "undated" just because there's no
+                        // nextEpisodeToAir yet.
+                        var (seasonDate, seasonNumber) = NextSeasonAirDate(details["seasons"] as JArray);
+                        if (seasonDate != null)
+                        {
+                            entry["date"] = seasonDate;
+                            entry["dateKind"] = "season";
+                            entry["seasonNumber"] = seasonNumber;
                         }
                     }
                 }
@@ -468,6 +494,48 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
 
             return (null, null);
+        }
+
+        // Earliest season that hasn't aired yet. Season 0 is TMDB's "Specials"
+        // bucket and routinely carries a stale air date, so it never counts.
+        private static (string? Date, string? SeasonNumber) NextSeasonAirDate(JArray? seasons)
+        {
+            if (seasons == null)
+            {
+                return (null, null);
+            }
+
+            var today = DateTime.UtcNow.Date;
+            string? bestDate = null;
+            string? bestSeason = null;
+
+            foreach (var token in seasons)
+            {
+                if (token is not JObject season)
+                {
+                    continue;
+                }
+
+                var number = FirstProp(season, "seasonNumber", "season_number");
+                if (number == null || number == "0")
+                {
+                    continue;
+                }
+
+                var date = NormalizeDate(FirstProp(season, "airDate", "air_date"));
+                if (date == null || !DateTime.TryParse(date, out var parsed) || parsed.Date < today)
+                {
+                    continue;
+                }
+
+                if (bestDate == null || string.CompareOrdinal(date, bestDate) < 0)
+                {
+                    bestDate = date;
+                    bestSeason = number;
+                }
+            }
+
+            return (bestDate, bestSeason);
         }
 
         // TMDB hands back "2026-08-15T00:00:00.000Z"; the calendar only ever
