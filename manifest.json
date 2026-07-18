@@ -405,7 +405,7 @@
         "version": "1.9.1.0",
         "changelog": "Nyt design på \"Kommer Snart\" + fuld sæson-understøttelse for serier. Kalenderen er tegnet om i Seerr's kortsprog - backdrop-kunst bag et kraftigt scrim, plakat, farvede status-pills (Tilgængelig/Behandles/Afventer) og et kalender-felt med dag og måned - men holdt i Jellyfins blå accent og typografi. Serier viser nu ikke bare næste afsnit: sæson-premierer markeres særskilt (\"Sæson 3 premiere\"), og står der ingen afsnitsdato endnu, bruges sæsonens premieredato i stedet - så en serie mellem to sæsoner ikke fejlagtigt havner under \"Dato ukendt\". Afsluttede serier siger nu \"Serien er afsluttet\" frem for at stå tomme. Film er uændret: altid streaming-datoen, aldrig biograf-premieren.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerr-v1.9.1.0/seerrrequests_1.9.1.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.1.0/seerrrequests_1.9.1.0.zip",
         "checksum": "61c28a1667dc2f50f3f07c0a4be23c53",
         "timestamp": "2026-07-18T09:30:00Z"
       },
