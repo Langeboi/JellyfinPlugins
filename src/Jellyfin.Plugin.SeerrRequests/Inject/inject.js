@@ -373,17 +373,25 @@
       '.seerrCal-clickable{cursor:pointer;}' +
       '.seerrCal-clickable:hover{transform:translateY(-2px);border-color:rgba(88,166,255,.5);' +
         'background:rgba(255,255,255,.07);}' +
-      // Backdrop art, heavily scrimmed so text stays readable.
-      '.seerrCal-backdrop{position:absolute;inset:0;background-size:cover;background-position:center 20%;' +
-        'opacity:.16;}' +
+      // Backdrop art is the surface, not a texture: shown at full strength and
+      // faded out only across the left, where the poster and text sit. That
+      // keeps the art readable on the right while the copy stays legible.
+      '.seerrCal-backdrop{position:absolute;inset:0;background-size:cover;background-position:center 25%;}' +
+      // Stays near-opaque across the whole text column, then drops away fast
+      // so the right third shows the art properly. Kept in sync with the
+      // max-width on .seerrCal-info below - text must never reach the clear
+      // part, or a long title becomes unreadable over bright artwork.
       '.seerrCal-card::after{content:"";position:absolute;inset:0;pointer-events:none;' +
-        'background:linear-gradient(90deg,rgba(20,26,38,.94) 0%,rgba(20,26,38,.82) 45%,rgba(20,26,38,.62) 100%);}' +
-      '.seerrCal-cardInner{position:relative;z-index:1;display:flex;align-items:center;gap:1em;padding:.75em .9em;}' +
+        'background:linear-gradient(90deg,rgba(17,23,34,.97) 0%,rgba(17,23,34,.95) 45%,' +
+        'rgba(17,23,34,.86) 64%,rgba(17,23,34,.42) 84%,rgba(17,23,34,.15) 100%);}' +
+      '.seerrCal-cardInner{position:relative;z-index:1;display:flex;align-items:center;gap:1em;padding:.8em .9em;}' +
       '.seerrCal-poster{flex:0 0 auto;width:50px;height:75px;border-radius:8px;background-size:cover;' +
         'background-position:center;background-color:rgba(255,255,255,.09);' +
         'box-shadow:0 2px 10px rgba(0,0,0,.4);}' +
       '.seerrCal-posterEmpty{background-image:none;}' +
-      '.seerrCal-info{flex:1;min-width:0;}' +
+      // Capped so even a long title stops inside the faded zone (see the
+      // ::after gradient above) instead of spilling over bright artwork.
+      '.seerrCal-info{flex:1 1 auto;min-width:0;max-width:62%;}' +
       '.seerrCal-titleRow{display:flex;align-items:center;gap:.5em;min-width:0;}' +
       '.seerrCal-title{font-weight:600;font-size:1.02em;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis;min-width:0;}' +
@@ -393,32 +401,23 @@
       '.seerrCal-typeTv{background:rgba(168,85,247,.2);border:1px solid rgba(168,85,247,.5);color:#e9d5ff;}' +
       '.seerrCal-meta{opacity:.72;font-size:.85em;margin-top:.25em;white-space:nowrap;overflow:hidden;' +
         'text-overflow:ellipsis;}' +
-      '.seerrCal-pills{margin-top:.35em;display:flex;gap:.4em;flex-wrap:wrap;}' +
-      '.seerrCal-pill{border-radius:999px;padding:.1em .6em;font-size:.72em;font-weight:600;}' +
-      '.seerrCal-pillGreen{background:rgba(34,197,94,.18);border:1px solid rgba(34,197,94,.45);color:#bbf7d0;}' +
-      '.seerrCal-pillTeal{background:rgba(20,184,166,.18);border:1px solid rgba(20,184,166,.45);color:#99f6e4;}' +
-      '.seerrCal-pillBlue{background:rgba(59,130,246,.18);border:1px solid rgba(59,130,246,.45);color:#bfdbfe;}' +
-      '.seerrCal-pillAmber{background:rgba(245,158,11,.18);border:1px solid rgba(245,158,11,.45);color:#fde68a;}' +
-      // Calendar date tile on the right
-      '.seerrCal-when{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:.25em;min-width:74px;}' +
-      '.seerrCal-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;' +
-        'width:52px;height:52px;border-radius:10px;background:rgba(59,130,246,.16);' +
-        'border:1px solid rgba(88,166,255,.4);line-height:1;}' +
-      '.seerrCal-tileDay{font-size:1.35em;font-weight:800;}' +
-      '.seerrCal-tileMon{font-size:.62em;font-weight:700;letter-spacing:.08em;opacity:.75;margin-top:.2em;}' +
-      '.seerrCal-tileUnknown{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.18);}' +
-      '.seerrCal-tileQ{font-size:1.3em;font-weight:800;opacity:.45;}' +
-      '.seerrCal-fullDate{font-size:.72em;opacity:.6;white-space:nowrap;}' +
-      '.seerrCal-rel{font-size:.7em;opacity:.45;white-space:nowrap;}' +
+      // The release date now lives with the text, in place of a status pill.
+      '.seerrCal-date{margin-top:.4em;display:flex;align-items:baseline;gap:.5em;flex-wrap:wrap;}' +
+      '.seerrCal-dateText{font-size:.9em;font-weight:600;color:#bfdbfe;}' +
+      '.seerrCal-dateRel{font-size:.76em;opacity:.55;}' +
+      '.seerrCal-dateUnknown{font-size:.85em;opacity:.5;}' +
       '@media (max-width:700px){' +
         '.seerrCal-root{padding:1.2em 4% 2.5em;}' +
-        '.seerrCal-cardInner{gap:.75em;padding:.65em .7em;}' +
+        '.seerrCal-cardInner{gap:.75em;padding:.7em .7em;}' +
         '.seerrCal-poster{width:42px;height:63px;}' +
-        '.seerrCal-when{min-width:56px;}' +
-        '.seerrCal-tile{width:44px;height:44px;}' +
-        '.seerrCal-tileDay{font-size:1.15em;}' +
-        '.seerrCal-fullDate,.seerrCal-rel{display:none;}' +
-        '.seerrCal-card::after{background:linear-gradient(90deg,rgba(20,26,38,.95) 0%,rgba(20,26,38,.88) 100%);}' +
+        '.seerrCal-dateRel{display:none;}' +
+        // The scrim is near-opaque all the way across at this size, so the
+        // text no longer needs to stay clear of an art zone.
+        '.seerrCal-info{max-width:none;}' +
+        // Narrow cards leave almost no clear backdrop, so darken further to
+        // keep the text readable rather than pretending the art shows.
+        '.seerrCal-card::after{background:linear-gradient(90deg,rgba(17,23,34,.97) 0%,' +
+          'rgba(17,23,34,.93) 55%,rgba(17,23,34,.72) 100%);}' +
       '}';
     document.head.appendChild(style);
   }
@@ -451,7 +450,7 @@
     // on unrelated changes, silently wiping our button out from under a
     // stale flag that assumed otherwise.
     addTabButton(slider, BUTTON_MARKER, 'Tilføj Film/Serie', activateSeerrTab);
-    addTabButton(slider, CAL_BUTTON_MARKER, 'Kommer Snart', activateCalendarTab);
+    addTabButton(slider, CAL_BUTTON_MARKER, 'Udgivelseskalender', activateCalendarTab);
   }
 
   function addTabButton(slider, marker, label, onClick) {
@@ -937,18 +936,15 @@
     return label.charAt(0).toUpperCase() + label.slice(1);
   }
 
-  // Overseerr MediaStatus: 1 unknown, 2 pending, 3 processing,
-  // 4 partially available, 5 available. Same colour language as Seerr's own
-  // status pills so the two surfaces feel related.
-  function calendarStatusPill(status) {
-    var map = {
-      5: ['Tilgængelig', 'seerrCal-pillGreen'],
-      4: ['Delvist klar', 'seerrCal-pillTeal'],
-      3: ['Behandles', 'seerrCal-pillBlue'],
-      2: ['Afventer', 'seerrCal-pillAmber']
-    };
-    var hit = map[status];
-    return hit ? '<span class="seerrCal-pill ' + hit[1] + '">' + hit[0] + '</span>' : '';
+  // The release date IS the headline here - a Seerr-style status pill
+  // ("Behandles") says nothing a release calendar cares about, so the date
+  // takes that slot instead.
+  function calendarDateLine(item) {
+    if (!item.date) {
+      return '<span class="seerrCal-dateUnknown">Ingen dato endnu</span>';
+    }
+    return '<span class="seerrCal-dateText">' + escapeHtml(formatDanishDate(item.date)) + '</span>' +
+      '<span class="seerrCal-dateRel">' + escapeHtml(relativeDanishDays(item.date)) + '</span>';
   }
 
   // The one line under the title that says what is actually happening.
@@ -978,23 +974,6 @@
     return 'Streaming-dato ikke annonceret';
   }
 
-  function calendarDateTile(dateStr) {
-    if (!dateStr) {
-      return '<div class="seerrCal-tile seerrCal-tileUnknown"><span class="seerrCal-tileQ">?</span></div>';
-    }
-    var date = new Date(dateStr + 'T00:00:00');
-    if (isNaN(date.getTime())) {
-      return '<div class="seerrCal-tile seerrCal-tileUnknown"><span class="seerrCal-tileQ">?</span></div>';
-    }
-    var month = date.toLocaleDateString('da-DK', { month: 'short' }).replace('.', '').toUpperCase();
-    return (
-      '<div class="seerrCal-tile">' +
-        '<span class="seerrCal-tileDay">' + date.getDate() + '</span>' +
-        '<span class="seerrCal-tileMon">' + escapeHtml(month) + '</span>' +
-      '</div>'
-    );
-  }
-
   function calendarRowHtml(item) {
     var posterUrl = tmdbImageUrl(item.posterPath, 154);
     var poster = posterUrl
@@ -1010,12 +989,6 @@
 
     var typeLabel = item.mediaType === 'tv' ? 'Serie' : 'Film';
     var typeClass = item.mediaType === 'tv' ? 'seerrCal-typeTv' : 'seerrCal-typeMovie';
-    var rel = item.date
-      ? '<div class="seerrCal-rel">' + escapeHtml(relativeDanishDays(item.date)) + '</div>'
-      : '';
-    var fullDate = item.date
-      ? '<div class="seerrCal-fullDate">' + escapeHtml(formatDanishDate(item.date)) + '</div>'
-      : '';
 
     var clickable = item.jellyfinMediaId ? ' data-jf-id="' + escapeHtml(item.jellyfinMediaId) + '"' : '';
     return (
@@ -1029,12 +1002,7 @@
               '<span class="seerrCal-title">' + escapeHtml(item.title) + '</span>' +
             '</div>' +
             '<div class="seerrCal-meta">' + calendarMetaLine(item) + '</div>' +
-            '<div class="seerrCal-pills">' + calendarStatusPill(item.mediaStatus) + '</div>' +
-          '</div>' +
-          '<div class="seerrCal-when">' +
-            calendarDateTile(item.date) +
-            fullDate +
-            rel +
+            '<div class="seerrCal-date">' + calendarDateLine(item) + '</div>' +
           '</div>' +
         '</div>' +
       '</div>'
@@ -1066,7 +1034,14 @@
 
     if (undated.length) {
       html += '<div class="seerrCal-month seerrCal-monthMuted">Dato ukendt endnu</div>';
-      html += '<div class="seerrCal-note">TMDB har endnu ikke en streaming-dato for disse &ndash; typisk fordi de stadig er i biografen.</div>';
+      // The bucket holds both films awaiting a streaming date and running
+      // series with no scheduled episode, so only claim what is actually there.
+      if (undated.some(function (i) { return i.mediaType !== 'tv'; })) {
+        html += '<div class="seerrCal-note">Disse film har ingen streaming-dato fået endnu.</div>';
+      }
+      if (undated.some(function (i) { return i.mediaType === 'tv'; })) {
+        html += '<div class="seerrCal-note">Disse serier har ingen planlagt afsnitsdato endnu.</div>';
+      }
       undated.forEach(function (item) {
         html += calendarRowHtml(item);
       });

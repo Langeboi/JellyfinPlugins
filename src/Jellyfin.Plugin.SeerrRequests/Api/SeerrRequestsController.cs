@@ -315,11 +315,25 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                         {
                             upcoming.Add(entry);
                         }
+
+                        continue;
                     }
-                    else if ((entry["mediaStatus"]?.Value<int?>() ?? 0) < 5)
+
+                    // No date yet. What belongs here differs by type:
+                    //   * A movie still on the way (not fully in the library).
+                    //   * A series that is STILL RUNNING - even one already in
+                    //     the library. Between seasons there is often no
+                    //     scheduled episode, and those are precisely the shows
+                    //     worth listing ("næste afsnit ikke planlagt endnu").
+                    //     Gating this on mediaStatus < 5 silently dropped every
+                    //     ongoing show that was already downloaded.
+                    var status = entry["mediaStatus"]?.Value<int?>() ?? 0;
+                    var seriesStatus = entry["seriesStatus"]?.ToString();
+                    var seriesFinished = seriesStatus == "Ended" || seriesStatus == "Canceled";
+                    var isTv = entry["mediaType"]?.ToString() == "tv";
+
+                    if (status < 5 || (isTv && !seriesFinished))
                     {
-                        // No date known yet, and not fully in the library:
-                        // genuinely still pending, so it belongs on the list.
                         undated.Add(entry);
                     }
                 }

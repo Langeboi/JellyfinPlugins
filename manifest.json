@@ -402,6 +402,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.2.0",
+        "changelog": "Fanen hedder nu \"Udgivelseskalender\". Rettelse: serier manglede helt. Kalenderen filtrerede alt fra der allerede lå i biblioteket uden en kommende dato - hvilket rammer præcis de igangværende serier der er mellem to sæsoner. Kørende serier vises nu altid, også når næste afsnit endnu ikke er planlagt; kun afsluttede serier der allerede er hentet, udelades. Design: backdrop-kunsten vises nu i fuld styrke og tones kun ned hen over plakat og tekst, så kunsten er tydelig til højre mens teksten stadig er læsbar (teksten kan aldrig løbe ind i det lyse område). Status-mærket (\"Behandles\") er erstattet af selve udgivelsesdatoen, og kalender-feltet med dag/måned og spørgsmålstegnet i højre side er fjernet.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.2.0/seerrrequests_1.9.2.0.zip",
+        "checksum": "a1161f7c94722bfd463846cd812d3bc9",
+        "timestamp": "2026-07-18T10:15:00Z"
+      },
+      {
         "version": "1.9.1.0",
         "changelog": "Nyt design på \"Kommer Snart\" + fuld sæson-understøttelse for serier. Kalenderen er tegnet om i Seerr's kortsprog - backdrop-kunst bag et kraftigt scrim, plakat, farvede status-pills (Tilgængelig/Behandles/Afventer) og et kalender-felt med dag og måned - men holdt i Jellyfins blå accent og typografi. Serier viser nu ikke bare næste afsnit: sæson-premierer markeres særskilt (\"Sæson 3 premiere\"), og står der ingen afsnitsdato endnu, bruges sæsonens premieredato i stedet - så en serie mellem to sæsoner ikke fejlagtigt havner under \"Dato ukendt\". Afsluttede serier siger nu \"Serien er afsluttet\" frem for at stå tomme. Film er uændret: altid streaming-datoen, aldrig biograf-premieren.",
         "targetAbi": "10.11.0.0",
