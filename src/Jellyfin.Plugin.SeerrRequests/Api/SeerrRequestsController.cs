@@ -230,8 +230,25 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         //     after the show is in the library.
         private static readonly ConcurrentDictionary<string, (JObject Entry, DateTime ExpiresAt)> ReleaseCache = new();
         private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromHours(12);
-        private static readonly TimeSpan CalendarCacheTtl = TimeSpan.FromMinutes(30);
         private static (string? Json, DateTime ExpiresAt) _calendarCache;
+
+        // The calendar rebuilds once a day, at the first request after 04:00
+        // (local server time) - Seerr/TMDB aren't asked more often than that.
+        // Requests made THROUGH THE PLUGIN invalidate the cache immediately
+        // (see CreateRequest/CancelRequest), so your own request shows up
+        // right away. Requests made directly in Seerr's own UI can't be seen
+        // until the next 04:00 rebuild - the plugin gets no signal for those.
+        private static DateTime NextRebuildTime()
+        {
+            var now = DateTime.Now;
+            var today4 = now.Date.AddHours(4);
+            return now < today4 ? today4 : today4.AddDays(1);
+        }
+
+        private static void InvalidateCalendarCache()
+        {
+            _calendarCache = (null, DateTime.MinValue);
+        }
 
         // One detail call per unique requested title would hammer Seerr on a
         // big library, so cap the parallelism and lean on the 12h item cache.
@@ -255,7 +272,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 return Json(new JObject { ["results"] = new JArray() });
             }
 
-            if (_calendarCache.Json != null && _calendarCache.ExpiresAt > DateTime.UtcNow)
+            if (_calendarCache.Json != null && _calendarCache.ExpiresAt > DateTime.Now)
             {
                 return new ContentResult { Content = _calendarCache.Json, ContentType = "application/json", StatusCode = 200 };
             }
@@ -314,7 +331,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                         // already, and dates further ahead than two weeks are
                         // noise for a "what lands soon" list. The item
                         // reappears automatically once its date rolls into
-                        // range (the calendar cache is 30 min).
+                        // range (picked up by the daily 04:00 rebuild).
                         if (DateTime.TryParse(date, out var parsed)
                             && parsed.Date >= today
                             && parsed.Date <= today.AddDays(14))
@@ -347,7 +364,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 };
 
                 var serialized = payload.ToString();
-                _calendarCache = (serialized, DateTime.UtcNow.Add(CalendarCacheTtl));
+                _calendarCache = (serialized, NextRebuildTime());
                 return new ContentResult { Content = serialized, ContentType = "application/json", StatusCode = 200 };
             }
             catch (Exception ex)
@@ -628,6 +645,10 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     jellyfinUserId);
             }
 
+            // A request made through the plugin must show on the release
+            // calendar right away, not at the next 04:00 rebuild.
+            InvalidateCalendarCache();
+
             return await ProxyPost("/api/v1/request", payload);
         }
 
@@ -648,6 +669,11 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 using var request = BuildRequest(HttpMethod.Delete, $"/api/v1/request/{requestId}");
                 using var response = await HttpClient.SendAsync(request);
                 var text = await response.Content.ReadAsStringAsync();
+
+                // The undo removes a request - the calendar must drop it now,
+                // not at the next 04:00 rebuild.
+                InvalidateCalendarCache();
+
                 return new ContentResult
                 {
                     Content = text,

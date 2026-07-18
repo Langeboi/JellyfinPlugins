@@ -403,10 +403,10 @@
     "versions": [
       {
         "version": "1.9.3.0",
-        "changelog": "Kalenderen viser nu et rullende 14-dages vindue: kun film og afsnit med udgivelsesdato inden for de næste to uger vises (emner dukker selv op igen når deres dato kommer i nærheden). Serier uden et planlagt næste afsnit vises ikke længere - kun film uden streaming-dato står på listen under \"Dato ukendt endnu\". Måneds-overskrifterne er fjernet, så film og serier står i én samlet dato-sorteret liste. Backdrop-kunsten er mere synlig: nedtoningen er trukket ind over tekst-kolonnen, så midten og højre side af kortet viser kunsten næsten klart, og teksten har fået en blød skygge så den stadig er let læsbar.",
+        "changelog": "Kalenderen viser nu et rullende 14-dages vindue: kun film og afsnit med udgivelsesdato inden for de næste to uger vises (emner dukker selv op igen når deres dato kommer i nærheden). Serier uden et planlagt næste afsnit vises ikke længere - kun film uden streaming-dato står på listen under \"Dato ukendt endnu\". Måneds-overskrifterne er fjernet, så film og serier står i én samlet dato-sorteret liste. Backdrop-kunsten er mere synlig: nedtoningen er trukket ind over tekst-kolonnen, så midten og højre side af kortet viser kunsten næsten klart, og teksten har fået en blød skygge så den stadig er let læsbar. Desuden henter kalenderen nu kun data én gang i døgnet (første åbning efter kl. 04:00) og serveres ellers fra cache - undtagen når der laves eller fortrydes en anmodning via pluginet, hvor den opdaterer med det samme. Anmodninger lavet direkte i Seerrs egen UI dukker først op ved næste kl. 04-opdatering.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.3.0/seerrrequests_1.9.3.0.zip",
-        "checksum": "16d1cc7703b13115ab48a0e868239856",
+        "checksum": "ce0f5d75555c2b1cf9e383ab42fb7ab7",
         "timestamp": "2026-07-18T11:00:00Z"
       },
       {
