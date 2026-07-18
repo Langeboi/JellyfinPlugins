@@ -64,6 +64,22 @@
     'Når sat rører de planlagte opgaver kun emner under disse stier. Tom = hele biblioteket. Knapperne på emne-sider ignorerer bevidst dette.':
       'When set, the scheduled tasks only touch items under these paths. Empty = the whole library. The buttons on item pages deliberately ignore this.',
 
+    // -- Workers tab: permission-test card --
+    'Test worker-rettigheder': 'Test worker permissions',
+    'Den hyppigste fejl overhovedet er at worker-kontoen mangler skriveadgang til medierne. Kommandoen herunder tester det direkte - læser, opretter og sletter en fil som den ':
+      'The single most common failure is the worker account lacking write access to the media. The command below tests it directly - reading, creating and deleting a file as the ',
+    'faktiske tjeneste-bruger': 'actual service user',
+    ', hvilket er ægte, fordi ': ', which is honest, because ',
+    ' ofte lyver på netværks-mounts. Kør den på en worker.':
+      ' often lies on network mounts. Run it on a worker.',
+    'Mappe at teste (worker-sti)': 'Folder to test (worker-side path)',
+    'Udfyldes automatisk fra ': 'Auto-filled from ',
+    'Inkluderede biblioteker': 'Included libraries',
+    ' ovenfor (med path mapping anvendt), men kan rettes til en hvilken som helst mappe - gerne en konkret film- eller sæsonmappe med rigtige filer i.':
+      ' above (with path mapping applied), but can be changed to any folder - ideally a real movie or season folder with actual files in it.',
+    'Udfyld en mappe herover for at generere kommandoen.':
+      'Fill in a folder above to generate the command.',
+
     // -- Sync tab --
     'Seneste rettelser': 'Recent fixes',
     'De seneste undertekster poolen faktisk har omskrevet. "Fortryd rettelse" gendanner originalen (.bak-backuppen) og fortæller poolen at den ikke skal rettes igen.':
@@ -1434,6 +1450,83 @@
       refresh();
     })();
 
+    // Test worker-rettigheder: auto-derives the worker-side path of the
+    // first included library - mirroring SyncWorker.MapPath's prefix
+    // substitution in C# - and generates a copy-paste command for
+    // check-permissions.sh. sgPermTestAutoFill is called both here at wiring
+    // time and from populateConfigUi once cfg has actually populated
+    // mapFromInput/mapToInput/pathsInput (setting .value programmatically
+    // does not fire 'input' events, so the auto-fill needs an explicit
+    // second call after config load). Stops overwriting the field once the
+    // user edits it directly, so a manual override sticks.
+    var sgPermTestPathEdited = false;
+    function sgPermTestMapPath(jellyfinPath) {
+      var from = (mapFromInput && mapFromInput.value.trim()) || '';
+      var to = (mapToInput && mapToInput.value.trim()) || '';
+      if (!from || !to) { return jellyfinPath; }
+      return jellyfinPath.indexOf(from) === 0 ? to + jellyfinPath.slice(from.length) : jellyfinPath;
+    }
+    function sgPermTestRefresh() {
+      var pathBox = page.querySelector('#SgPermTestPath');
+      var cmdBox = page.querySelector('#SgPermTestCommand');
+      if (!pathBox || !cmdBox) { return; }
+      var path = pathBox.value.trim();
+      if (!path) {
+        cmdBox.textContent = sgT('Udfyld en mappe herover for at generere kommandoen.');
+        return;
+      }
+      // Single-quoted: immune to $, backticks and spaces in the path - the
+      // only character needing escaping is a literal single quote itself
+      // (folder names like "Ocean's Eleven" are common enough to handle).
+      var quoted = "'" + path.replace(/'/g, "'\\''") + "'";
+      cmdBox.textContent =
+        'curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/check-permissions.sh \\\n' +
+        '  | sudo bash -s -- ' + quoted;
+    }
+    function sgPermTestAutoFill() {
+      if (sgPermTestPathEdited) { return; }
+      var pathBox = page.querySelector('#SgPermTestPath');
+      if (!pathBox) { return; }
+      var raw = (pathsInput && pathsInput.value) || '';
+      var first = raw.split(',')[0].trim();
+      pathBox.value = first ? sgPermTestMapPath(first) : '';
+      sgPermTestRefresh();
+    }
+    (function wirePermTest() {
+      var pathBox = page.querySelector('#SgPermTestPath');
+      var copyBtn = page.querySelector('#SgPermTestCopyBtn');
+      if (!pathBox) { return; }
+
+      pathBox.addEventListener('input', function () {
+        sgPermTestPathEdited = true;
+        sgPermTestRefresh();
+      });
+      if (mapFromInput) { mapFromInput.addEventListener('input', sgPermTestAutoFill); }
+      if (mapToInput) { mapToInput.addEventListener('input', sgPermTestAutoFill); }
+      if (pathsInput) { pathsInput.addEventListener('input', sgPermTestAutoFill); }
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', function () {
+          var cmdBox = page.querySelector('#SgPermTestCommand');
+          var text = cmdBox ? cmdBox.textContent : '';
+          var label = copyBtn.querySelector('span:last-child');
+          function ok() { if (label) { var o = label.textContent; label.textContent = sgT('Kopieret!'); setTimeout(function () { label.textContent = o; }, 1600); } }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok, fallbackCopy);
+          } else { fallbackCopy(); }
+          function fallbackCopy() {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            try { document.execCommand('copy'); ok(); } catch (e) { /* noop */ }
+            document.body.removeChild(ta);
+          }
+        });
+      }
+
+      sgPermTestRefresh();
+    })();
+
     // Status glyphs: breathing green + ripple ring = online/idle, orbiting
     // violet arc = working, amber bars = paused, pulsing red = offline,
     // grey = unknown (still checking). Classes live in sgTabStyle.
@@ -2012,6 +2105,10 @@
       if (pathsInput) {
         pathsInput.value = cfg.IncludedPathPrefixes || '';
       }
+      // Setting .value programmatically above does not fire 'input' events,
+      // so the permission-test path needs an explicit refresh here (unless
+      // the user has already typed their own override into it).
+      sgPermTestAutoFill();
       try {
         workers = cfg.WorkersJson ? JSON.parse(cfg.WorkersJson) : [];
       } catch (e) {

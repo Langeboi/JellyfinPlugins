@@ -92,6 +92,20 @@
               <div class="fieldDescription">Når sat rører de planlagte opgaver kun emner under disse stier. Tom = hele biblioteket. Knapperne på emne-sider ignorerer bevidst dette.</div>
             </div>
           </div>
+
+          <div class="sgCard">
+            <div class="sgCardTitle"><span class="material-icons rule_folder" aria-hidden="true"></span>Test worker-rettigheder</div>
+            <div class="sgCardDesc">Den hyppigste fejl overhovedet er at worker-kontoen mangler skriveadgang til medierne. Kommandoen herunder tester det direkte - læser, opretter og sletter en fil som den <b>faktiske tjeneste-bruger</b>, hvilket er ægte, fordi <code>ls -l</code> ofte lyver på netværks-mounts. Kør den på en worker.</div>
+            <div class="inputContainer" style="margin-top:.6em;">
+              <label class="inputLabel inputLabelUnfocused" for="SgPermTestPath">Mappe at teste (worker-sti)</label>
+              <input id="SgPermTestPath" type="text" is="emby-input" placeholder="/mnt/tank/media/Film" />
+              <div class="fieldDescription">Udfyldes automatisk fra <b>Inkluderede biblioteker</b> ovenfor (med path mapping anvendt), men kan rettes til en hvilken som helst mappe - gerne en konkret film- eller sæsonmappe med rigtige filer i.</div>
+            </div>
+            <div id="SgPermTestCommand" class="sgCode" style="margin-top:.4em;white-space:pre-wrap;"></div>
+            <button is="emby-button" type="button" id="SgPermTestCopyBtn" class="raised emby-button" style="margin-top:.7em;min-width:auto;padding:.4em 1.2em;">
+              <span class="material-icons content_copy" aria-hidden="true" style="font-size:16px;vertical-align:-3px;margin-right:.3em;"></span><span>Kopiér kommando</span>
+            </button>
+          </div>
         </div>
 
         <!-- ==================== SYNKRONISERING =================== -->
