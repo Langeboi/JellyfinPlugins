@@ -405,7 +405,7 @@
         "version": "1.9.0.0",
         "changelog": "Ny \"Kommer Snart\"-fane på forsiden. Ved siden af Hjem/Favoritter ligger nu en udgivelseskalender over alt der er ønsket via Seerr - på tværs af alle brugere, så hele husstanden kan se hvad der lander hvornår. Film viser STREAMING-datoen (TMDB's digitale udgivelse), aldrig biograf-premieren; findes der ingen digital dato bruges TV- eller fysisk udgivelse, og ellers havner titlen under \"Dato ukendt endnu\" i stedet for at vise en misvisende dato. Serier viser næste afsnit med SxxEyy og afsnitstitel - også for serier du allerede har i biblioteket, så \"S3E7 på tirsdag\" bliver ved med at stå der. Listen er grupperet pr. måned med relativ tekst (\"om 3 dage\"), og rækker der matcher noget i biblioteket kan klikkes direkte. Datoer caches 12 timer pr. titel, så fanen er hurtig at åbne.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerr-v1.9.0.0/seerrrequests_1.9.0.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.0.1/seerrrequests_1.9.0.0.zip",
         "checksum": "f2f7d5d9efe2c922cddbc5aeb2ebf042",
         "timestamp": "2026-07-18T07:30:00Z"
       },
