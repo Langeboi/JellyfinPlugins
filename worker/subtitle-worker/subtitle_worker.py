@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.0.2"
+WORKER_VERSION = "2.0.3"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -203,10 +203,27 @@ _nllb_tokenizer = None
 _translate_lock = threading.Lock()
 
 
+# A failed model load is remembered for this long. Without it every queued
+# translate job re-attempts the load: each attempt stalls /status for a
+# minute-plus (GIL held by native init), fails, and the next file repeats
+# the whole dance - observed live as the worker flapping offline/online
+# through an entire batch. Within the backoff window jobs fail FAST with
+# the remembered error instead.
+NLLB_LOAD_BACKOFF_SECONDS = 600
+_translator_load_failed_at = 0.0
+_translator_load_error = ""
+
+
 def get_translator():
-    global _translator, _nllb_tokenizer  # noqa: PLW0603
+    global _translator, _nllb_tokenizer, _translator_load_failed_at, _translator_load_error  # noqa: PLW0603
     with _translate_lock:
         if _translator is None:
+            since_failure = time.monotonic() - _translator_load_failed_at
+            if _translator_load_failed_at and since_failure < NLLB_LOAD_BACKOFF_SECONDS:
+                raise RuntimeError(
+                    f"nllb-load-failed ({int(since_failure)}s ago, retry in "
+                    f"{int(NLLB_LOAD_BACKOFF_SECONDS - since_failure)}s): {_translator_load_error}")
+
             # Confirmed live (jul 19): this first-time load - CUDA context +
             # cuBLAS/cuDNN + 2.6GB model upload - holds the GIL long enough
             # that /status stops answering and the plugin paints the worker
@@ -217,22 +234,37 @@ def get_translator():
                   "translation only. The worker may look offline for a minute "
                   "or two while this runs; do NOT restart it.", flush=True)
             load_started = time.monotonic()
-            from transformers import AutoTokenizer
-
-            # Offline-first for the same reason as Whisper: the tokenizer is
-            # pulled from HuggingFace at runtime and a 429 would break every
-            # translation. Use the cached copy; only fetch if truly missing.
             try:
-                _nllb_tokenizer = AutoTokenizer.from_pretrained(
-                    NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=True)
-            except Exception:  # noqa: BLE001 - not cached yet: fetch once
-                _nllb_tokenizer = AutoTokenizer.from_pretrained(
-                    NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=False)
-            _translator = ctranslate2.Translator(
-                NLLB_DIR,
-                device=NLLB_DEVICE,
-                compute_type="float16" if NLLB_DEVICE == "cuda" else "int8",
-            )
+                from transformers import AutoTokenizer
+
+                # Offline-first for the same reason as Whisper: the tokenizer
+                # is pulled from HuggingFace at runtime and a 429 would break
+                # every translation. Use the cached copy; only fetch if truly
+                # missing.
+                try:
+                    _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                        NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=True)
+                except Exception:  # noqa: BLE001 - not cached yet: fetch once
+                    _nllb_tokenizer = AutoTokenizer.from_pretrained(
+                        NLLB_TOKENIZER, src_lang="eng_Latn", local_files_only=False)
+                _translator = ctranslate2.Translator(
+                    NLLB_DIR,
+                    device=NLLB_DEVICE,
+                    compute_type="float16" if NLLB_DEVICE == "cuda" else "int8",
+                )
+            except Exception as exc:  # noqa: BLE001 - remember + surface
+                _translator_load_failed_at = time.monotonic()
+                _translator_load_error = str(exc)
+                print(f"[oversætter] NLLB model load FAILED after "
+                      f"{time.monotonic() - load_started:.1f}s on {NLLB_DEVICE}: {exc}\n"
+                      "[oversætter] further translations fail fast for "
+                      f"{NLLB_LOAD_BACKOFF_SECONDS // 60} min instead of re-stalling per file. "
+                      "If this is CUDA out-of-memory, set SUBWORKER_NLLB_DEVICE=cpu in "
+                      "/opt/subtitle-worker/env and restart.", flush=True)
+                raise
+
+            _translator_load_failed_at = 0.0
+            _translator_load_error = ""
             print(f"[oversætter] NLLB model loaded in "
                   f"{time.monotonic() - load_started:.1f}s - stays resident, "
                   "later translations start instantly.", flush=True)
@@ -371,6 +403,9 @@ def process_translate_job(job: dict):
         with state_lock:
             state["done"] += 1
     except Exception as exc:  # noqa: BLE001 - keep the worker alive
+        # Also to stdout: the ledger records this for the plugin's triage,
+        # but debugging over journalctl was blind to WHY translations failed.
+        print(f"[oversætter] FEJL {os.path.basename(media)}: {exc}", flush=True)
         record(key, mtime, None, f"error: {exc}")
         with state_lock:
             state["failed"] += 1
