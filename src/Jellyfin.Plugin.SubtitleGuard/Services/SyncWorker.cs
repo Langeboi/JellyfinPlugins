@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Newtonsoft.Json.Linq;
 
@@ -624,6 +625,73 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         /// in-sync and is left untouched.
         /// Returns per-worker submission counts for logging.
         /// </summary>
+        // How recently something must have been added to count as "newest
+        // media", and how recently played to count as "trending". Deliberately
+        // not exposed as config yet - sensible fixed defaults so this ships
+        // now; can grow a settings UI later if the windows need tuning.
+        private static readonly TimeSpan NewMediaWindow = TimeSpan.FromDays(14);
+        private static readonly TimeSpan TrendingWindow = TimeSpan.FromDays(30);
+
+        /// <summary>
+        /// Orders items into three priority bands so a nightly run works on
+        /// what people actually care about first, instead of grinding through
+        /// the library in whatever order the library manager happened to
+        /// return it:
+        ///   0. Newly added (DateCreated within <see cref="NewMediaWindow"/>),
+        ///      newest first.
+        ///   1. "Trending" - not newly added, but played by SOMEONE on this
+        ///      server within <see cref="TrendingWindow"/>, most recently
+        ///      played first. Deliberately server-local (actual household
+        ///      watch activity) rather than a global TMDB trending list,
+        ///      which could easily be popular-elsewhere titles nobody here
+        ///      has ever opened.
+        ///   2. Everything else, newest-added first as a reasonable
+        ///      fallback order.
+        /// Because DistributeAndSubmit preserves relative order when it
+        /// buckets jobs per worker, and each worker's queue is a plain FIFO,
+        /// ordering the SOURCE ITEMS here is what actually determines the
+        /// order files get processed in - no queue-side changes needed.
+        /// </summary>
+        public static List<BaseItem> OrderByPriority(
+            IReadOnlyList<BaseItem> items,
+            IUserManager userManager,
+            IUserDataManager userDataManager)
+        {
+            var now = DateTime.UtcNow;
+            var users = userManager.GetUsers().ToList();
+
+            DateTime? LastPlayedAcrossHousehold(BaseItem item)
+            {
+                DateTime? best = null;
+                foreach (var user in users)
+                {
+                    var played = userDataManager.GetUserData(user, item)?.LastPlayedDate;
+                    if (played.HasValue && (!best.HasValue || played.Value > best.Value))
+                    {
+                        best = played;
+                    }
+                }
+
+                return best;
+            }
+
+            var scored = items.Select(item =>
+            {
+                var isNew = now - item.DateCreated <= NewMediaWindow;
+                var lastPlayed = isNew ? null : LastPlayedAcrossHousehold(item);
+                var isTrending = lastPlayed.HasValue && now - lastPlayed.Value <= TrendingWindow;
+                var band = isNew ? 0 : isTrending ? 1 : 2;
+                var rank = band == 1 ? lastPlayed!.Value : item.DateCreated;
+                return (Item: item, Band: band, Rank: rank);
+            });
+
+            return scored
+                .OrderBy(x => x.Band)
+                .ThenByDescending(x => x.Rank)
+                .Select(x => x.Item)
+                .ToList();
+        }
+
         public static async Task<Dictionary<string, int>> DistributeAndSubmit(
             IReadOnlyList<JObject> jobs,
             CancellationToken cancellationToken,

@@ -60,7 +60,11 @@ fi
 echo "== Python environment =="
 python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
-"$INSTALL_DIR/venv/bin/pip" install fastapi uvicorn ffsubsync
+# ffsubsync pinned: the worker relies on specific behavior (the
+# --skip-sync-on-low-quality flag and its "offset seconds:"/"low-quality
+# alignment" log lines) that an unpinned install could silently change on a
+# future reinstall. Verified against 0.5.0; bump deliberately, not by accident.
+"$INSTALL_DIR/venv/bin/pip" install fastapi uvicorn "ffsubsync==0.5.0"
 
 echo "== Whisper transcription support =="
 "$INSTALL_DIR/venv/bin/pip" install faster-whisper

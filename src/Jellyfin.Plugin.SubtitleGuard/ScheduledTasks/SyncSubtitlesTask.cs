@@ -22,11 +22,19 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
     public class SyncSubtitlesTask : IScheduledTask
     {
         private readonly ILibraryManager _libraryManager;
+        private readonly IUserManager _userManager;
+        private readonly IUserDataManager _userDataManager;
         private readonly ILogger<SyncSubtitlesTask> _logger;
 
-        public SyncSubtitlesTask(ILibraryManager libraryManager, ILogger<SyncSubtitlesTask> logger)
+        public SyncSubtitlesTask(
+            ILibraryManager libraryManager,
+            IUserManager userManager,
+            IUserDataManager userDataManager,
+            ILogger<SyncSubtitlesTask> logger)
         {
             _libraryManager = libraryManager;
+            _userManager = userManager;
+            _userDataManager = userDataManager;
             _logger = logger;
         }
 
@@ -54,8 +62,12 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                 IsVirtualItem = false
             });
 
+            // Newest additions first, then what the household is actually
+            // watching, then the rest - see SyncWorker.OrderByPriority.
+            var ordered = SyncWorker.OrderByPriority(items, _userManager, _userDataManager);
+
             var jobs = new List<JObject>();
-            foreach (var item in items)
+            foreach (var item in ordered)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!SyncWorker.ItemIncluded(item))

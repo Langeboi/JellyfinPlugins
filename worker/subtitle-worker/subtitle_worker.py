@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.0"
+WORKER_VERSION = "2.1.1"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -460,6 +460,19 @@ def process_translate_job(job: dict):
         shutil.move(tmp_out, target)
 
         record(key, mtime, None, "translated")
+        # A translation keeps the SOURCE cues' timing verbatim (see the write
+        # loop above - `timing` is copied unchanged), so it's exactly as
+        # aligned as the English subtitle it came from. Register it in the
+        # SYNC ledger too, same as a fresh Whisper transcription already
+        # does, so the nightly sync task recognizes it as already-checked
+        # and never runs ffsubsync on it - re-aligning an already-aligned
+        # file has pure downside (a good sync risks becoming a worse one)
+        # and zero upside. Until this fix, translated .da.srt files had NO
+        # such protection and were fully exposed to the nightly sync task.
+        try:
+            record(target, os.path.getmtime(target), 0.0, "in-sync")
+        except OSError as exc:
+            print(f"[oversætter] could not sync-protect {target}: {exc}", flush=True)
         with state_lock:
             state["done"] += 1
     except Exception as exc:  # noqa: BLE001 - keep the worker alive
@@ -827,6 +840,10 @@ def record(sub_path: str, mtime: float, offset, status: str):
 
 
 OFFSET_RE = re.compile(r"offset seconds:\s*(-?[\d.]+)", re.IGNORECASE)
+# --skip-sync-on-low-quality's own rejection ("leaving subtitles unmodified")
+# still logs "offset seconds: X" BEFORE the quality check runs - so OFFSET_RE
+# alone can't tell a real fix from a no-op. This distinguishes them.
+LOW_QUALITY_RE = re.compile(r"low-quality alignment", re.IGNORECASE)
 
 
 def place_subtitle(out_path: str, sub: str):
@@ -872,7 +889,16 @@ def process_job(job: dict):
     os.close(out_fd)
     try:
         proc = subprocess.run(
-            [FFSUBSYNC, media, "-i", sub, "-o", out_path],
+            [
+                FFSUBSYNC, media, "-i", sub, "-o", out_path,
+                # ffsubsync's OWN confidence gate. Without this it applies
+                # whatever alignment it computes, however low-confidence -
+                # this flag makes it leave the subtitle unmodified instead
+                # when the score is anti-correlated, the offset implausible,
+                # or the framerate correction absurd. Defaults are sane (see
+                # ffsubsync --help); not overridden here.
+                "--skip-sync-on-low-quality",
+            ],
             capture_output=True,
             text=True,
             timeout=1800,
@@ -880,6 +906,7 @@ def process_job(job: dict):
         log = (proc.stdout or "") + (proc.stderr or "")
         m = OFFSET_RE.search(log)
         offset = float(m.group(1)) if m else None
+        low_quality = bool(LOW_QUALITY_RE.search(log))
 
         if proc.returncode != 0 or not os.path.getsize(out_path):
             record(sub, mtime, offset, "ffsubsync-failed")
@@ -887,7 +914,26 @@ def process_job(job: dict):
                 state["failed"] += 1
             return
 
-        if offset is not None and abs(offset) < MIN_OFFSET_SECONDS:
+        if low_quality:
+            # ffsubsync itself rejected the alignment and wrote the ORIGINAL
+            # content back unchanged - nothing to apply, and doing so anyway
+            # would be a no-op that misleadingly logs as "fixed" and churns
+            # a fresh .bak for no reason.
+            record(sub, mtime, offset, "low-quality-skip")
+            with state_lock:
+                state["done"] += 1
+            return
+
+        if offset is None:
+            # Could not confirm what ffsubsync actually did - applying an
+            # unverified result is exactly how a bad sync gets applied
+            # silently. Fail closed: keep the original, flag for review.
+            record(sub, mtime, None, "unparseable-offset")
+            with state_lock:
+                state["failed"] += 1
+            return
+
+        if abs(offset) < MIN_OFFSET_SECONDS:
             # Already in sync - leave the original untouched, remember that
             # this version was checked.
             record(sub, mtime, offset, "in-sync")
@@ -895,7 +941,7 @@ def process_job(job: dict):
                 state["done"] += 1
             return
 
-        if offset is not None and abs(offset) > MAX_OFFSET_SECONDS:
+        if abs(offset) > MAX_OFFSET_SECONDS:
             # Implausibly large shift - almost certainly a mis-align, not a
             # real drift. Keep the original rather than corrupting a good
             # subtitle. Recorded as resolved so it isn't retried forever
@@ -1049,8 +1095,8 @@ def process_transcribe_job(job: dict):
         # perfect (and risking ffsubsync nudging it out of alignment).
         try:
             record(target, os.path.getmtime(target), 0.0, "in-sync")
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"[whisper] could not sync-protect {target}: {exc}", flush=True)
         # Auto-chain: a fresh ENGLISH transcription can go straight to the
         # da-translation queue instead of waiting for the nightly translate
         # task - the item has a Danish sub by morning in one flow. Only when
@@ -1506,7 +1552,7 @@ def _stat_category(status: str) -> str:
         return "transcribed"
     if s == "translated":
         return "translated"
-    if s in ("already-has-sub", "rolled-back", "suspect-offset"):
+    if s in ("already-has-sub", "rolled-back", "suspect-offset", "low-quality-skip"):
         return "skipped"
     return "failed"
 
@@ -1525,6 +1571,8 @@ def _failure_kind(status: str) -> str | None:
     if s == "timeout":
         return "timeout"
     if s == "ffsubsync-failed":
+        return "sync-failed"
+    if s == "unparseable-offset":
         return "sync-failed"
     if s == "no-speech":
         return "no-speech"

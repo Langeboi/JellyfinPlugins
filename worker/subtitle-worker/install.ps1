@@ -78,7 +78,9 @@ if (-not (Test-Path $venvPython)) {
 }
 & $venvPython -m pip install --upgrade pip --quiet
 Write-Output "== Installing packages (first run downloads a lot, be patient) =="
-& $venvPython -m pip install --quiet fastapi uvicorn ffsubsync faster-whisper
+# ffsubsync pinned - see install.sh for why (the worker relies on specific
+# --skip-sync-on-low-quality behavior an unpinned reinstall could silently change).
+& $venvPython -m pip install --quiet fastapi uvicorn "ffsubsync==0.5.0" faster-whisper
 if ($hasGpu) {
     & $venvPython -m pip install --quiet nvidia-cublas-cu12 nvidia-cudnn-cu12
 }
