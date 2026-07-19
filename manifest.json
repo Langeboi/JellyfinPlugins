@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.2.0",
+        "changelog": "Linux/Windows-vælger på 'Tilmeld ny worker': skift mellem Linux-kommandoen og den nye Windows-installer (PowerShell) - Windows GPU-maskiner (fx en gaming-pc) kan nu være workers med samme funktioner som Linux (sync, transskription, oversættelse). Workers males ikke længere 'Offline' under modelindlæsning: har workeren svaret inden for de sidste 3 minutter, vises seneste kendte status med en ⏳-note ('genstart ikke workeren') i stedet - vigtigt nu hvor workers frigiver hukommelsen efter endt arbejde og derfor genindlæser modeller ved hver natlig kørsel. Rettet: 'Seneste rettelser'-listen oversættes nu også i engelsk tilstand (den blev renderet før sprogvalget var indlæst).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.2.0/subtitleguard_2.0.2.0.zip",
+        "checksum": "5f2e27736191b7b8cba98d0b366ebc1b",
+        "timestamp": "2026-07-19T16:30:00Z"
+      },
+      {
         "version": "2.0.1.0",
         "changelog": "Ny 'Test worker-rettigheder'-boks under Workers → Stier. Genererer en færdig kopiér-og-indsæt-kommando til check-permissions.sh, som tester ÆGTE læse/skrive/slette-rettigheder som den faktiske tjeneste-bruger på en worker (i modsætning til ls -l, der ofte lyver på netværks-mounts). Mappen udfyldes automatisk ud fra 'Inkluderede biblioteker' (med path mapping anvendt), men kan rettes til en hvilken som helst mappe. Ingen worker-opdatering nødvendig (scriptet hentes fra GitHub, når kommandoen køres).",
         "targetAbi": "10.11.0.0",

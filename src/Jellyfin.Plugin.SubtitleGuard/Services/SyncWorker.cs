@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
@@ -527,6 +528,34 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
             return new JArray(merged);
         }
 
+        // Offline-grace memory: the first Whisper/NLLB model load of a batch
+        // holds the worker's GIL for 1-2 minutes, during which /status times
+        // out - and with idle-restart this now happens at the start of EVERY
+        // nightly batch. Painting "Offline" then trains operators to restart
+        // a perfectly healthy worker mid-load (observed live, twice). So a
+        // worker seen online within the grace window keeps its last-known
+        // status, flagged stale=true for the UI, and only becomes Offline
+        // once the silence outlives the window. Display-only: both callers
+        // render UI; job assignment uses the health path, which is untouched.
+        private static readonly ConcurrentDictionary<string, (JObject LastGood, DateTime LastOnline)> StatusMemory =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        private static readonly TimeSpan OfflineGrace = TimeSpan.FromSeconds(180);
+
+        private static JObject WithOfflineGrace(WorkerEntry w, JObject failedEntry)
+        {
+            if (StatusMemory.TryGetValue(w.Url, out var mem)
+                && DateTime.UtcNow - mem.LastOnline < OfflineGrace)
+            {
+                var graced = (JObject)mem.LastGood.DeepClone();
+                graced["stale"] = true;
+                graced["stale_seconds"] = (int)(DateTime.UtcNow - mem.LastOnline).TotalSeconds;
+                return graced;
+            }
+
+            return failedEntry;
+        }
+
         public static async Task<JArray> GetStatuses(CancellationToken cancellationToken)
         {
             var workers = GetWorkers();
@@ -558,18 +587,24 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                         entry["sync_queue_depth"] = body["sync_queue_depth"];
                         entry["ml_queue_depth"] = body["ml_queue_depth"];
                         entry["ml_progress"] = body["ml_progress"];
+                        StatusMemory[w.Url] = ((JObject)entry.DeepClone(), DateTime.UtcNow);
                     }
                     else
                     {
+                        // An explicit HTTP error (wrong key, 500) is a real
+                        // answer, not a stall - no grace, show it.
                         entry["online"] = false;
                         entry["error"] = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
                             ? "forkert enrollment-kode"
                             : ((int)response.StatusCode).ToString();
+                        StatusMemory.TryRemove(w.Url, out _);
                     }
                 }
                 catch
                 {
+                    // Timeout/refused: possibly just a model-load stall.
                     entry["online"] = false;
+                    entry = WithOfflineGrace(w, entry);
                 }
 
                 return entry;

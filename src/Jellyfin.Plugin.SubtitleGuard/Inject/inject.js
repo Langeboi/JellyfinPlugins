@@ -43,6 +43,11 @@
     ' — indsæt dem herunder.': ' — paste them in below.',
     'Vælg maskinens roller og tryk ': 'Select the roles of the machine and press ',
     'Tilmeld worker': 'Enroll worker',
+    'Kør i en ': 'Run in an ',
+    '-PowerShell på en Windows-maskine med NVIDIA-GPU (husk bagefter sti-oversættelsen i env-filen, som installeren forklarer):':
+      ' PowerShell on a Windows machine with an NVIDIA GPU (remember the path mapping in the env file afterwards - the installer explains it):',
+    'Svarer ikke lige nu - typisk fordi en model indlæses. Viser seneste kendte status; genstart ikke workeren.':
+      'Not responding right now - typically because a model is loading. Showing last known status; do not restart the worker.',
     'Navn': 'Name',
     'fx GPU-maskinen': 'e.g. GPU machine',
     'Enrollment-kode': 'Enrollment code',
@@ -370,6 +375,12 @@
       'Could not fetch history (are the workers updated and online?).',
     'Sender...': 'Sending...',
     'Fejl': 'Error',
+    'Fortryd rettelse': 'Undo fix',
+    'Ruller tilbage...': 'Rolling back...',
+    'Gendannet ✓': 'Restored ✓',
+    'Ingen rettelser endnu (eller alle .bak-filer er væk).': 'No fixes yet (or all .bak files are gone).',
+    'Kunne ikke hente seneste rettelser.': 'Could not fetch recent fixes.',
+    ' · forskudt ': ' · shifted ',
     'I kø ✓': 'Queued ✓',
 
     // -- Dynamic: reset-defaults flow --
@@ -1173,6 +1184,12 @@
       tabStyle.textContent =
         // Hero
         '.sgHero{display:flex;align-items:center;gap:1em;margin:.4em 0 1.2em;}' +
+        // Linux/Windows install-command selector
+        '.sgOsRow{display:flex;gap:.4em;margin:.1em 0 .5em;}' +
+        '.sgOsBtn{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);' +
+          'border-radius:6px;padding:.25em .95em;font-size:.85em;cursor:pointer;color:inherit;}' +
+        '.sgOsBtn:hover{background:rgba(255,255,255,.12);}' +
+        '.sgOsBtn-active{background:rgba(59,130,246,.25);border-color:rgba(88,166,255,.6);font-weight:600;}' +
         '.sgHeroIcon{width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;' +
         'background:linear-gradient(135deg,rgba(59,130,246,.9),rgba(88,166,255,.75));box-shadow:0 4px 18px rgba(59,130,246,.35);}' +
         '.sgHeroIcon .material-icons{font-size:30px;color:#fff;}' +
@@ -1527,6 +1544,36 @@
       sgPermTestRefresh();
     })();
 
+    // Linux/Windows selector for the enroll-worker install command. Pure
+    // show/hide over data-sg-osintro/data-sg-oscmd pairs; the choice sticks
+    // in localStorage so a Windows-leaning admin isn't flipped back to Linux
+    // on every page load.
+    (function wireOsSelector() {
+      var buttons = page.querySelectorAll('[data-sg-osbtn]');
+      if (!buttons.length) { return; }
+
+      function select(os) {
+        buttons.forEach(function (b) {
+          b.classList.toggle('sgOsBtn-active', b.getAttribute('data-sg-osbtn') === os);
+        });
+        page.querySelectorAll('[data-sg-osintro],[data-sg-oscmd]').forEach(function (el) {
+          var elOs = el.getAttribute('data-sg-osintro') || el.getAttribute('data-sg-oscmd');
+          el.style.display = elOs === os ? '' : 'none';
+        });
+        try { localStorage.setItem('sgInstallOs', os); } catch (e) { /* private mode */ }
+      }
+
+      buttons.forEach(function (b) {
+        b.addEventListener('click', function () {
+          select(b.getAttribute('data-sg-osbtn'));
+        });
+      });
+
+      var saved = 'linux';
+      try { saved = localStorage.getItem('sgInstallOs') || 'linux'; } catch (e) { /* ignore */ }
+      select(saved);
+    })();
+
     // Status glyphs: breathing green + ripple ring = online/idle, orbiting
     // violet arc = working, amber bars = paused, pulsing red = offline,
     // grey = unknown (still checking). Classes live in sgTabStyle.
@@ -1649,6 +1696,18 @@
           caps += ' · v' + st.version;
         }
 
+        // Momentarily unresponsive but recently seen online: the server keeps
+        // the last-known status for a grace window instead of painting
+        // Offline, because a model load stalls /status for 1-2 min at the
+        // start of every ML batch - and restarting a "dead-looking" worker
+        // mid-load is precisely the operator mistake this prevents.
+        var staleNote = '';
+        if (st && st.online && st.stale) {
+          staleNote = '<span style="display:block;color:#d29922;font-size:.78em;margin-top:.15em;">⏳ ' +
+            sgT('Svarer ikke lige nu - typisk fordi en model indlæses. Viser seneste kendte status; genstart ikke workeren.') +
+            (st.stale_seconds ? ' (' + st.stale_seconds + 's)' : '') + '</span>';
+        }
+
         // Behind the newest version in the pool: say so, calmly - the daily
         // self-update timer normally closes the gap within a day.
         var versionWarn = '';
@@ -1735,6 +1794,7 @@
               '<span style="font-weight:600;">' + (w.Name || w.Url).replace(/</g, '&lt;') + '</span>' +
               '<span style="opacity:.65;font-size:.85em;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
                 w.Url.replace(/</g, '&lt;') + ' - ' + detail.replace(/</g, '&lt;') + caps.replace(/</g, '&lt;') + '</span>' +
+              staleNote +
               versionWarn +
               cpuWarn +
               activityHtml +
@@ -1781,14 +1841,14 @@
         .then(function (data) {
           var items = data.items || [];
           if (!items.length) {
-            recentList.innerHTML = '<div style="opacity:.7;">Ingen rettelser endnu (eller alle .bak-filer er væk).</div>';
+            recentList.innerHTML = '<div style="opacity:.7;">' + sgT('Ingen rettelser endnu (eller alle .bak-filer er væk).') + '</div>';
             return;
           }
           recentList.innerHTML = items.map(function (it) {
             var name = String(it.subtitle_path).split(/[\\/]/).pop();
             var when = it.processed_at ? new Date(it.processed_at).toLocaleString('da-DK') : '';
             var offset = (it.offset_seconds == null) ? '' :
-              ' · forskudt ' + (it.offset_seconds > 0 ? '+' : '') + Number(it.offset_seconds).toFixed(1) + 's';
+              sgT(' · forskudt ') + (it.offset_seconds > 0 ? '+' : '') + Number(it.offset_seconds).toFixed(1) + 's';
             return (
               '<div style="display:flex;align-items:center;gap:.6em;padding:.45em .2em;border-bottom:1px solid rgba(255,255,255,.08);">' +
                 '<span style="flex:1;min-width:0;">' +
@@ -1799,13 +1859,13 @@
                 '<button type="button" is="emby-button" class="raised emby-button" data-sg-rollback="1" ' +
                   'data-sg-url="' + String(it.worker_url || '').replace(/"/g, '') + '" ' +
                   'data-sg-path="' + String(it.subtitle_path).replace(/"/g, '&quot;') + '" ' +
-                  'style="min-width:auto;padding:.3em .9em;font-size:.85em;">Fortryd rettelse</button>' +
+                  'style="min-width:auto;padding:.3em .9em;font-size:.85em;">' + sgT('Fortryd rettelse') + '</button>' +
               '</div>'
             );
           }).join('');
         })
         .catch(function () {
-          recentList.innerHTML = '<div style="opacity:.7;">Kunne ikke hente seneste rettelser.</div>';
+          recentList.innerHTML = '<div style="opacity:.7;">' + sgT('Kunne ikke hente seneste rettelser.') + '</div>';
         });
     }
 
@@ -1816,22 +1876,24 @@
           return;
         }
         btn.disabled = true;
-        btn.textContent = 'Ruller tilbage...';
+        btn.textContent = sgT('Ruller tilbage...');
         fetch(apiClient.getUrl('SubtitleGuard/rollback'), {
           method: 'POST',
           headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ Url: btn.getAttribute('data-sg-url'), SubtitlePath: btn.getAttribute('data-sg-path') })
         })
           .then(function (resp) {
-            btn.textContent = resp.ok ? 'Gendannet ✓' : 'Fejl';
+            btn.textContent = resp.ok ? sgT('Gendannet ✓') : sgT('Fejl');
             renderRecentFixes();
           })
           .catch(function () {
-            btn.textContent = 'Fejl';
+            btn.textContent = sgT('Fejl');
             btn.disabled = false;
           });
       });
-      renderRecentFixes();
+      // The initial render moved into populateConfigUi: firing it here ran
+      // BEFORE the config (and thus SG_LANG) had loaded, which is why this
+      // list was the one stubbornly-Danish island in English mode.
     }
 
     // "Gendan alle undertekster" (restore-opensubtitles): destructive and
@@ -2122,6 +2184,7 @@
       refreshStatuses();
       renderStats();
       renderTransHistory();
+      renderRecentFixes();
     }
 
     window.Dashboard.showLoadingMsg();

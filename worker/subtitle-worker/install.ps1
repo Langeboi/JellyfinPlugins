@@ -112,9 +112,19 @@ else {
 
 $hfCache = Join-Path $InstallDir "hf-cache"
 New-Item -ItemType Directory -Force $hfCache | Out-Null
-$whisperDevice = "cpu"
 $whisperModel = "small"
-if ($hasGpu) { $whisperDevice = "cuda"; $whisperModel = "large-v3" }
+if ($hasGpu) {
+    $whisperModel = "large-v3"
+} else {
+    # Same speed-aware auto-pick as the Linux installer: capable CPU boxes
+    # (>=4 cores AND >=6GB RAM) get 'medium', weak ones 'small'. Never
+    # auto-select large-v3 on CPU.
+    $cs = Get-CimInstance Win32_ComputerSystem
+    $cores = [int]$cs.NumberOfLogicalProcessors
+    $ramGb = [math]::Floor($cs.TotalPhysicalMemory / 1GB)
+    if ($cores -ge 4 -and $ramGb -ge 6) { $whisperModel = "medium" }
+    Write-Output "  CPU auto-pick: $cores cores, ${ramGb}GB RAM -> Whisper '$whisperModel'"
+}
 
 @"
 SUBWORKER_API_KEY=$apiKey
@@ -136,6 +146,12 @@ HF_HOME=$hfCache
 # Disable the daily self-update:
 # SUBWORKER_AUTOUPDATE=0
 "@ | Out-File -Encoding utf8 $envFile
+
+if (-not $hasGpu -and $whisperModel -ne "small") {
+    # Pin the auto-picked CPU model - the runtime otherwise defaults to
+    # 'small' on CPU and the pre-downloaded model would sit unused.
+    Add-Content -Encoding utf8 $envFile "SUBWORKER_WHISPER_MODEL=$whisperModel"
+}
 
 Write-Output "== Pre-downloading Whisper model ($whisperModel) =="
 $env:HF_HOME = $hfCache

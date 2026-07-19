@@ -44,8 +44,17 @@
           <div class="sgCard">
             <div class="sgCardTitle"><span class="material-icons add_circle" aria-hidden="true"></span>Tilmeld ny worker</div>
             <ol class="sgSteps">
-              <li>Kør installeren på en Debian/Ubuntu-maskine der har medierne mountet:
-                <div class="sgCode">curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</div>
+              <li>
+                <div class="sgOsRow">
+                  <button type="button" class="sgOsBtn" data-sg-osbtn="linux">Linux</button>
+                  <button type="button" class="sgOsBtn" data-sg-osbtn="windows">Windows</button>
+                </div>
+                <span data-sg-osintro="linux">Kør installeren på en Debian/Ubuntu-maskine der har medierne mountet:</span>
+                <span data-sg-osintro="windows" style="display:none;">Kør i en <b>administrator</b>-PowerShell på en Windows-maskine med NVIDIA-GPU (husk bagefter sti-oversættelsen i env-filen, som installeren forklarer):</span>
+                <div class="sgCode" data-sg-oscmd="linux">curl -sL https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.sh | sudo bash</div>
+                <div class="sgCode" data-sg-oscmd="windows" style="display:none;white-space:pre-wrap;">Set-ExecutionPolicy -Scope Process Bypass -Force
+irm https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.ps1 -OutFile install.ps1
+.\install.ps1</div>
               </li>
               <li>Installeren udskriver en <b>Worker URL</b> og en <b>enrollment-kode</b> &mdash; indsæt dem herunder.</li>
               <li>Vælg maskinens roller og tryk <b>Tilmeld worker</b>.</li>
