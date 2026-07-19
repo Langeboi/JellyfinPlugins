@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.0.1"
+WORKER_VERSION = "2.0.2"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -207,6 +207,16 @@ def get_translator():
     global _translator, _nllb_tokenizer  # noqa: PLW0603
     with _translate_lock:
         if _translator is None:
+            # Confirmed live (jul 19): this first-time load - CUDA context +
+            # cuBLAS/cuDNN + 2.6GB model upload - holds the GIL long enough
+            # that /status stops answering and the plugin paints the worker
+            # OFFLINE for a minute or two. The worker is fine; the operator
+            # restarting it mid-load just discards the work. Log loudly on
+            # both sides of the load so journalctl explains the silence.
+            print(f"[oversætter] loading NLLB model on {NLLB_DEVICE} - first "
+                  "translation only. The worker may look offline for a minute "
+                  "or two while this runs; do NOT restart it.", flush=True)
+            load_started = time.monotonic()
             from transformers import AutoTokenizer
 
             # Offline-first for the same reason as Whisper: the tokenizer is
@@ -223,6 +233,9 @@ def get_translator():
                 device=NLLB_DEVICE,
                 compute_type="float16" if NLLB_DEVICE == "cuda" else "int8",
             )
+            print(f"[oversætter] NLLB model loaded in "
+                  f"{time.monotonic() - load_started:.1f}s - stays resident, "
+                  "later translations start instantly.", flush=True)
         return _translator, _nllb_tokenizer
 
 

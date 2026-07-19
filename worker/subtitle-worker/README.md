@@ -83,17 +83,19 @@ INSTALL_DIR=/opt/subtitle-worker2 SERVICE_NAME=subtitle-worker2 \
 
 Tilmeld den anden instans i pluginet som en helt almindelig worker.
 
-## Oversættelse deler GPU'en med Whisper
+## Workeren ser offline ud under første oversættelse - lad den være!
 
-NLLB (oversættelse) kører som standard på samme GPU som Whisper. Har
-maskinen kun ét kort, og large-v3 allerede ligger i VRAM'en, kan det første
-rigtige oversættelsesforsøg presse VRAM'en så hårdt at hele workeren går
-offline (kræver manuel genstart af tjenesten) - en CUDA-fejl af den art
-rammer under Pythons fejlhåndtering, i modsætning til stort set alle andre
-fejl i workeren, som fanges og logges uden at noget går ned.
+Første gang en oversættelse kører, skal NLLB-modellen indlæses på GPU'en
+(CUDA-opstart + ~2,6 GB model). Den indlæsning fryser hele processen i et
+minut eller to - også `/status` - så pluginet viser workeren som **offline**
+imens. Det er den ikke: **genstart den ikke.** En genstart smider bare
+indlæsningen væk, og du starter forfra næste gang. Vent 2-3 minutter, så
+svarer den igen og modellen bliver i hukommelsen - alle senere oversættelser
+starter med det samme. Workeren logger nu tydeligt i `journalctl` når
+indlæsningen starter og slutter.
 
-Kør oversættelsen på CPU i stedet for at fjerne risikoen helt (langsommere,
-men uden delt VRAM):
+Vil du hellere undgå både ventetiden og delt VRAM med Whisper, kan
+oversættelsen køres på CPU (langsommere pr. film, men uden GPU-opstart):
 
 ```bash
 echo "SUBWORKER_NLLB_DEVICE=cpu" | sudo tee -a /opt/subtitle-worker/env
