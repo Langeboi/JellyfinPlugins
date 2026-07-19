@@ -122,15 +122,34 @@ PYEOF
            --model facebook/nllb-200-distilled-1.3B \
            --output_dir "$INSTALL_DIR/nllb-ct2" \
            --quantization float16 --force; then
-        # The tokenizer is loaded from HuggingFace at RUNTIME too - pre-cache
-        # it now so translation never depends on a live HF call either.
-        hf_retry "$INSTALL_DIR/venv/bin/python" -c \
-          "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-1.3B'); print('nllb tokenizer cached')" || true
         TRANSLATE_NOTE="NLLB-200 1.3B (CUDA)"
       else
         echo "WARNING: NLLB conversion failed - translation disabled on this worker"
         rm -rf "$INSTALL_DIR/nllb-ct2"
         TRANSLATE_NOTE="FAILED (see output above)"
+      fi
+    fi
+
+    # The tokenizer is loaded from HuggingFace at RUNTIME too - make sure it
+    # is in THIS install's HF cache on EVERY run, not only after a fresh
+    # conversion. This used to live in the fresh-conversion branch only, so
+    # one silently-failed download on the first install (it was || true, and
+    # HF rate-limiting was rampant) left translation permanently broken with
+    # "couldn't connect to huggingface.co ... couldn't find them in the
+    # cached files" - reinstalls took the model-already-present path and
+    # never retried the tokenizer. Idempotent: already cached = instant.
+    # HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE are forced off for just this step
+    # so an operator's offline pin (from the rate-limit era) can't block it.
+    if [ -d "$INSTALL_DIR/nllb-ct2" ]; then
+      if HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 hf_retry "$INSTALL_DIR/venv/bin/python" -c \
+           "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-1.3B', src_lang='eng_Latn'); print('nllb tokenizer cached')"; then
+        echo "  NLLB tokenizer cached OK"
+      else
+        echo "  WARNING: NLLB tokenizer could not be cached - TRANSLATION WILL"
+        echo "  FAIL with 'couldn't connect to huggingface.co' until it is."
+        echo "  Retry later with:"
+        echo "    sudo -u $SERVICE_USER env HF_HOME=$HF_CACHE_DIR HF_HUB_OFFLINE=0 \\"
+        echo "      $INSTALL_DIR/venv/bin/python -c \"from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('facebook/nllb-200-distilled-1.3B')\""
       fi
     fi
   fi
