@@ -83,6 +83,46 @@ INSTALL_DIR=/opt/subtitle-worker2 SERVICE_NAME=subtitle-worker2 \
 
 Tilmeld den anden instans i pluginet som en helt almindelig worker.
 
+## Windows GPU-worker
+
+En Windows-maskine med NVIDIA-GPU (fx en gaming-pc) kan også være worker.
+I en **administrator**-PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+irm https://raw.githubusercontent.com/Langeboi/JellyfinPlugins/main/worker/subtitle-worker/install.ps1 -OutFile install.ps1
+.\install.ps1
+```
+
+Installeren sætter alt op: venv, CUDA-biblioteker, modeller, firewall-regel,
+skjult opstart ved login og daglig selv-opdatering - og udskriver Worker URL
++ enrollment-kode til pluginet, ligesom på Linux.
+
+**To Windows-specifikke ting:**
+
+1. **Sti-oversættelse er obligatorisk.** Pluginet sender Linux-stier; sæt i
+   `C:\subtitle-worker\env` hvordan DENNE maskine ser medierne - med UNC,
+   aldrig drevbogstaver (netværksdrev findes ikke i opgave-sessionen):
+   ```
+   SUBWORKER_PATH_FROM=/Media
+   SUBWORKER_PATH_TO=\\10.10.100.3\Media
+   ```
+2. **Workeren starter ved login** og kører som den bruger der installerede -
+   maskinen skal altså være logget ind, og kontoen skal have adgang til
+   medie-sharet.
+
+## Workeren frigiver selv hukommelsen efter endt arbejde
+
+Whisper og NLLB bliver i hukommelsen mens der arbejdes (så hver fil i en
+batch ikke betaler modelindlæsningen igen), men når køen er tom og der har
+været helt stille i et par minutter, genstarter workeren sig selv og giver
+de 6-7 GB VRAM/RAM tilbage - så grafikkortet er frit til spil om dagen og
+undertekster om natten. Kun maskiner der faktisk har en model indlæst
+genstarter; rene sync-maskiner rører det aldrig, og hverken kø, historik
+eller pause-tilstand går tabt. Slå fra med `SUBWORKER_IDLE_RESTART=0` i
+env-filen (fx på en dedikeret GPU-server hvor modellerne hellere skal ligge
+klar).
+
 ## Workeren ser offline ud under første oversættelse - lad den være!
 
 Første gang en oversættelse kører, skal NLLB-modellen indlæses på GPU'en

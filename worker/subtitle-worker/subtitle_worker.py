@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.0.3"
+WORKER_VERSION = "2.1.0"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -44,6 +44,62 @@ MIN_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MIN_OFFSET", "0.4"))
 # latched onto the wrong audio) rather than a real drift - applying them is
 # what produced "way off" subtitles. Reject and keep the original instead.
 MAX_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MAX_OFFSET", "60"))
+
+# ---- Per-worker path remapping (Windows workers / mixed mounts) ----
+# The plugin applies ONE global path mapping for the whole pool. A worker
+# whose own mount differs (a Windows box seeing \\nas\Media, a Linux box
+# mounting somewhere else) sets these to translate INCOMING paths itself.
+# Contract: the job queue and everything REPORTED back to the plugin stay in
+# the original plugin-side form - so pool-wide dedupe, history merging and
+# work-stealing keep working across a mixed pool - while filesystem access
+# and the local ledger use the translated form. lp() is applied where a job
+# is actually processed (not at enqueue: a peer stealing queued jobs must
+# receive plugin-side paths, not this box's local ones); rp() is applied at
+# the reporting endpoints.
+PATH_FROM = os.environ.get("SUBWORKER_PATH_FROM", "")
+PATH_TO = os.environ.get("SUBWORKER_PATH_TO", "")
+
+
+def lp(path):
+    """Plugin-side path -> local filesystem path (identity when unset).
+
+    On Windows the remainder's separators become backslashes so ledger keys
+    are canonical local paths - rp() undoes exactly this."""
+    if PATH_FROM and PATH_TO and path and path.startswith(PATH_FROM):
+        remainder = path[len(PATH_FROM):]
+        if os.name == "nt":
+            remainder = remainder.replace("/", "\\")
+        return PATH_TO + remainder
+    return path
+
+
+def rp(path):
+    """Local filesystem path -> plugin-side path (inverse of lp).
+
+    The remainder's separators are normalized to '/' on Windows: locally
+    derived paths (targets, .baks) pick up backslashes, and reporting
+    '/Media/Movies\\film.srt' back would silently break the plugin's
+    string-compare dedupe against the '/'-separated paths it sent."""
+    if PATH_FROM and PATH_TO and path and path.startswith(PATH_TO):
+        remainder = path[len(PATH_TO):]
+        if os.name == "nt":
+            remainder = remainder.replace("\\", "/")
+        return PATH_FROM + remainder
+    return path
+
+
+# ---- Idle restart (frees resident ML models when the work is done) ----
+# Whisper large-v3 + NLLB stay loaded once used - deliberately, so jobs in
+# the same batch don't re-pay the load cost. But on a box that is also
+# someone's desktop, that is 6-7GB of VRAM/RAM held hostage all day for
+# nothing. When the worker has been fully idle (empty queues, nothing
+# processing - a cleared queue lands here too) for this long AND a model is
+# actually resident, the process restarts itself to give the memory back.
+# Sync-only boxes never load a model, so they never restart. The ledger is
+# on disk and pause state persists via the pause flag file, so nothing is
+# lost. Disable with SUBWORKER_IDLE_RESTART=0.
+IDLE_RESTART_ENABLED = os.environ.get("SUBWORKER_IDLE_RESTART", "1") != "0"
+IDLE_RESTART_SECONDS = int(os.environ.get("SUBWORKER_IDLE_RESTART_SECONDS", "120"))
 
 
 def _resolve_ffsubsync() -> str:
@@ -56,7 +112,11 @@ def _resolve_ffsubsync() -> str:
     if override:
         return override
     candidate = os.path.join(os.path.dirname(sys.executable), "ffsubsync")
-    return candidate if os.path.exists(candidate) else "ffsubsync"
+    # Windows venvs put console scripts next to python.exe as .exe stubs.
+    for path in (candidate, candidate + ".exe"):
+        if os.path.exists(path):
+            return path
+    return "ffsubsync"
 
 
 FFSUBSYNC = _resolve_ffsubsync()
@@ -325,7 +385,7 @@ def wrap_cue(text: str, width: int = 42) -> str:
 
 
 def process_translate_job(job: dict):
-    media = job["media_path"]
+    media = lp(job["media_path"])
     key = "translate:" + media
 
     if not TRANSLATE_CAPABILITY:
@@ -357,7 +417,7 @@ def process_translate_job(job: dict):
     try:
         # Source English subtitle: an external file when the plugin knows
         # one, otherwise extract the embedded stream with ffmpeg.
-        source_path = job.get("subtitle_path")
+        source_path = lp(job.get("subtitle_path"))
         if not source_path and job.get("stream_index") is not None:
             fd, tmp_extract = tempfile.mkstemp(suffix=".srt")
             os.close(fd)
@@ -793,8 +853,8 @@ def place_subtitle(out_path: str, sub: str):
 
 
 def process_job(job: dict):
-    media = job["media_path"]
-    sub = job["subtitle_path"]
+    media = lp(job["media_path"])
+    sub = lp(job["subtitle_path"])
 
     if not os.path.isfile(media) or not os.path.isfile(sub):
         record(sub, 0, None, "missing-file")
@@ -869,7 +929,7 @@ def process_job(job: dict):
 
 
 def process_transcribe_job(job: dict):
-    media = job["media_path"]
+    media = lp(job["media_path"])
     key = "transcribe:" + media
 
     if not TRANSCRIBE_CAPABILITY:
@@ -1092,9 +1152,53 @@ def ml_loop():
             ml_queue.task_done()
 
 
+def _models_resident():
+    return _whisper_model is not None or _translator is not None
+
+
+def _worker_busy():
+    with state_lock:
+        active = bool(state["processing"])
+    return active or total_queue_depth() > 0
+
+
+def _restart_process():
+    """Free the resident models by restarting this process.
+
+    Linux: exec in place - same PID, systemd never notices, so this works
+    under the deployed units' Restart=on-failure without any unit change.
+    Windows: plain exit; the install.ps1 start-wrapper loops and relaunches
+    (execv on Windows spawns a child and exits the parent, which a service
+    wrapper would see as a crash AND then race the child for the port)."""
+    if os.name == "nt":
+        os._exit(0)
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def idle_restart_loop():
+    last_busy = time.monotonic()
+    while True:
+        time.sleep(10)
+        if _worker_busy():
+            last_busy = time.monotonic()
+            continue
+        if not IDLE_RESTART_ENABLED or not _models_resident():
+            # Idle without models resident costs nothing - don't count it,
+            # so a later model load starts a fresh idle window.
+            last_busy = time.monotonic()
+            continue
+        if time.monotonic() - last_busy >= IDLE_RESTART_SECONDS:
+            print(f"[idle-restart] work done and idle {IDLE_RESTART_SECONDS}s "
+                  "with ML models resident - restarting to free VRAM/RAM. "
+                  "Ledger and pause state persist; the next batch reloads "
+                  "models on demand.", flush=True)
+            _restart_process()
+
+
 for _i in range(SYNC_CONCURRENCY):
     threading.Thread(target=worker_loop, name=f"worker-{_i + 1}", daemon=True).start()
 threading.Thread(target=ml_loop, name="ml-worker", daemon=True).start()
+threading.Thread(target=idle_restart_loop, name="idle-restart", daemon=True).start()
 
 
 def check_key(x_api_key):
@@ -1203,7 +1307,8 @@ def recent(limit: int = 5, x_api_key: str = Header(default="")):
     items = []
     for sub_path, offset, at in rows:
         if os.path.exists(sub_path + ".bak"):
-            items.append({"subtitle_path": sub_path, "offset_seconds": offset, "processed_at": at})
+            # Plugin-side form: rollback sends this value straight back.
+            items.append({"subtitle_path": rp(sub_path), "offset_seconds": offset, "processed_at": at})
         if len(items) >= limit:
             break
     return {"items": items}
@@ -1212,7 +1317,7 @@ def recent(limit: int = 5, x_api_key: str = Header(default="")):
 @app.post("/rollback")
 def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
     check_key(x_api_key)
-    sub = body.subtitle_path
+    sub = lp(body.subtitle_path)
     bak = sub + ".bak"
     if not os.path.exists(bak):
         raise HTTPException(status_code=404, detail="no backup for this file")
@@ -1221,7 +1326,7 @@ def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
     # immediately re-fix what the user deliberately reverted. The .bak is
     # kept, so the decision remains reversible by hand.
     record(sub, os.path.getmtime(sub), None, "rolled-back")
-    return {"restored": sub}
+    return {"restored": body.subtitle_path}
 
 
 @app.post("/restore-all")
@@ -1384,7 +1489,9 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
                     continue
             except OSError:
                 continue
-        paths.append(real)
+        # Report in plugin-side form: the plugin compares these against the
+        # paths IT mapped, so a path-remapped worker must translate back.
+        paths.append(rp(real))
     return {"kind": kind, "paths": paths}
 
 
@@ -1495,7 +1602,7 @@ def history(kind: str = "transcribe", limit: int = 20, x_api_key: str = Header(d
     finally:
         conn.close()
     items = [
-        {"media_path": p[len(prefix):], "status": s, "processed_at": at}
+        {"media_path": rp(p[len(prefix):]), "status": s, "processed_at": at}
         for p, s, at in rows
     ]
     return {"kind": kind, "items": items}
