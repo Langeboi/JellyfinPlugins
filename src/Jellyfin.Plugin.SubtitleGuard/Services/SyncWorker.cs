@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using Newtonsoft.Json.Linq;
@@ -645,8 +646,14 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         ///      watch activity) rather than a global TMDB trending list,
         ///      which could easily be popular-elsewhere titles nobody here
         ///      has ever opened.
-        ///   2. Everything else, newest-added first as a reasonable
-        ///      fallback order.
+        ///   2. Everything else: alternates between movies and WHOLE TV
+        ///      series - one movie, then every remaining episode of one
+        ///      series (in broadcast order), then the next movie, then the
+        ///      next series, and so on. Without this, episodes from dozens
+        ///      of different shows interleave by date-added, so a run
+        ///      touches one or two episodes of many shows instead of
+        ///      finishing any of them. Series/movie rank (which comes up
+        ///      next) still favors newer content within each type.
         /// Because DistributeAndSubmit preserves relative order when it
         /// buckets jobs per worker, and each worker's queue is a plain FIFO,
         /// ordering the SOURCE ITEMS here is what actually determines the
@@ -683,13 +690,54 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
                 var band = isNew ? 0 : isTrending ? 1 : 2;
                 var rank = band == 1 ? lastPlayed!.Value : item.DateCreated;
                 return (Item: item, Band: band, Rank: rank);
-            });
+            }).ToList();
 
-            return scored
-                .OrderBy(x => x.Band)
-                .ThenByDescending(x => x.Rank)
-                .Select(x => x.Item)
+            var result = new List<BaseItem>();
+            result.AddRange(
+                scored.Where(x => x.Band == 0).OrderByDescending(x => x.Rank).Select(x => x.Item));
+            result.AddRange(
+                scored.Where(x => x.Band == 1).OrderByDescending(x => x.Rank).Select(x => x.Item));
+
+            // Band 2: split into movies and whole series, rank each type
+            // newest-first (a series ranks by its most-recently-added
+            // episode), then zigzag between the two types. Episodes within
+            // a series are emitted in broadcast order (season, episode) -
+            // "grinding through" means front-to-back, not by add-date.
+            var band2 = scored.Where(x => x.Band == 2).Select(x => x.Item).ToList();
+
+            var movies = band2
+                .Where(i => i is not Episode)
+                .OrderByDescending(i => i.DateCreated)
                 .ToList();
+
+            var seriesGroups = band2
+                .OfType<Episode>()
+                .GroupBy(e => e.SeriesId)
+                .Select(g => g
+                    .OrderBy(e => e.ParentIndexNumber ?? int.MaxValue)
+                    .ThenBy(e => e.IndexNumber ?? int.MaxValue)
+                    .ToList())
+                .OrderByDescending(g => g.Max(e => e.DateCreated))
+                .ToList();
+
+            var mi = 0;
+            var si = 0;
+            while (mi < movies.Count || si < seriesGroups.Count)
+            {
+                if (mi < movies.Count)
+                {
+                    result.Add(movies[mi]);
+                    mi++;
+                }
+
+                if (si < seriesGroups.Count)
+                {
+                    result.AddRange(seriesGroups[si]);
+                    si++;
+                }
+            }
+
+            return result;
         }
 
         public static async Task<Dictionary<string, int>> DistributeAndSubmit(
