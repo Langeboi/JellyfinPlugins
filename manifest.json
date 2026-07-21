@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.3.0",
+        "changelog": "Smartere natlig rækkefølge: nyeste tilføjelser i biblioteket behandles først, derefter det husstanden faktisk har set for nylig ('trending' - opsamlet på tværs af alle brugere, ikke pr. profil), og til sidst resten af biblioteket. I den sidste, resterende del skifter rækkefølgen nu mellem film og HELE serier ad gangen - i stedet for at springe rundt mellem et par afsnit fra mange forskellige serier, gnaves en hel serie igennem (i sæson/afsnit-rækkefølge, ikke efter hvornår afsnittet blev tilføjet) før der skiftes til den næste film eller serie. Gælder alle tre natlige opgaver (sync, transskription, oversættelse).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.3.0/subtitleguard_2.0.3.0.zip",
+        "checksum": "9a3ce30716cb75e6988119df172fd4bb",
+        "timestamp": "2026-07-21T09:00:00Z"
+      },
+      {
         "version": "2.0.2.0",
         "changelog": "Linux/Windows-vælger på 'Tilmeld ny worker': skift mellem Linux-kommandoen og den nye Windows-installer (PowerShell) - Windows GPU-maskiner (fx en gaming-pc) kan nu være workers med samme funktioner som Linux (sync, transskription, oversættelse). Workers males ikke længere 'Offline' under modelindlæsning: har workeren svaret inden for de sidste 3 minutter, vises seneste kendte status med en ⏳-note ('genstart ikke workeren') i stedet - vigtigt nu hvor workers frigiver hukommelsen efter endt arbejde og derfor genindlæser modeller ved hver natlig kørsel. Rettet: 'Seneste rettelser'-listen oversættes nu også i engelsk tilstand (den blev renderet før sprogvalget var indlæst).",
         "targetAbi": "10.11.0.0",
