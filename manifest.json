@@ -434,6 +434,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.5.0",
+        "changelog": "Kalenderen glemte titler for tidligt. Rodårsagen bag Silo-sagen: Seerrs egen anmodningsliste kan miste en titel helt, når den bliver fuldt tilgængelig - selvom der stadig er en helt reel, kommende afsnitsdato. Kalenderen har nu sin egen hukommelse over alt den nogensinde har set anmodet gennem Seerr: en titel bliver ved med at blive tjekket for fremtidige datoer, selv efter dens Seerr-anmodning er forsvundet. Hukommelsen vokser automatisk og glemmer kun en titel når en anmodning bevidst fortrydes ('Fortryd'-knappen) - ikke bare fordi Seerr selv har ryddet op. Ændrer intet ved hvad der reelt vises: kun titler med en ægte kommende dato inden for 14 dage kommer stadig på kalenderen.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.5.0/seerrrequests_1.9.5.0.zip",
+        "checksum": "19c159989891f31c1cd04f12e0af8010",
+        "timestamp": "2026-07-21T14:00:00Z"
+      },
+      {
         "version": "1.9.4.0",
         "changelog": "Rettet: Udgivelseskalenderen kunne blive ved med at vise en serie som 'ingen dato endnu', selvom Seerr selv allerede viste en kommende afsnitsdato. Årsagen var to uafhængige caches: når nogen anmodede eller fortrød noget, genopbyggede pluginet kun den SAMLEDE kalenderliste, men den enkelte titels egne data (op til 12 timer gamle) blev aldrig gjort friske igen - så en dato der lige var dukket op hos Seerr/TMDB, kunne forblive skjult i timevis, selv hen over en 'opdatering'. Anmodninger og fortrydelser rydder nu begge caches, og den passive levetid (når ingen har rørt noget) er sat ned fra 12 til 3 timer. Kalenderen kigger nu også på de 200 seneste anmodninger i stedet for 100.",
         "targetAbi": "10.11.0.0",

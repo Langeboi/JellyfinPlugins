@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Jellyfin.Plugin.SeerrRequests.Api
@@ -269,6 +270,87 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             ReleaseCache.Clear();
         }
 
+        // ---- Durable "ever requested" memory (see PluginConfiguration.KnownCalendarTitlesJson) ----
+        private static List<(string MediaType, int TmdbId)> LoadKnownCalendarTitles()
+        {
+            var json = Plugin.Instance!.Configuration.KnownCalendarTitlesJson;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return new List<(string, int)>();
+            }
+
+            try
+            {
+                return JArray.Parse(json)
+                    .Select(t => (MediaType: t["mediaType"]?.ToString(), TmdbId: t["tmdbId"]?.Value<int?>()))
+                    .Where(t => (t.MediaType == "movie" || t.MediaType == "tv") && t.TmdbId.HasValue)
+                    .Select(t => (t.MediaType!, t.TmdbId!.Value))
+                    .ToList();
+            }
+            catch (JsonException)
+            {
+                // Corrupt/hand-edited config value - treat as empty rather
+                // than fail the whole calendar over it.
+                return new List<(string, int)>();
+            }
+        }
+
+        private static JArray LoadKnownCalendarTitlesRaw()
+        {
+            var json = Plugin.Instance!.Configuration.KnownCalendarTitlesJson;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                return new JArray();
+            }
+
+            try
+            {
+                return JArray.Parse(json);
+            }
+            catch (JsonException)
+            {
+                return new JArray();
+            }
+        }
+
+        private static bool MatchesTitle(JToken t, string mediaType, int tmdbId) =>
+            string.Equals(t["mediaType"]?.ToString(), mediaType, StringComparison.OrdinalIgnoreCase)
+            && t["tmdbId"]?.Value<int?>() == tmdbId;
+
+        // Called for every title the calendar successfully resolves (whether
+        // it came from Seerr's live request list or was already remembered) -
+        // a no-op once a title is already known, so this can be called freely.
+        private static void RememberCalendarTitle(string mediaType, int tmdbId, string? title)
+        {
+            var arr = LoadKnownCalendarTitlesRaw();
+            if (arr.Any(t => MatchesTitle(t, mediaType, tmdbId)))
+            {
+                return;
+            }
+
+            arr.Add(new JObject { ["mediaType"] = mediaType, ["tmdbId"] = tmdbId, ["title"] = title });
+            Plugin.Instance!.Configuration.KnownCalendarTitlesJson = arr.ToString(Formatting.None);
+            Plugin.Instance!.SaveConfiguration();
+        }
+
+        // Explicit opt-out: the household said "no" via the plugin's own
+        // undo button, so the calendar should stop tracking it too, not just
+        // Seerr. Passive expiry (the title quietly falling off Seerr's own
+        // request list) does NOT forget it - only this does.
+        private static void ForgetCalendarTitle(string mediaType, int tmdbId)
+        {
+            var arr = LoadKnownCalendarTitlesRaw();
+            var match = arr.FirstOrDefault(t => MatchesTitle(t, mediaType, tmdbId));
+            if (match == null)
+            {
+                return;
+            }
+
+            arr.Remove(match);
+            Plugin.Instance!.Configuration.KnownCalendarTitlesJson = arr.ToString(Formatting.None);
+            Plugin.Instance!.SaveConfiguration();
+        }
+
         // One detail call per unique requested title would hammer Seerr on a
         // big library, so cap the parallelism and lean on the 12h item cache.
         private static readonly SemaphoreSlim DetailLimiter = new(5);
@@ -311,7 +393,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 // Several users requesting the same title must not produce
                 // duplicate calendar rows.
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var targets = new List<(string MediaType, int TmdbId, int MediaStatus)>();
+                var targets = new List<(string MediaType, int TmdbId)>();
                 foreach (var item in results)
                 {
                     var media = item["media"];
@@ -324,11 +406,26 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
                     if (seen.Add(mediaType + ":" + tmdbId.Value))
                     {
-                        targets.Add((mediaType!, tmdbId.Value, media?["status"]?.Value<int?>() ?? 0));
+                        targets.Add((mediaType!, tmdbId.Value));
                     }
                 }
 
-                var resolved = await Task.WhenAll(targets.Select(t => ResolveCalendarEntry(t.MediaType, t.TmdbId, t.MediaStatus)));
+                // Seerr's own request list can lose a title once it becomes
+                // fully available (confirmed live: a currently-airing,
+                // previously-requested show had no request row left at all,
+                // despite having a genuine near-term episode date). The
+                // plugin's own memory of everything ever requested keeps such
+                // titles checked for future dates regardless of what Seerr's
+                // live list still has.
+                foreach (var (mediaType, tmdbId) in LoadKnownCalendarTitles())
+                {
+                    if (seen.Add(mediaType + ":" + tmdbId))
+                    {
+                        targets.Add((mediaType, tmdbId));
+                    }
+                }
+
+                var resolved = await Task.WhenAll(targets.Select(t => ResolveCalendarEntry(t.MediaType, t.TmdbId)));
 
                 // Today in local terms: a title releasing "today" is still
                 // news, so the cutoff is the start of the current day.
@@ -393,12 +490,12 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
         }
 
-        private async Task<JObject?> ResolveCalendarEntry(string mediaType, int tmdbId, int mediaStatus)
+        private async Task<JObject?> ResolveCalendarEntry(string mediaType, int tmdbId)
         {
             var cacheKey = mediaType + ":" + tmdbId;
             if (ReleaseCache.TryGetValue(cacheKey, out var cached) && cached.ExpiresAt > DateTime.UtcNow)
             {
-                return WithStatus(cached.Entry, mediaStatus);
+                return (JObject)cached.Entry.DeepClone();
             }
 
             await DetailLimiter.WaitAsync().ConfigureAwait(false);
@@ -418,6 +515,13 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return null;
                 }
 
+                // Remembered here (not just for live-requested targets) so a
+                // title resolved purely from memory - because Seerr's own
+                // request row is already gone - stays remembered too, and so
+                // a brand new live request enters the memory the first time
+                // it is actually resolved.
+                RememberCalendarTitle(mediaType, tmdbId, title);
+
                 var entry = new JObject
                 {
                     ["mediaType"] = mediaType,
@@ -425,7 +529,13 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     ["title"] = title,
                     ["posterPath"] = details["posterPath"]?.ToString(),
                     ["backdropPath"] = details["backdropPath"]?.ToString(),
-                    ["jellyfinMediaId"] = details["mediaInfo"]?["jellyfinMediaId"]?.ToString()
+                    ["jellyfinMediaId"] = details["mediaInfo"]?["jellyfinMediaId"]?.ToString(),
+                    // Read from the details response itself (mediaInfo.status)
+                    // rather than from Seerr's request-list snapshot - that
+                    // snapshot doesn't exist for a title resolved purely from
+                    // memory (its Seerr request row may no longer exist), and
+                    // this is the canonical live value either way.
+                    ["mediaStatus"] = details["mediaInfo"]?["status"]?.Value<int?>() ?? 0
                 };
 
                 if (mediaType == "movie")
@@ -479,7 +589,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 }
 
                 ReleaseCache[cacheKey] = (entry, DateTime.UtcNow.Add(ReleaseCacheTtl));
-                return WithStatus(entry, mediaStatus);
+                return (JObject)entry.DeepClone();
             }
             catch (Exception ex)
             {
@@ -490,15 +600,6 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             {
                 DetailLimiter.Release();
             }
-        }
-
-        // mediaStatus is per-request, the cached entry is per-title, so stamp
-        // it onto a copy instead of poisoning the shared cache entry.
-        private static JObject WithStatus(JObject entry, int mediaStatus)
-        {
-            var clone = (JObject)entry.DeepClone();
-            clone["mediaStatus"] = mediaStatus;
-            return clone;
         }
 
         private static (string? Date, string? Kind) ExtractDigitalRelease(JObject? releases)
@@ -685,13 +786,42 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
             try
             {
+                // DELETE returns 204 with no body, so the only chance to
+                // learn which title this request is FOR (to forget it from
+                // the calendar's own memory) is before deleting it. Best
+                // effort - a failure here must never block the actual undo.
+                string? forgetMediaType = null;
+                int? forgetTmdbId = null;
+                try
+                {
+                    using var lookup = BuildRequest(HttpMethod.Get, $"/api/v1/request/{requestId}");
+                    using var lookupResponse = await HttpClient.SendAsync(lookup);
+                    if (lookupResponse.IsSuccessStatusCode)
+                    {
+                        var media = JObject.Parse(await lookupResponse.Content.ReadAsStringAsync())["media"];
+                        forgetMediaType = media?["mediaType"]?.ToString();
+                        forgetTmdbId = media?["tmdbId"]?.Value<int?>();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "SeerrRequests: could not look up request {RequestId} before cancel", requestId);
+                }
+
                 using var request = BuildRequest(HttpMethod.Delete, $"/api/v1/request/{requestId}");
                 using var response = await HttpClient.SendAsync(request);
                 var text = await response.Content.ReadAsStringAsync();
 
                 // The undo removes a request - the calendar must drop it now,
-                // not at the next 04:00 rebuild.
+                // not at the next 04:00 rebuild. An explicit cancel is the
+                // household saying "no" - unlike a title merely falling off
+                // Seerr's own request list on its own, this DOES forget it.
                 InvalidateCalendarCache();
+                if (response.IsSuccessStatusCode && forgetTmdbId.HasValue
+                    && (forgetMediaType == "movie" || forgetMediaType == "tv"))
+                {
+                    ForgetCalendarTitle(forgetMediaType!, forgetTmdbId.Value);
+                }
 
                 return new ContentResult
                 {

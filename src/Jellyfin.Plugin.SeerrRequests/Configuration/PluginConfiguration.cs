@@ -15,5 +15,19 @@ namespace Jellyfin.Plugin.SeerrRequests.Configuration
         /// </summary>
         public string ExcludedOriginalLanguages { get; set; } =
             "ja,ko,zh,cn,th,vi,id,ms,tl,hi,ta,te,ml,kn,bn,mr,gu,pa,ur,ne,si,my,km,lo";
+
+        /// <summary>
+        /// JSON array of every title the release calendar has ever resolved -
+        /// [{"mediaType":"tv","tmdbId":125988,"title":"Silo"}, ...]. Seerr's
+        /// own request list can lose a title once it becomes fully available
+        /// (confirmed live: a currently-airing, previously-requested show had
+        /// vanished from /api/v1/request entirely despite having a genuine
+        /// near-term episode date). This is the calendar's own durable memory
+        /// so a title keeps being checked for future dates even after Seerr's
+        /// live request list moves on. Grows automatically as titles resolve;
+        /// shrinks only when a request is explicitly cancelled through the
+        /// plugin's "Fortryd" undo.
+        /// </summary>
+        public string KnownCalendarTitlesJson { get; set; } = string.Empty;
     }
 }
