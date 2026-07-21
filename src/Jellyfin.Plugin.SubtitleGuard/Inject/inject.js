@@ -1190,6 +1190,21 @@
     if (!page || page.hasAttribute('data-subguard-wired')) {
       return;
     }
+
+    // Self-diagnosing "no styling ran" banner (configPage.html): reaching
+    // this point PROVES inject.js is genuinely running against this page -
+    // the element only matches once #SubtitleGuardConfigPage itself is in
+    // the DOM - so hide it now, before the ApiClient/Dashboard readiness
+    // check below, which can legitimately take a few extra ticks on a
+    // normal page load and would otherwise flash the banner briefly even
+    // on a perfectly healthy install. Harmless to repeat: this function
+    // can run several times before data-subguard-wired is set, and hiding
+    // an already-hidden element is a no-op.
+    var noScriptWarning = page.querySelector('#SgNoScriptWarning');
+    if (noScriptWarning) {
+      noScriptWarning.style.display = 'none';
+    }
+
     // Not ready yet - bail BEFORE marking wired, so the next observer tick
     // retries instead of leaving the page permanently dead.
     if (!window.ApiClient || !window.Dashboard) {

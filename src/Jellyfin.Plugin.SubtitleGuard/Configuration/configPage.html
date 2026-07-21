@@ -8,6 +8,23 @@
     <div data-role="content">
       <div class="content-primary">
 
+        <!-- Self-diagnosing "no styling ran" banner. Visible by default via
+             INLINE styles only (no dependency on the CSS inject.js builds,
+             or on inject.js running at all) - the same trick <noscript>
+             uses. inject.js hides this as one of its first actions once it
+             actually executes; if it never fires (most commonly: the File
+             Transformation plugin isn't installed, so nothing injects
+             inject.js into this page at all), this stays up and explains
+             exactly what's wrong instead of leaving a blank, unstyled page
+             with zero diagnostic signal. Do not move this below anything
+             that could itself fail to render. -->
+        <div id="SgNoScriptWarning" style="background:#412402;border:1px solid #ba7517;border-radius:6px;padding:.9em 1.1em;margin-bottom:1.2em;color:#faeeda;font-family:sans-serif;font-size:.95em;line-height:1.5;">
+          <strong style="display:block;margin-bottom:.3em;">&#9888; Denne side ser ustylet ud</strong>
+          Det betyder typisk at <strong>File Transformation</strong>-pluginet mangler eller ikke er aktivt p&aring; denne server &mdash; det er d&eacute;t plugin der f&aring;r Subtitle Guards egen kode til at k&oslash;re i browseren. Tjek <strong>Dashboard &rarr; Plugins &rarr; Mine plugins</strong> for "File Transformation". St&aring;r det der ikke, skal dets eget repository tilf&oslash;jes separat f&oslash;rst (s&oslash;g efter det officielle File Transformation-plugin til Jellyfin) &mdash; det er IKKE en del af Subtitle Guards eget repository. Genstart Jellyfin bagefter, og genindl&aelig;s denne side.
+          <hr style="border:none;border-top:1px solid #633806;margin:.6em 0;" />
+          <span style="opacity:.85;font-style:italic;">(English: this page's styling never loaded because the JS this plugin needs isn't running - almost always the <strong>File Transformation</strong> plugin missing or inactive. Check <strong>Dashboard &rarr; Plugins &rarr; My Plugins</strong> for it; if absent, add its own repository first, then restart Jellyfin and reload this page.)</span>
+        </div>
+
         <!-- Hero header -->
         <div class="sgHero">
           <div>

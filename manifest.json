@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.5.0",
+        "changelog": "Selvdiagnosticerende advarsel hvis siden virker helt ustylet: en statisk boks øverst forklarer at File Transformation-pluginet formentlig mangler eller er inaktivt (det plugin der får Subtitle Guards egen kode til at køre) - synlig som ren HTML uden nogen afhængighed af JavaScript, og gemmes automatisk igen så snart pluginet faktisk kører korrekt. Ramte en ven der installerede pluginet og fik en helt ustylet side uden nogen forklaring; nu står årsagen der direkte i stedet.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.5.0/subtitleguard_2.0.5.0.zip",
+        "checksum": "9f3fb423a273e5d75df551a3b397dd2a",
+        "timestamp": "2026-07-22T13:00:00Z"
+      },
+      {
         "version": "2.0.4.0",
         "changelog": "Vagthunden der genstarter manglende undertekster er gjort hurtigere og fanger et hul den ikke fangede før. Tjekker nu 4x oftere (hvert 2. i stedet for hvert 8. sekund) - trygt, fordi tjekket (bruger tracket har indlæste cues, ikke om der lige nu vises en linje) aldrig fejlagtigt tolker en naturlig pause mellem replikker som en fejl. Skift af undertekst-sprog MIDT i afspilningen (via Jellyfins egen menu) får nu sin egen ventetid før vagthunden dømmer det - det havde den slet ikke før, kun tilfældig beskyttelse via den gamle, langsommere tjekfrekvens. Værste-fald-ventetid før en reel fejl rettes: ca. 22 sekunder ved opstart (var ~36s), ca. 8 sekunder ved sprogskift midt i (var ~16s, og reelt ubeskyttet). Uændret: den 20-sekunders opstartsventetid selv, som tidligere er testet direkte mod denne server.",
         "targetAbi": "10.11.0.0",
