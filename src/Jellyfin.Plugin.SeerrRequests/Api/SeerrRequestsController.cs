@@ -229,7 +229,15 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         //     still have a next episode, so "S3E7 on tuesday" keeps showing
         //     after the show is in the library.
         private static readonly ConcurrentDictionary<string, (JObject Entry, DateTime ExpiresAt)> ReleaseCache = new();
-        private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromHours(12);
+        // Passive backstop for "TMDB/Seerr updated a date with no plugin-side
+        // trigger" (nobody made or cancelled a request). Kept short because
+        // InvalidateCalendarCache now clears this cache too, so the ONLY
+        // remaining staleness window this TTL governs is the fully-passive
+        // case - was 12h, which meant a date that appeared upstream could
+        // silently not surface for half a day even across a request/cancel
+        // action, because that action only rebuilt the ASSEMBLED calendar
+        // and left this per-title cache untouched.
+        private static readonly TimeSpan ReleaseCacheTtl = TimeSpan.FromHours(3);
         private static (string? Json, DateTime ExpiresAt) _calendarCache;
 
         // The calendar rebuilds once a day, at the first request after 04:00
@@ -245,9 +253,20 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             return now < today4 ? today4 : today4.AddDays(1);
         }
 
+        // Blows away BOTH cache layers. Clearing only _calendarCache used to
+        // leave ResolveCalendarEntry serving up-to-3h-old (previously 12h-old)
+        // PER-TITLE results from ReleaseCache regardless - so a request/cancel
+        // action LOOKED like it forced a refresh (the assembled list did get
+        // rebuilt) while actually still serving stale per-title dates,
+        // including a stale "no date yet" for a title whose date had since
+        // appeared on Seerr/TMDB. Confirmed live: Silo (2023) had a real
+        // next-episode date on Seerr's own page that our calendar wasn't
+        // showing, with no code bug in the extraction logic itself - the
+        // per-title cache was just never told to forget what it knew.
         private static void InvalidateCalendarCache()
         {
             _calendarCache = (null, DateTime.MinValue);
+            ReleaseCache.Clear();
         }
 
         // One detail call per unique requested title would hammer Seerr on a
@@ -264,7 +283,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         private static readonly int[] DigitalTypePriority = { 4, 6, 5 };
 
         [HttpGet("calendar")]
-        public async Task<ActionResult> Calendar([FromQuery] int take = 100)
+        public async Task<ActionResult> Calendar([FromQuery] int take = 200)
         {
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.SeerrBaseUrl) || string.IsNullOrWhiteSpace(config.SeerrApiKey))

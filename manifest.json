@@ -426,6 +426,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.4.0",
+        "changelog": "Rettet: Udgivelseskalenderen kunne blive ved med at vise en serie som 'ingen dato endnu', selvom Seerr selv allerede viste en kommende afsnitsdato. Årsagen var to uafhængige caches: når nogen anmodede eller fortrød noget, genopbyggede pluginet kun den SAMLEDE kalenderliste, men den enkelte titels egne data (op til 12 timer gamle) blev aldrig gjort friske igen - så en dato der lige var dukket op hos Seerr/TMDB, kunne forblive skjult i timevis, selv hen over en 'opdatering'. Anmodninger og fortrydelser rydder nu begge caches, og den passive levetid (når ingen har rørt noget) er sat ned fra 12 til 3 timer. Kalenderen kigger nu også på de 200 seneste anmodninger i stedet for 100.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.4.0/seerrrequests_1.9.4.0.zip",
+        "checksum": "18b49f7de44bee026336dc67d5948d9d",
+        "timestamp": "2026-07-21T00:00:00Z"
+      },
+      {
         "version": "1.9.3.0",
         "changelog": "Kalenderen viser nu et rullende 14-dages vindue: kun film og afsnit med udgivelsesdato inden for de næste to uger vises (emner dukker selv op igen når deres dato kommer i nærheden). Serier uden et planlagt næste afsnit vises ikke længere - kun film uden streaming-dato står på listen under \"Dato ukendt endnu\". Måneds-overskrifterne er fjernet, så film og serier står i én samlet dato-sorteret liste. Backdrop-kunsten er mere synlig: nedtoningen er trukket ind over tekst-kolonnen, så midten og højre side af kortet viser kunsten næsten klart, og teksten har fået en blød skygge så den stadig er let læsbar. Desuden henter kalenderen nu kun data én gang i døgnet (første åbning efter kl. 04:00) og serveres ellers fra cache - undtagen når der laves eller fortrydes en anmodning via pluginet, hvor den opdaterer med det samme. Anmodninger lavet direkte i Seerrs egen UI dukker først op ved næste kl. 04-opdatering.",
         "targetAbi": "10.11.0.0",
