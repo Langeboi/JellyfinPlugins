@@ -351,6 +351,49 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             Plugin.Instance!.SaveConfiguration();
         }
 
+        // Confirmed live against Seerr's actual /api/v1/media response:
+        // top-level "tmdbId"/"mediaType" (not nested under a "media" key like
+        // the /api/v1/request list), numeric "status" matching MediaStatus.
+        // "filter=allavailable" = PARTIALLY_AVAILABLE (4) + AVAILABLE (5).
+        private async Task<List<(string MediaType, int TmdbId)>> FetchAvailableOrPartialMedia()
+        {
+            var targets = new List<(string, int)>();
+            const int pageSize = 100;
+            const int maxItems = 1000; // safety bound, not a realistic library size
+            var skip = 0;
+
+            while (targets.Count < maxItems)
+            {
+                using var request = BuildRequest(HttpMethod.Get, $"/api/v1/media?filter=allavailable&take={pageSize}&skip={skip}");
+                using var response = await HttpClient.SendAsync(request);
+                if (!response.IsSuccessStatusCode)
+                {
+                    break;
+                }
+
+                var body = JObject.Parse(await response.Content.ReadAsStringAsync());
+                var results = body["results"] as JArray ?? new JArray();
+                foreach (var item in results)
+                {
+                    var tmdbId = item["tmdbId"]?.Value<int?>();
+                    var mediaType = item["mediaType"]?.ToString();
+                    if (tmdbId != null && (mediaType == "movie" || mediaType == "tv"))
+                    {
+                        targets.Add((mediaType!, tmdbId.Value));
+                    }
+                }
+
+                var totalResults = body["pageInfo"]?["results"]?.Value<int?>() ?? results.Count;
+                skip += pageSize;
+                if (results.Count == 0 || skip >= totalResults)
+                {
+                    break;
+                }
+            }
+
+            return targets;
+        }
+
         // One detail call per unique requested title would hammer Seerr on a
         // big library, so cap the parallelism and lean on the 12h item cache.
         private static readonly SemaphoreSlim DetailLimiter = new(5);
@@ -418,6 +461,25 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 // titles checked for future dates regardless of what Seerr's
                 // live list still has.
                 foreach (var (mediaType, tmdbId) in LoadKnownCalendarTitles())
+                {
+                    if (seen.Add(mediaType + ":" + tmdbId))
+                    {
+                        targets.Add((mediaType, tmdbId));
+                    }
+                }
+
+                // Live, request-independent source: anything Seerr currently
+                // tracks as partially or fully available. Driven by Sonarr's
+                // own monitoring state, not the request table, so it can't go
+                // stale the way a request row can - and it catches shows the
+                // memory above never had a chance to learn about (e.g. a
+                // request that disappeared from Seerr BEFORE this plugin ever
+                // resolved it once, so it was never remembered either).
+                // "allavailable" = PARTIALLY_AVAILABLE + AVAILABLE, so a show
+                // that finished its current season and is fully caught up -
+                // not "partial" anymore, but still worth checking for an
+                // announced return date - is covered too.
+                foreach (var (mediaType, tmdbId) in await FetchAvailableOrPartialMedia())
                 {
                     if (seen.Add(mediaType + ":" + tmdbId))
                     {

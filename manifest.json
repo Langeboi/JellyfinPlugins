@@ -434,6 +434,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.6.0",
+        "changelog": "Silo viste sig stadig ikke - hukommelsen fra 1.9.5.0 kan kun huske titler den selv har set mindst én gang, og Silos Seerr-anmodning var allerede væk FØR den udgivelse fandtes. Kalenderen henter nu desuden direkte fra Seerrs egen liste over 'delvist' og 'fuldt tilgængelige' titler (samme status Sonarr/Radarr styrer) - helt uafhængigt af om der findes en aktiv anmodning. Det er en mere robust kilde end anmodningslisten, fordi den ikke kan forsvinde stille og roligt: enhver serie der stadig kører eller lige er blevet færdig og venter på en ny sæson, bliver nu automatisk tjekket for en kommende dato. Ændrer intet ved hvad der reelt vises på kalenderen - stadig kun titler med en ægte dato inden for 14 dage.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.6.0/seerrrequests_1.9.6.0.zip",
+        "checksum": "72d8edc970548fca6f27f91cb8b8a30a",
+        "timestamp": "2026-07-21T20:00:00Z"
+      },
+      {
         "version": "1.9.5.0",
         "changelog": "Kalenderen glemte titler for tidligt. Rodårsagen bag Silo-sagen: Seerrs egen anmodningsliste kan miste en titel helt, når den bliver fuldt tilgængelig - selvom der stadig er en helt reel, kommende afsnitsdato. Kalenderen har nu sin egen hukommelse over alt den nogensinde har set anmodet gennem Seerr: en titel bliver ved med at blive tjekket for fremtidige datoer, selv efter dens Seerr-anmodning er forsvundet. Hukommelsen vokser automatisk og glemmer kun en titel når en anmodning bevidst fortrydes ('Fortryd'-knappen) - ikke bare fordi Seerr selv har ryddet op. Ændrer intet ved hvad der reelt vises: kun titler med en ægte kommende dato inden for 14 dage kommer stadig på kalenderen.",
         "targetAbi": "10.11.0.0",
