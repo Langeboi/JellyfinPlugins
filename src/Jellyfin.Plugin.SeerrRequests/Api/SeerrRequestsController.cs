@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -136,7 +137,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return new ContentResult { Content = text, ContentType = "application/json", StatusCode = (int)response.StatusCode };
                 }
 
-                var json = JObject.Parse(text);
+                var json = ParseJson(text);
                 var results = json["results"] as JArray ?? new JArray();
                 var enriched = new JArray();
 
@@ -202,7 +203,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 }
 
                 var text = await response.Content.ReadAsStringAsync();
-                var json = JObject.Parse(text);
+                var json = ParseJson(text);
                 var title = (mediaType == "movie" ? json["title"] : json["name"])?.ToString();
                 if (string.IsNullOrEmpty(title))
                 {
@@ -371,7 +372,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     break;
                 }
 
-                var body = JObject.Parse(await response.Content.ReadAsStringAsync());
+                var body = ParseJson(await response.Content.ReadAsStringAsync());
                 var results = body["results"] as JArray ?? new JArray();
                 foreach (var item in results)
                 {
@@ -431,7 +432,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return Json(new JObject { ["error"] = $"Seerr returned {(int)response.StatusCode}" }, (int)response.StatusCode);
                 }
 
-                var results = JObject.Parse(text)["results"] as JArray ?? new JArray();
+                var results = ParseJson(text)["results"] as JArray ?? new JArray();
 
                 // Several users requesting the same title must not produce
                 // duplicate calendar rows.
@@ -570,7 +571,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return null;
                 }
 
-                var details = JObject.Parse(await response.Content.ReadAsStringAsync());
+                var details = ParseJson(await response.Content.ReadAsStringAsync());
                 var title = (mediaType == "movie" ? details["title"] : details["name"])?.ToString();
                 if (string.IsNullOrEmpty(title))
                 {
@@ -860,7 +861,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     using var lookupResponse = await HttpClient.SendAsync(lookup);
                     if (lookupResponse.IsSuccessStatusCode)
                     {
-                        var media = JObject.Parse(await lookupResponse.Content.ReadAsStringAsync())["media"];
+                        var media = ParseJson(await lookupResponse.Content.ReadAsStringAsync())["media"];
                         forgetMediaType = media?["mediaType"]?.ToString();
                         forgetTmdbId = media?["tmdbId"]?.Value<int?>();
                     }
@@ -919,7 +920,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     return Json(new JObject { ["ok"] = false, ["error"] = $"Seerr returned {(int)response.StatusCode}" });
                 }
 
-                var json = JObject.Parse(text);
+                var json = ParseJson(text);
                 return Json(new JObject { ["ok"] = true, ["version"] = json["version"]?.ToString() });
             }
             catch (Exception ex)
@@ -945,7 +946,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 if (response.IsSuccessStatusCode)
                 {
                     var text = await response.Content.ReadAsStringAsync();
-                    var json = JObject.Parse(text);
+                    var json = ParseJson(text);
                     resolved = json["id"]?.Value<int>();
                 }
             }
@@ -1008,7 +1009,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                     excludedCsv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
                     StringComparer.OrdinalIgnoreCase);
 
-                var json = JObject.Parse(jsonText);
+                var json = ParseJson(jsonText);
                 if (json["results"] is not JArray results)
                 {
                     return jsonText;
@@ -1063,6 +1064,27 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             var request = new HttpRequestMessage(method, config.SeerrBaseUrl + path);
             request.Headers.Add("X-Api-Key", config.SeerrApiKey);
             return request;
+        }
+
+        // JObject.Parse (Newtonsoft's default) auto-converts ISO-8601-looking
+        // JSON strings into DateTime tokens, so reading one back via
+        // .ToString() gives a CULTURE-DEPENDENT, non-ISO string instead of
+        // the original - confirmed live: Seerr's
+        // "release_date": "2026-07-21T00:00:00.000Z" silently became
+        // "21-07-2026 00:00:00" on this server, which broke NormalizeDate's
+        // ISO-substring assumption, the 14-day window's DateTime.TryParse,
+        // AND the calendar's own chronological string sort (a mangled
+        // "21-07-...” string sorts after every correctly-formatted
+        // "2026-...” one, which is exactly why two movies releasing TODAY
+        // were landing at the very bottom of the list instead of the top).
+        // Every JSON parse in this file must go through this, not
+        // JObject.Parse directly - ANY Seerr/TMDB response can carry a date
+        // field (release dates, air dates, createdAt/updatedAt), not just
+        // the ones this file explicitly reads as dates today.
+        private static JObject ParseJson(string json)
+        {
+            using var reader = new JsonTextReader(new StringReader(json)) { DateParseHandling = DateParseHandling.None };
+            return JObject.Load(reader);
         }
 
         // ASP.NET Core's default output formatter is System.Text.Json, which
