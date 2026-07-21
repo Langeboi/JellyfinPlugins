@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.4.0",
+        "changelog": "Vagthunden der genstarter manglende undertekster er gjort hurtigere og fanger et hul den ikke fangede før. Tjekker nu 4x oftere (hvert 2. i stedet for hvert 8. sekund) - trygt, fordi tjekket (bruger tracket har indlæste cues, ikke om der lige nu vises en linje) aldrig fejlagtigt tolker en naturlig pause mellem replikker som en fejl. Skift af undertekst-sprog MIDT i afspilningen (via Jellyfins egen menu) får nu sin egen ventetid før vagthunden dømmer det - det havde den slet ikke før, kun tilfældig beskyttelse via den gamle, langsommere tjekfrekvens. Værste-fald-ventetid før en reel fejl rettes: ca. 22 sekunder ved opstart (var ~36s), ca. 8 sekunder ved sprogskift midt i (var ~16s, og reelt ubeskyttet). Uændret: den 20-sekunders opstartsventetid selv, som tidligere er testet direkte mod denne server.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.4.0/subtitleguard_2.0.4.0.zip",
+        "checksum": "fe514a4c72613d9d8f097578bdf2d11e",
+        "timestamp": "2026-07-22T09:00:00Z"
+      },
+      {
         "version": "2.0.3.0",
         "changelog": "Smartere natlig rækkefølge: nyeste tilføjelser i biblioteket behandles først, derefter det husstanden faktisk har set for nylig ('trending' - opsamlet på tværs af alle brugere, ikke pr. profil), og til sidst resten af biblioteket. I den sidste, resterende del skifter rækkefølgen nu mellem film og HELE serier ad gangen - i stedet for at springe rundt mellem et par afsnit fra mange forskellige serier, gnaves en hel serie igennem (i sæson/afsnit-rækkefølge, ikke efter hvornår afsnittet blev tilføjet) før der skiftes til den næste film eller serie. Gælder alle tre natlige opgaver (sync, transskription, oversættelse).",
         "targetAbi": "10.11.0.0",

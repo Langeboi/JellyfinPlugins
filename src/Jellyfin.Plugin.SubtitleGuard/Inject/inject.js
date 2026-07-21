@@ -3,11 +3,36 @@
 
   var PLUGIN_ID = '288e2c30-9a8f-42f7-90a5-729528f5013a';
 
-  // Watchdog cadence and thresholds. All values validated against live
-  // playback on this server: track attach takes a few seconds even on a
-  // healthy stream, so the grace period is generous before intervening.
-  var CHECK_INTERVAL_MS = 8000;
+  // Watchdog cadence and thresholds.
+  // GRACE_PERIOD_MS is validated against live playback on this server:
+  // track attach takes a few seconds even on a healthy stream, so the
+  // grace period is generous before intervening - left unchanged.
+  // CHECK_INTERVAL_MS is tightened (was 8000): subtitlesRendering() checks
+  // whether the track has ANY cues loaded (t.cues.length > 0), not whether
+  // one is active at this exact instant, so it does not false-positive
+  // during a normal gap between spoken lines - polling faster carries no
+  // extra risk of misreading a quiet moment as a failure.
+  // TRACK_CHANGE_GRACE_MS is NEW and not yet live-validated the way
+  // GRACE_PERIOD_MS is: previously, switching subtitle language MID-
+  // PLAYBACK (via Jellyfin's own subtitle menu, independent of this
+  // watchdog) got no explicit grace at all - firstSeenAt only resets on a
+  // new ITEM, not a track change, so a switch relied entirely on
+  // CONSECUTIVE_BAD_BEFORE_FIX x the (old, slower) CHECK_INTERVAL_MS as an
+  // accidental buffer. Track changes are now detected explicitly (see
+  // watchdogTick) and given their own settle window, chosen shorter than
+  // the item-start grace because re-attaching a track mid-playback does
+  // not need to renegotiate transcoding/buffering the way a fresh item
+  // does - worth watching in practice and tuning if it proves too short.
+  // CONSECUTIVE_BAD_BEFORE_FIX stays at 2, deliberately NOT reduced to 1
+  // despite subtitlesRendering() not being gap-sensitive: there is no live
+  // evidence a single momentary bad reading (e.g. during a seek) can never
+  // happen on an otherwise-healthy track, and this was the original code's
+  // insurance against exactly that - not worth trading away for a saving
+  // of one more poll interval (2s) when everything else here already cuts
+  // the worst case roughly in half.
+  var CHECK_INTERVAL_MS = 2000;
   var GRACE_PERIOD_MS = 20000;
+  var TRACK_CHANGE_GRACE_MS = 6000;
   var CONSECUTIVE_BAD_BEFORE_FIX = 2;
   var MAX_FIX_ATTEMPTS_PER_ITEM = 2;
 
@@ -718,6 +743,8 @@
   var watch = {
     itemId: null,
     firstSeenAt: 0,
+    lastSubIndex: null,
+    subIndexChangedAt: 0,
     consecutiveBad: 0,
     fixAttempts: 0,
     checking: false
@@ -726,6 +753,8 @@
   function resetWatch(itemId) {
     watch.itemId = itemId;
     watch.firstSeenAt = Date.now();
+    watch.lastSubIndex = null;
+    watch.subIndexChangedAt = Date.now();
     watch.consecutiveBad = 0;
     watch.fixAttempts = 0;
   }
@@ -779,6 +808,10 @@
         var subIndex = session.PlayState.SubtitleStreamIndex;
         if (subIndex == null || subIndex < 0) {
           watch.consecutiveBad = 0;
+          // Cleared, not just left stale: if subtitles get turned back on
+          // later - even to this exact same index - that re-attach needs
+          // its own settle window too, same as any other change.
+          watch.lastSubIndex = null;
           return;
         }
 
@@ -800,7 +833,25 @@
           return;
         }
 
+        if (subIndex !== watch.lastSubIndex) {
+          // First observation of this exact index - either the very start
+          // of playback (the item-level grace period below already covers
+          // that case; recording it here now means it won't ALSO wait out
+          // TRACK_CHANGE_GRACE_MS afterwards, so the two windows don't
+          // stack) or the household switched subtitle language mid-
+          // playback through Jellyfin's own menu, independent of this
+          // watchdog - which now gets an explicit settle window instead of
+          // relying on accidental timing to avoid a false trigger.
+          watch.lastSubIndex = subIndex;
+          watch.subIndexChangedAt = Date.now();
+          watch.consecutiveBad = 0;
+        }
+
         if (Date.now() - watch.firstSeenAt < GRACE_PERIOD_MS) {
+          return;
+        }
+
+        if (Date.now() - watch.subIndexChangedAt < TRACK_CHANGE_GRACE_MS) {
           return;
         }
 
