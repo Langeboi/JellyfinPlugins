@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.1"
+WORKER_VERSION = "2.1.2"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -182,6 +182,18 @@ WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
 # the real guarantee is the no-hotwords retry in process_transcribe_job, so a
 # list that still overflows never stops a subtitle being produced.
 HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "250"))
+
+# A short, fully-punctuated example primes Whisper's decode context toward
+# consistent sentence-ending punctuation and comma usage - condition_on_
+# previous_text (faster-whisper default: on) carries that "style" forward
+# window after window, not just the first one. Keyed by job["language"] when
+# the caller pins one; auto-detect jobs (the common case) get the English
+# prompt, which is fine even for other spoken languages - it's a structural
+# cue, not a translation.
+WHISPER_PUNCTUATION_PROMPT = {
+    "en": "Hello, welcome back. As I was saying, it's going to be fine - don't worry.",
+    "da": "Hej, velkommen tilbage. Som jeg sagde, det skal nok gå - bare rolig.",
+}
 
 
 def _whisper_vad_parameters():
@@ -537,6 +549,22 @@ def _tight_bounds(segment):
     return segment.start, segment.end
 
 
+def _wrap_paragraph(text: str, width: int) -> list:
+    """Greedy word-fill into lines of at most `width` chars each - never
+    breaks a word, so a line can run over width only if a single word does."""
+    words = text.split()
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > width:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 def _wrap_lines(text: str) -> str:
     """Wrap a cue's text to at most CUE_MAX_LINES balanced lines. A single
     short line is left alone; a long line is split near the middle at a word
@@ -556,18 +584,37 @@ def _wrap_lines(text: str) -> str:
                 best = (score, top + "\n" + bottom)
     if best is not None:
         return best[1]
-    # Too long for 2 lines (a very long single segment) - greedily wrap into
-    # as many lines as needed rather than dropping any words.
-    lines, cur = [], ""
-    for w in words:
-        if cur and len(cur) + 1 + len(w) > CUE_MAX_LINE_CHARS:
-            lines.append(cur)
-            cur = w
+    # write_srt splits any cue too long for CUE_MAX_LINES into multiple
+    # subtitle blocks before this is ever called (_split_overlong_cue) - this
+    # is just a safety net so nothing is silently dropped if that changes.
+    return "\n".join(_wrap_paragraph(text, CUE_MAX_LINE_CHARS))
+
+
+def _split_overlong_cue(cue):
+    """A merged cue whose text can't fit CUE_MAX_LINES at CUE_MAX_LINE_CHARS
+    is split into consecutive sub-cues (each capped at CUE_MAX_LINES) instead
+    of letting one subtitle block grow a 3rd/4th line - the original time
+    span is divided across the pieces proportionally by character count."""
+    start, end, text = cue
+    lines = _wrap_paragraph(text, CUE_MAX_LINE_CHARS)
+    if len(lines) <= CUE_MAX_LINES:
+        return [cue]
+    chunks = [
+        " ".join(lines[i:i + CUE_MAX_LINES])
+        for i in range(0, len(lines), CUE_MAX_LINES)
+    ]
+    total_chars = sum(len(c) for c in chunks) or 1
+    total_dur = end - start
+    out = []
+    t = start
+    for i, chunk in enumerate(chunks):
+        if i == len(chunks) - 1:
+            c_end = end
         else:
-            cur = f"{cur} {w}".strip()
-    if cur:
-        lines.append(cur)
-    return "\n".join(lines)
+            c_end = t + total_dur * (len(chunk) / total_chars)
+        out.append([t, c_end, chunk])
+        t = c_end
+    return out
 
 
 def write_srt(segments, path: str, progress=None) -> int:
@@ -623,6 +670,14 @@ def write_srt(segments, path: str, progress=None) -> int:
             repeat_run = 0
         cleaned.append(cue)
     cues = cleaned
+
+    # A merge (or a single long unbroken segment) can still be too long for
+    # a 2-line block - split it into consecutive blocks now, before duration/
+    # anti-overlap run, so every subtitle actually shown is <=CUE_MAX_LINES.
+    expanded = []
+    for cue in cues:
+        expanded.extend(_split_overlong_cue(cue))
+    cues = expanded
 
     # Readable minimum duration: longer for longer lines, floored so short
     # lines don't blink out, capped so nothing lingers too long.
@@ -1018,21 +1073,31 @@ def process_transcribe_job(job: dict):
             # language=None auto-detects the SPOKEN language. word_timestamps
             # gives per-word timing so write_srt can hug real speech. Wider
             # beam = fewer missed words; VAD left at the proven default.
+            # initial_prompt primes the decode context with a fully-punctuated
+            # example sentence - Whisper measurably keeps punctuating more
+            # consistently when the prompt models that style, and this
+            # composes fine with hotwords (faster-whisper concatenates
+            # hotwords_tokens then previous_tokens - which start with this
+            # prompt - into the same decode window; see get_prompt() in
+            # faster_whisper/transcribe.py). Kept short so it can't meaningfully
+            # eat into the hotwords/decode budget that HOTWORDS_MAX_CHARS and
+            # the no-hotwords retry below already guard.
             kw = {
                 "language": job.get("language") or None,
                 "word_timestamps": True,
                 "beam_size": WHISPER_BEAM,
                 "vad_filter": WHISPER_VAD,
                 "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
+                "initial_prompt": WHISPER_PUNCTUATION_PROMPT.get(
+                    job.get("language"), WHISPER_PUNCTUATION_PROMPT["en"]
+                ),
             }
             if use_hotwords and hotwords:
                 import inspect
                 if "hotwords" in inspect.signature(model.transcribe).parameters:
                     kw["hotwords"] = hotwords
                 else:
-                    kw["initial_prompt"] = (
-                        "This program may include the following names and terms: " + hotwords + "."
-                    )
+                    kw["initial_prompt"] += " Names and terms used: " + hotwords + "."
             return model.transcribe(media, **kw)
 
         segments, info = transcribe(use_hotwords=bool(hotwords))
