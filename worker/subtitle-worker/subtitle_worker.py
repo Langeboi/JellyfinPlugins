@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.3"
+WORKER_VERSION = "2.1.4"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -921,7 +921,16 @@ def place_subtitle(out_path: str, sub: str):
             raise
     # Re-own: remove the externally-owned file (a directory-level operation,
     # which the worker is allowed), then write our synced copy as a new file.
-    os.remove(sub)  # if this also fails (e.g. read-only flag) it propagates
+    # CIFS/SMB rename-over-an-existing-file can unlink the destination as
+    # part of a rename attempt it then still reports as failed (observed
+    # live: shutil.move's internal os.rename raised EACCES, but the target
+    # had already vanished by the time we got here) - FileNotFoundError here
+    # just means the re-own is already halfway done, not a new failure. Any
+    # OTHER failure (e.g. a real read-only flag) still propagates.
+    try:
+        os.remove(sub)
+    except FileNotFoundError:
+        pass
     shutil.move(out_path, sub)
 
 
