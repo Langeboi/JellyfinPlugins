@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.2"
+WORKER_VERSION = "2.1.3"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -469,7 +469,7 @@ def process_translate_job(job: dict):
         with open(tmp_out, "w", encoding="utf-8") as fh:
             for i, ((timing, _), text) in enumerate(zip(cues, translated), start=1):
                 fh.write(f"{i}\n{timing}\n{wrap_cue(text)}\n\n")
-        shutil.move(tmp_out, target)
+        place_subtitle(tmp_out, target)  # overwrite, or re-own if refused
 
         record(key, mtime, None, "translated")
         # A translation keeps the SOURCE cues' timing verbatim (see the write
@@ -909,9 +909,10 @@ def place_subtitle(out_path: str, sub: str):
     and delete files in the folder (that's how it writes the .bak). When the
     overwrite is refused, delete the un-owned file and drop our copy in its
     place - it now belongs to the worker, so this file syncs cleanly forever
-    after. The corrected copy already carries the original's (human) content,
-    time-aligned by ffsubsync, so nothing is lost. Only the .bak-backed 'fixed'
-    path calls this, so a failure here still leaves the original + its .bak."""
+    after. Used by every job type that can write over an existing subtitle
+    (sync, transcribe, translate) - the incoming file already carries the
+    right content (ffsubsync-aligned, or freshly generated), so nothing is
+    lost by re-owning the path."""
     try:
         shutil.move(out_path, sub)
         return
@@ -1150,7 +1151,7 @@ def process_transcribe_job(job: dict):
                 state["failed"] += 1
             return
 
-        shutil.move(out_path, target)
+        place_subtitle(out_path, target)  # overwrite, or re-own if refused
         out_path = None
         record(key, mtime, None, f"transcribed:{info.language}")
         # A Whisper transcription is built FROM the audio (word-level
