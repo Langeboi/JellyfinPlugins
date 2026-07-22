@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.5"
+WORKER_VERSION = "2.1.6"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -510,6 +510,20 @@ CUE_MAX_DURATION = 7.0       # never hold a cue longer than this
 CUE_CHARS_PER_SEC = 16.0     # reading speed used to lengthen short cues
 CUE_MIN_GAP = 0.04           # gap kept between consecutive cues
 
+# Whisper's SEGMENT-level start can itself be wrong, not just individual word
+# timestamps (the v2.1.5 fix): VAD can keep a "voice activity" span open
+# across a long quiet/musical stretch with no dialogue (common right after a
+# studio-logo intro) before the first real line, so a segment's start ends up
+# far earlier than when its text was actually spoken - reported live (a
+# minute early, then separately 35s early) on movies with such an intro. The
+# segment's END is far more trustworthy. Cap how far back a raw cue's start
+# can be from its end using its OWN text length as the sanity bound - real
+# dialogue, however slowly delivered or pause-filled, still comfortably fits
+# a generous multiple of its expected reading time; anything beyond that is
+# almost certainly this same start-time artifact, not real speech.
+CUE_START_SLACK_FLOOR = 12.0     # minimum slack (seconds), regardless of text length
+CUE_START_SLACK_MULTIPLE = 3.0   # generous multiple of the text's own reading-time estimate
+
 # Whisper emits one segment per phrase, so cue-per-segment gives a rapid
 # flicker of short single lines. Instead we merge neighbouring segments into
 # proper subtitles (up to 2 lines, standard ~42 chars/line) as long as the
@@ -642,6 +656,9 @@ def write_srt(segments, path: str, progress=None) -> int:
         if not text:
             continue
         start, end = _tight_bounds(segment)
+        max_span = max(CUE_START_SLACK_FLOOR, (len(text) / CUE_CHARS_PER_SEC) * CUE_START_SLACK_MULTIPLE)
+        if end - start > max_span:
+            start = end - max_span
         cues.append([max(0.0, start - CUE_LEAD_IN), end, text])
 
     # Merge neighbouring cues into 2-line subtitles: keeps dialogue together
