@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.4"
+WORKER_VERSION = "2.1.5"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -541,11 +541,21 @@ HALLUCINATION_MAX_REPEATS = 2
 
 def _tight_bounds(segment):
     """(start, end) hugging real speech via word timestamps, or the raw
-    segment bounds when word timing isn't available."""
+    segment bounds when word timing isn't available. Word timestamps come
+    from cross-attention alignment, which occasionally produces a wild
+    outlier - a word's start/end off by seconds, sometimes far more (observed
+    live: a cue appearing roughly a minute before the line was actually
+    spoken). The segment's own bounds are VAD-derived and far more reliable,
+    so clamp to them - this is a no-op in the normal case (word timestamps
+    naturally fall inside their segment) and only kicks in to reel back a
+    glitch."""
     words = getattr(segment, "words", None) or []
     words = [w for w in words if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None]
     if words:
-        return words[0].start, words[-1].end
+        start = max(words[0].start, segment.start)
+        end = min(words[-1].end, segment.end)
+        if end > start:
+            return start, end
     return segment.start, segment.end
 
 
