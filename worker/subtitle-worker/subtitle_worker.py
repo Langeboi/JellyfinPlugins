@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.7"
+WORKER_VERSION = "2.1.8"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -745,19 +745,29 @@ SYNC_CONCURRENCY = int(
 # on the one-at-a-time transcribe lock) until no thread was left for sync.
 # Sync threads consume job_queue; ONE dedicated ML thread consumes ml_queue -
 # so a box with both roles genuinely syncs and transcribes at the same time.
+#
+# Each also has a PRIORITY sibling, drained first (see worker_loop/ml_loop).
+# The nightly scheduled tasks can queue hundreds of jobs ahead of a one-off
+# per-item button click - a plain FIFO meant "instantly" from the item page
+# could really mean "behind the whole nightly batch". The plugin's per-item
+# endpoints (Fix undertekst-sync / Generér undertekster) mark their job
+# priority=True so a manual click jumps straight to the front instead.
 job_queue: "queue.Queue[dict]" = queue.Queue()
+priority_job_queue: "queue.Queue[dict]" = queue.Queue()
 ml_queue: "queue.Queue[dict]" = queue.Queue()
+priority_ml_queue: "queue.Queue[dict]" = queue.Queue()
 
 
 def enqueue_job(job: dict):
+    priority = bool(job.get("priority"))
     if job.get("type") in ("transcribe", "translate"):
-        ml_queue.put(job)
+        (priority_ml_queue if priority else ml_queue).put(job)
     else:
-        job_queue.put(job)
+        (priority_job_queue if priority else job_queue).put(job)
 
 
 def total_queue_depth() -> int:
-    return job_queue.qsize() + ml_queue.qsize()
+    return job_queue.qsize() + priority_job_queue.qsize() + ml_queue.qsize() + priority_ml_queue.qsize()
 
 
 state = {
@@ -1207,7 +1217,11 @@ def process_transcribe_job(job: dict):
         # this worker can translate (NLLB) - which it can, since transcription
         # is CUDA-only and the NLLB model lives on the same GPU box.
         if job.get("chain_translate") and info.language == "en" and TRANSLATE_CAPABILITY:
-            ml_queue.put({"type": "translate", "media_path": media, "subtitle_path": target})
+            # Inherit priority from the transcribe job that triggered this -
+            # a manual per-item click should stay fast end-to-end, not lose
+            # its place in line the moment it chains to translation.
+            chain_queue = priority_ml_queue if job.get("priority") else ml_queue
+            chain_queue.put({"type": "translate", "media_path": media, "subtitle_path": target, "priority": job.get("priority", False)})
         with state_lock:
             state["done"] += 1
     except Exception as exc:  # noqa: BLE001 - keep the worker alive
@@ -1225,25 +1239,33 @@ def worker_loop():
         # Respect pause BEFORE pulling a job, so pausing takes effect after
         # the current file finishes and a subsequent queue-clear works.
         pause_event.wait()
+        # Priority jobs (a manual per-item click) always go first - only
+        # fall through to the regular FIFO's blocking wait when there isn't
+        # one sitting ready right now.
         try:
-            job = job_queue.get(timeout=1)
+            job = priority_job_queue.get_nowait()
+            src_queue = priority_job_queue
         except queue.Empty:
-            continue
+            try:
+                job = job_queue.get(timeout=1)
+                src_queue = job_queue
+            except queue.Empty:
+                continue
 
         # A thread already blocked in get() when /pause engages still wins the
         # next submitted job (confirmed by test: pause -> submit -> the job ran
         # anyway). Hand it back and go respect the gate instead of processing
         # while "paused".
         if not pause_event.is_set():
-            job_queue.put(job)
-            job_queue.task_done()
+            src_queue.put(job)
+            src_queue.task_done()
             continue
 
         # ML jobs never belong on sync threads (see enqueue_job) - reroute
         # any stray one instead of letting it block a sync slot on the lock.
         if job.get("type") in ("transcribe", "translate"):
-            ml_queue.put(job)
-            job_queue.task_done()
+            (priority_ml_queue if job.get("priority") else ml_queue).put(job)
+            src_queue.task_done()
             continue
 
         label = job.get("subtitle_path") or job.get("media_path")
@@ -1254,7 +1276,7 @@ def worker_loop():
         finally:
             with state_lock:
                 state["processing"].pop(name, None)
-            job_queue.task_done()
+            src_queue.task_done()
 
 
 def ml_loop():
@@ -1264,16 +1286,22 @@ def ml_loop():
     name = threading.current_thread().name
     while True:
         pause_event.wait()
+        # Priority first, same reasoning as worker_loop.
         try:
-            job = ml_queue.get(timeout=1)
+            job = priority_ml_queue.get_nowait()
+            src_queue = priority_ml_queue
         except queue.Empty:
-            continue
+            try:
+                job = ml_queue.get(timeout=1)
+                src_queue = ml_queue
+            except queue.Empty:
+                continue
 
         # Same pause-vs-get race as worker_loop: hand the job back if pause
         # engaged while we were blocked in get().
         if not pause_event.is_set():
-            ml_queue.put(job)
-            ml_queue.task_done()
+            src_queue.put(job)
+            src_queue.task_done()
             continue
 
         prefix = "[whisper] " if job.get("type") == "transcribe" else "[oversætter] "
@@ -1299,7 +1327,7 @@ def ml_loop():
             with state_lock:
                 state["processing"].pop(name, None)
                 state["ml_progress"] = None
-            ml_queue.task_done()
+            src_queue.task_done()
 
 
 def _models_resident():
@@ -1365,6 +1393,7 @@ class Job(BaseModel):
     force: bool = False  # transcribe: re-run even if already processed / target exists
     hotwords: str | None = None  # transcribe: comma-separated names/terms to bias Whisper
     chain_translate: bool = False  # transcribe: auto-queue en->da translation on success
+    priority: bool = False  # jump ahead of the regular FIFO (a manual per-item click)
 
 
 class Batch(BaseModel):
@@ -1409,21 +1438,24 @@ def steal(body: StealBody, x_api_key: str = Header(default="")):
     (e.g. a transcription asked for by a non-GPU worker) are kept."""
     check_key(x_api_key)
     taken: list[dict] = []
-    kept: list[dict] = []
+    kept: list[tuple] = []  # (source queue, job) - an unsuitable job goes back to where it came from
     want = max(1, min(20, body.count))
-    try:
-        while len(taken) < want:
-            job = job_queue.get_nowait()
-            job_queue.task_done()
-            if job_suitable_for(job, body.capabilities):
-                taken.append(job)
-            else:
-                kept.append(job)
-    except queue.Empty:
-        pass
-    for job in kept:
-        job_queue.put(job)
-    return {"jobs": taken, "queue_depth": job_queue.qsize()}
+    # Priority jobs first - a peer idle enough to steal should pick up a
+    # manual per-item click before any ordinary nightly-batch job.
+    for q in (priority_job_queue, job_queue):
+        try:
+            while len(taken) < want:
+                job = q.get_nowait()
+                q.task_done()
+                if job_suitable_for(job, body.capabilities):
+                    taken.append(job)
+                else:
+                    kept.append((q, job))
+        except queue.Empty:
+            continue
+    for q, job in kept:
+        q.put(job)
+    return {"jobs": taken, "queue_depth": job_queue.qsize() + priority_job_queue.qsize()}
 
 
 @app.get("/health")
@@ -1584,7 +1616,7 @@ def clear_queue(x_api_key: str = Header(default="")):
     pause_event.clear()
     try:
         removed = 0
-        for q in (job_queue, ml_queue):
+        for q in (job_queue, priority_job_queue, ml_queue, priority_ml_queue):
             try:
                 while True:
                     q.get_nowait()
@@ -1771,8 +1803,8 @@ def status(x_api_key: str = Header(default="")):
     snapshot["processing_list"] = list(active.values())
     snapshot["concurrency"] = SYNC_CONCURRENCY
     snapshot["queue_depth"] = total_queue_depth()
-    snapshot["sync_queue_depth"] = job_queue.qsize()
-    snapshot["ml_queue_depth"] = ml_queue.qsize()
+    snapshot["sync_queue_depth"] = job_queue.qsize() + priority_job_queue.qsize()
+    snapshot["ml_queue_depth"] = ml_queue.qsize() + priority_ml_queue.qsize()
     snapshot["capabilities"] = {
         "sync": True,
         "transcribe": TRANSCRIBE_CAPABILITY,
