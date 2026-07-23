@@ -263,6 +263,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.7.1.0",
+        "changelog": "Hover-forhåndsvisningen er lavet om: i stedet for en flydende boks er det nu selve kortet, der animeret vokser fra sin normale stående form til en 16:9-boks i samme højde som før, og naboerne i rækken flytter sig pænt til side - med det samme indhold som før (resumé, afspil-knap, 'Læs mere'). Går selv tilbage til sin oprindelige form igen, når musen flyttes væk. Fortsæt afspilning: den lydløse forhåndsvisning starter hurtigere - sigter nu efter den rigtige position i videoen fra første hentning i stedet for altid at hente fra begyndelsen og derefter springe til stedet, bruger en hurtigere (omtrentlig) spring-metode hvor understøttet, og viser ikke længere et kort sort blink mens den henter.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.7.1.0/newbadges_1.7.1.0.zip",
+        "checksum": "15f0d6e78a24cb62db190c00065c8fca",
+        "timestamp": "2026-07-23T18:50:00Z"
+      },
+      {
         "version": "1.7.0.1",
         "changelog": "Ny funktion: hold musen over et hvilket som helst kort på forsiden (film, serier, afsnit) for en udvidet forhåndsvisning med resumé - afsnittets eget for et afsnit, seriens eget for en serie, filmens for en film - samt en afspil-knap og en 'Læs mere'-knap i samme grå som Jellyfins egen eksisterende afspil-knap på kort. Fortsæt afspilning-rækken får i stedet sin egen effekt: hold musen over et kort i 3 sekunder, og det begynder at spille lydløst direkte i kortet fra samme sted du kom til - klik hvor som helst på kortet for at hoppe direkte ind i den rigtige afspiller og fortsætte. Kun på skærme med mus (rør-enheder ser intet nyt).",
         "targetAbi": "10.11.0.0",

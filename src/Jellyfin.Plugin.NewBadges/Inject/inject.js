@@ -2013,30 +2013,40 @@
   //  Home-page card hover-expand preview
   //  Hovering any card on the home page (native rows AND this plugin's own
   //  Trending/Continue Watching/redesigned rows - they all share the same
-  //  .card[data-id] convention) expands it into a floating panel with the
+  //  .card[data-id] convention) grows THAT card itself in place from its
+  //  normal portrait shape to a 16:9 box at the SAME height, with the
   //  overview - the episode's own synopsis for an episode, the show's own
   //  synopsis for a series, the movie's tagline/overview for a movie
   //  (Jellyfin's Items/{id} already scopes Overview correctly per type, no
   //  special-casing needed there) - a play button, and a "Læs mere" link to
   //  the item's details page. Desktop only (matchMedia hover check), same
   //  gating Seerr Requests' own equivalent feature uses - touch devices
-  //  never see it. Shell layout mirrors that feature's popover; the two
-  //  buttons instead match Jellyfin's OWN existing card-hover play button
-  //  (.cardOverlayFab-primary, confirmed live in jellyfin-web's own
-  //  card.scss: a rgba(0,0,0,.7) circle) - "Læs mere" reuses that exact
+  //  never see it. The two buttons match Jellyfin's OWN existing card-hover
+  //  play button (.cardOverlayFab-primary, confirmed live in jellyfin-web's
+  //  own card.scss: a rgba(0,0,0,.7) circle) - "Læs mere" reuses that exact
   //  grey so both buttons read as one native-feeling pair.
+  //
+  //  The expand is a real layout resize (card.style.flexBasis + the card's own
+  //  .cardPadder padding-bottom, which is how Jellyfin's own aspect-ratio
+  //  trick works - percentage padding resolves against the padded element's
+  //  own width), not a CSS transform - confirmed in a standalone harness
+  //  against the real card.scss classes that this correctly reproduces the
+  //  card's original pixel height at a 16:9 ratio, and that flex siblings
+  //  in the row shift over by exactly the width delta on their own, with no
+  //  manual position math needed.
   // ==================================================================
 
   // Deliberately longer than Seerr Requests' own equivalent popover (700ms):
   // these cards run the native hover zoom/overlay-fade transition first,
-  // and popping the panel up while that's still settling reads as fighting
-  // with it rather than following it.
+  // and expanding while that's still settling reads as fighting with it
+  // rather than following it.
   var HP_DELAY_MS = 1100;
-  var HP_WIDTH = 340;
+  var HP_HIDE_DELAY_MS = 250;
+  var HP_TARGET_RATIO = 9 / 16; // height / width for a 16:9 box
   var hpShowTimer = null;
   var hpHideTimer = null;
-  var hpCard = null;
-  var hpEl = null;
+  var hpCard = null; // card mid-hover-timer, or currently expanded
+  var hpOriginalStyles = new WeakMap(); // card element -> {card: styleAttr, padder: styleAttr}
   var hpDetailsCache = {}; // itemId -> Promise<BaseItemDto>
 
   function fetchHoverItemDetails(itemId) {
@@ -2142,8 +2152,7 @@
     return parts.map(escapeHtml).join(' &nbsp;•&nbsp; ');
   }
 
-  function buildHoverPreviewHtml(details, playTarget) {
-    var imgUrl = hoverPreviewImageUrl(details);
+  function buildHoverOverlayContentHtml(details, playTarget) {
     var overview = details.Overview ? escapeHtml(details.Overview) : 'Ingen beskrivelse tilgængelig.';
     var playHtml = playTarget
       ? '<button type="button" class="newBadges-hpPlay" data-item-id="' + escapeHtml(playTarget.id) +
@@ -2152,74 +2161,116 @@
       : '';
 
     return (
-      '<div class="newBadges-hpBackdrop"' + (imgUrl ? ' style="background-image:url(&quot;' + imgUrl + '&quot;)"' : '') + '></div>' +
-      '<div class="newBadges-hpBody">' +
-        '<h3 class="newBadges-hpTitle">' + escapeHtml(hoverPreviewTitle(details)) + '</h3>' +
-        '<div class="newBadges-hpMeta">' + hoverPreviewMetaLine(details) + '</div>' +
-        '<div class="newBadges-hpOverview">' + overview + '</div>' +
-        '<div class="newBadges-hpButtons">' +
-          playHtml +
-          '<a class="newBadges-hpMore" href="#/details?id=' + escapeHtml(details.Id) + '">Læs mere</a>' +
-        '</div>' +
+      '<h3 class="newBadges-hpTitle">' + escapeHtml(hoverPreviewTitle(details)) + '</h3>' +
+      '<div class="newBadges-hpMeta">' + hoverPreviewMetaLine(details) + '</div>' +
+      '<div class="newBadges-hpOverview">' + overview + '</div>' +
+      '<div class="newBadges-hpButtons">' +
+        playHtml +
+        '<a class="newBadges-hpMore" href="#/details?id=' + escapeHtml(details.Id) + '">Læs mere</a>' +
       '</div>'
     );
   }
 
-  function ensureHoverPreviewEl() {
-    if (hpEl) {
-      return hpEl;
+  // Grows the card itself to a 16:9 box at its CURRENT height (measured
+  // before any change) - solving width from the target ratio, then setting
+  // that width plus overriding the card's own .cardPadder to a 56.25%
+  // (16:9) padding-bottom is what reproduces that exact height while
+  // hitting the target ratio, confirmed against the real aspect-ratio CSS
+  // trick jellyfin-web's cards use. The card's original style is captured
+  // first so collapseCard can restore it exactly, regardless of whether
+  // Jellyfin itself had already set an inline width (it usually has - card
+  // sizes are computed in its own JS, not pure CSS).
+  function expandCard(card) {
+    if (card.hasAttribute('data-nb-expanded')) {
+      return null;
     }
-    hpEl = document.createElement('div');
-    hpEl.className = 'newBadges-hoverPop';
-    // Appended to body, not the card - position:fixed then stays
-    // viewport-relative regardless of any transformed/scrolling ancestor.
-    document.body.appendChild(hpEl);
+    var scalable = card.querySelector('.cardScalable');
+    var padder = card.querySelector('.cardPadder');
+    if (!scalable || !padder) {
+      return null;
+    }
 
-    hpEl.addEventListener('mouseenter', function () { clearTimeout(hpHideTimer); });
-    hpEl.addEventListener('mouseleave', scheduleHideHoverPreview);
-    hpEl.addEventListener('click', function (e) {
-      var playBtn = e.target.closest ? e.target.closest('.newBadges-hpPlay') : null;
-      if (playBtn) {
-        e.preventDefault();
-        var itemId = playBtn.getAttribute('data-item-id');
-        var ticks = parseInt(playBtn.getAttribute('data-ticks'), 10) || 0;
-        hideHoverPreview();
-        drawerPlayItem(itemId, ticks); // same self-remote-control PlayNow the drawer's resume row uses
-      }
+    hpOriginalStyles.set(card, {
+      card: card.getAttribute('style') || '',
+      padder: padder.getAttribute('style') || ''
     });
 
-    // A fixed popover doesn't track its card through a row/page scroll -
-    // hide immediately rather than let it drift apart from what it's
-    // supposedly previewing.
-    window.addEventListener('scroll', function () {
-      if (hpEl.classList.contains('is-open')) {
-        hideHoverPreview();
-      }
-    }, true);
-    window.addEventListener('hashchange', hideHoverPreview);
-    return hpEl;
+    var currentHeightPx = padder.getBoundingClientRect().height;
+    var targetWidthPx = currentHeightPx / HP_TARGET_RATIO;
+
+    card.style.position = 'relative';
+    card.style.zIndex = '50';
+    // flex-basis, not width - confirmed via a standalone test that a flex
+    // item with flex-basis:auto (which .card is, matching jellyfin-web's
+    // own card.scss - flex-shrink:0 with no explicit basis) simply refuses
+    // to actually resize when width is set AND transitioned in the same
+    // tick (computed width stayed at the original value indefinitely, no
+    // error, no eventual settle - the flex algorithm keeps overriding it).
+    // Setting/transitioning flex-basis directly instead works cleanly.
+    card.style.flexBasis = targetWidthPx + 'px';
+    // A fixed pixel height, not a recomputed 56.25% padding-bottom - the
+    // padder's percentage padding resolves against its OWN width, which is
+    // ALSO changing (mid-transition) at the same time, so a percentage
+    // here would visually snap down and re-grow as the width transitions
+    // instead of holding steady (confirmed in a standalone test: computed
+    // height briefly desyncs from the target while width is mid-flight).
+    // The height genuinely never needs to change here anyway - the whole
+    // point is it stays exactly what it already was - so freezing it as an
+    // absolute value is both correct and simpler than fighting the
+    // percentage coupling.
+    padder.style.height = currentHeightPx + 'px';
+    padder.style.paddingBottom = '0';
+    card.classList.add('newBadges-hpExpanded');
+    card.setAttribute('data-nb-expanded', 'true');
+
+    var overlay = document.createElement('div');
+    overlay.className = 'newBadges-hpOverlay';
+    overlay.innerHTML = '<div class="newBadges-hpOverlayBody"><div class="newBadges-hpLoading">Henter...</div></div>';
+    scalable.appendChild(overlay);
+    // Reveal next frame, after the width/padding transition has begun -
+    // fading the overlay in immediately (same tick as the resize) makes the
+    // text look like it's stretching along with the box instead of just
+    // appearing once it's done.
+    requestAnimationFrame(function () {
+      overlay.classList.add('is-ready');
+    });
+
+    return overlay;
   }
 
-  function positionHoverPreview(card) {
-    var rect = card.getBoundingClientRect();
-    var width = Math.min(HP_WIDTH, window.innerWidth - 16);
-    var left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, 8), window.innerWidth - width - 8);
-    var top = Math.min(Math.max(rect.top - 20, 8), Math.max(window.innerHeight - 420, 8));
-    hpEl.style.width = width + 'px';
-    hpEl.style.left = left + 'px';
-    hpEl.style.top = top + 'px';
+  function collapseCard(card) {
+    if (!card.hasAttribute('data-nb-expanded')) {
+      return;
+    }
+    card.removeAttribute('data-nb-expanded');
+    card.classList.remove('newBadges-hpExpanded');
+
+    var saved = hpOriginalStyles.get(card);
+    var padder = card.querySelector('.cardPadder');
+    if (saved) {
+      if (saved.card) { card.setAttribute('style', saved.card); } else { card.removeAttribute('style'); }
+      if (padder) {
+        if (saved.padder) { padder.setAttribute('style', saved.padder); } else { padder.removeAttribute('style'); }
+      }
+      hpOriginalStyles.delete(card);
+    }
+
+    var overlay = card.querySelector('.newBadges-hpOverlay');
+    if (overlay) {
+      overlay.remove();
+    }
   }
 
   function hideHoverPreview() {
-    if (hpEl) {
-      hpEl.classList.remove('is-open');
+    if (hpCard) {
+      collapseCard(hpCard);
     }
     hpCard = null;
   }
 
   function scheduleHideHoverPreview() {
     clearTimeout(hpHideTimer);
-    hpHideTimer = setTimeout(hideHoverPreview, 250);
+    hpHideTimer = setTimeout(hideHoverPreview, HP_HIDE_DELAY_MS);
   }
 
   function showHoverPreview(card) {
@@ -2227,27 +2278,31 @@
     if (!itemId) {
       return;
     }
-    ensureHoverPreviewEl();
-    positionHoverPreview(card);
-    hpEl.setAttribute('data-key', itemId);
-    hpEl.innerHTML = '<div class="newBadges-hpBody"><div class="newBadges-hpLoading">Henter...</div></div>';
-    hpEl.classList.add('is-open');
+    var overlay = expandCard(card);
+    if (!overlay) {
+      return;
+    }
 
     fetchHoverItemDetails(itemId)
       .then(function (details) {
-        // The user may already have moved to a different card.
-        if (hpEl.getAttribute('data-key') !== itemId || !hpEl.classList.contains('is-open')) {
+        // The user may already have moved to a different card, or left
+        // entirely, before this resolved.
+        if (hpCard !== card || !card.hasAttribute('data-nb-expanded')) {
           return;
         }
         return resolveHoverPlayTarget(details).then(function (playTarget) {
-          if (hpEl.getAttribute('data-key') !== itemId || !hpEl.classList.contains('is-open')) {
+          if (hpCard !== card || !card.hasAttribute('data-nb-expanded')) {
             return;
           }
-          hpEl.innerHTML = buildHoverPreviewHtml(details, playTarget);
+          var imgUrl = hoverPreviewImageUrl(details);
+          if (imgUrl) {
+            overlay.style.backgroundImage = 'url("' + imgUrl + '")';
+          }
+          overlay.querySelector('.newBadges-hpOverlayBody').innerHTML = buildHoverOverlayContentHtml(details, playTarget);
         });
       })
       .catch(function () {
-        if (hpEl.getAttribute('data-key') === itemId) {
+        if (hpCard === card) {
           hideHoverPreview();
         }
       });
@@ -2277,6 +2332,11 @@
           clearTimeout(hpHideTimer);
           return;
         }
+        // Whatever was previously expanded (if anything) must collapse
+        // before a new one grows - only one expanded card at a time.
+        if (hpCard) {
+          collapseCard(hpCard);
+        }
         hpCard = card;
         clearTimeout(hpShowTimer);
         clearTimeout(hpHideTimer);
@@ -2293,11 +2353,14 @@
           return;
         }
         var to = e.relatedTarget;
-        if (to && (card.contains(to) || (hpEl && hpEl.contains(to)))) {
+        // Moving onto the overlay's own content (title/overview/buttons)
+        // is still "inside the card" - card.contains(to) covers that too,
+        // since the overlay is appended INSIDE the card now, not a
+        // separate floating element.
+        if (to && card.contains(to)) {
           return;
         }
         clearTimeout(hpShowTimer);
-        hpCard = null;
         scheduleHideHoverPreview();
       });
     });
@@ -2310,31 +2373,36 @@
     var style = document.createElement('style');
     style.id = 'nbHoverPreviewStyle';
     style.textContent =
-      '.newBadges-hoverPop{position:fixed;z-index:1000;background:#1a1e26;border-radius:14px;' +
-      'box-shadow:0 14px 44px rgba(0,0,0,.75);overflow:hidden;opacity:0;transform:scale(.96);' +
-      'transition:opacity .18s ease,transform .18s ease;pointer-events:none;' +
-      'border:1px solid rgba(255,255,255,.08);}' +
-      '.newBadges-hoverPop.is-open{opacity:1;transform:scale(1);pointer-events:auto;}' +
-      '.newBadges-hpBackdrop{height:165px;background-size:cover;background-position:center 25%;position:relative;}' +
-      '.newBadges-hpBackdrop::after{content:"";position:absolute;inset:0;' +
-      'background:linear-gradient(to top,#1a1e26 0%,rgba(26,30,38,0) 60%);}' +
-      '.newBadges-hpBody{padding:.9em 1.1em 1.1em;}' +
-      '.newBadges-hpLoading{padding:1.4em 0;text-align:center;opacity:.7;font-size:.9em;}' +
-      '.newBadges-hpTitle{font-size:1.15em;font-weight:800;margin:0 0 .25em;}' +
-      '.newBadges-hpMeta{opacity:.75;font-size:.8em;margin-bottom:.5em;font-weight:600;}' +
-      '.newBadges-hpOverview{opacity:.85;font-size:.85em;line-height:1.45;' +
-      'display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.9em;}' +
-      '.newBadges-hpButtons{display:flex;gap:.6em;align-items:center;}' +
+      // The card itself grows (flex-basis - see expandCard) - this is what
+      // animates the grow/shrink smoothly in both directions. The padder's
+      // height is deliberately NOT transitioned here - it's frozen at a
+      // fixed pixel value the whole time (never actually changes), so
+      // there's nothing on that axis to animate.
+      '.card.newBadges-hpExpanded{transition:flex-basis .32s cubic-bezier(.2,.8,.2,1);}' +
+      '.newBadges-hpOverlay{position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
+      'background-color:#1a1e26;background-size:cover;background-position:center 25%;' +
+      'opacity:0;transition:opacity .22s ease;z-index:3;}' +
+      '.newBadges-hpOverlay.is-ready{opacity:1;}' +
+      '.newBadges-hpOverlay::after{content:"";position:absolute;inset:0;' +
+      'background:linear-gradient(to top,rgba(15,17,22,.96) 0%,rgba(15,17,22,.35) 55%,rgba(15,17,22,0) 100%);}' +
+      '.newBadges-hpOverlayBody{position:absolute;left:0;right:0;bottom:0;padding:.8em 1em;z-index:1;}' +
+      '.newBadges-hpLoading{padding:.6em 0;opacity:.7;font-size:.85em;}' +
+      '.newBadges-hpTitle{font-size:1.05em;font-weight:800;margin:0 0 .2em;' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.6);}' +
+      '.newBadges-hpMeta{opacity:.8;font-size:.75em;margin-bottom:.4em;font-weight:600;}' +
+      '.newBadges-hpOverview{opacity:.85;font-size:.78em;line-height:1.4;' +
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.6em;}' +
+      '.newBadges-hpButtons{display:flex;gap:.5em;align-items:center;}' +
       // Both buttons match Jellyfin's OWN existing card-hover play button
       // (.cardOverlayFab-primary in jellyfin-web's card.scss) - same grey,
       // so this reads as one native-feeling pair rather than a new style.
       '.newBadges-hpPlay{display:flex;align-items:center;justify-content:center;border:none;border-radius:100em;' +
-      'width:2.6em;height:2.6em;background-color:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.3em;' +
-      'transition:transform .15s;}' +
+      'width:2.2em;height:2.2em;background-color:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.1em;' +
+      'transition:transform .15s;flex-shrink:0;}' +
       '.newBadges-hpPlay:hover{transform:scale(1.08);}' +
       '.newBadges-hpMore{display:inline-flex;align-items:center;background-color:rgba(0,0,0,.7);color:#fff;' +
-      'font-weight:700;border-radius:999px;padding:.55em 1.2em;font-size:.85em;text-decoration:none;' +
-      'transition:transform .15s,background-color .15s;}' +
+      'font-weight:700;border-radius:999px;padding:.4em 1em;font-size:.78em;text-decoration:none;' +
+      'transition:transform .15s,background-color .15s;white-space:nowrap;}' +
       '.newBadges-hpMore:hover{background-color:rgba(0,0,0,.85);transform:scale(1.05);}';
     document.head.appendChild(style);
   }
@@ -2380,6 +2448,8 @@
     var ticks = parseInt(card.getAttribute('data-ticks'), 10) || 0;
     var apiClient = window.ApiClient;
 
+    var startSeconds = ticksToSeconds(ticks);
+
     var video = document.createElement('video');
     video.className = 'newBadges-cwPreviewVideo';
     video.muted = true;
@@ -2390,13 +2460,28 @@
     // click-through is for). A codec the browser can't natively decode just
     // fails to load (caught below) and the poster art stays put - a quiet
     // degrade, not a broken feature.
+    //
+    // The #t= media fragment hints the browser to aim its first range
+    // request near the resume position instead of the start of the file -
+    // without it, the browser fetches from byte 0 just to learn container
+    // metadata, then has to throw that away and issue a second range
+    // request once we seek. With the hint, the correction below is often
+    // a no-op or a tiny adjustment instead of a full second fetch.
     video.src = apiClient.getUrl('Videos/' + itemId + '/stream', {
       static: true,
       api_key: apiClient.accessToken()
-    });
+    }) + '#t=' + startSeconds;
     video.addEventListener('loadedmetadata', function () {
       try {
-        video.currentTime = ticksToSeconds(ticks);
+        // fastSeek lands on a nearby keyframe instead of decoding forward to
+        // an exact frame - much quicker, and a preview has no need for
+        // frame-perfect accuracy. Falls back to a plain seek where
+        // unsupported (Firefox, older browsers).
+        if (typeof video.fastSeek === 'function') {
+          video.fastSeek(startSeconds);
+        } else {
+          video.currentTime = startSeconds;
+        }
       } catch (e) { /* seek failed - still fine to just play from 0 */ }
       video.play().catch(function () { /* autoplay/codec failure - leave poster showing */ });
     });
@@ -2476,8 +2561,12 @@
     style.id = 'nbCwPreviewStyle';
     style.textContent =
       '.newBadges-cwCard{cursor:pointer;}' +
+      // No background color - the poster art underneath keeps showing
+      // through (via the sibling .cardImageContainer's own background-image)
+      // until the video actually has a frame to paint, instead of a black
+      // flash while it loads/seeks.
       '.newBadges-cwPreviewVideo{position:absolute;inset:0;width:100%;height:100%;' +
-      'object-fit:cover;z-index:2;background:#000;pointer-events:none;}';
+      'object-fit:cover;z-index:2;pointer-events:none;}';
     document.head.appendChild(style);
   }
 
