@@ -2223,17 +2223,14 @@
     card.classList.add('newBadges-hpExpanded');
     card.setAttribute('data-nb-expanded', 'true');
 
+    // Left empty (no loading text, not revealed yet) - showHoverPreview
+    // populates and reveals this once real content is actually ready, so
+    // the box-grow animation never gets fought by a loading-state flash
+    // followed by an abrupt content swap partway through it.
     var overlay = document.createElement('div');
     overlay.className = 'newBadges-hpOverlay';
-    overlay.innerHTML = '<div class="newBadges-hpOverlayBody"><div class="newBadges-hpLoading">Henter...</div></div>';
+    overlay.innerHTML = '<div class="newBadges-hpOverlayBody"></div>';
     scalable.appendChild(overlay);
-    // Reveal next frame, after the width/padding transition has begun -
-    // fading the overlay in immediately (same tick as the resize) makes the
-    // text look like it's stretching along with the box instead of just
-    // appearing once it's done.
-    requestAnimationFrame(function () {
-      overlay.classList.add('is-ready');
-    });
 
     return overlay;
   }
@@ -2299,6 +2296,14 @@
             overlay.style.backgroundImage = 'url("' + imgUrl + '")';
           }
           overlay.querySelector('.newBadges-hpOverlayBody').innerHTML = buildHoverOverlayContentHtml(details, playTarget);
+          // Reveal only now that real content is actually in place - with
+          // the prefetch on mouseover (see wireCardHoverPreview), this
+          // usually lands at/near the same moment the box-grow finishes,
+          // so it reads as one coordinated motion instead of a grow
+          // followed by a separate content pop.
+          requestAnimationFrame(function () {
+            overlay.classList.add('is-ready');
+          });
         });
       })
       .catch(function () {
@@ -2340,6 +2345,15 @@
         hpCard = card;
         clearTimeout(hpShowTimer);
         clearTimeout(hpHideTimer);
+        // Start fetching right away, in parallel with the hover-delay wait
+        // below, instead of only once the delay elapses - by the time the
+        // box actually starts growing, the data has usually had the whole
+        // HP_DELAY_MS to arrive already (fetchHoverItemDetails caches by
+        // itemId, so showHoverPreview's own fetch below just reads this).
+        var prefetchId = card.getAttribute('data-id');
+        if (prefetchId) {
+          fetchHoverItemDetails(prefetchId).catch(function () { /* showHoverPreview's own fetch handles the failure path */ });
+        }
         hpShowTimer = setTimeout(function () {
           if (hpCard === card) {
             showHoverPreview(card);
@@ -2377,21 +2391,33 @@
       // animates the grow/shrink smoothly in both directions. The padder's
       // height is deliberately NOT transitioned here - it's frozen at a
       // fixed pixel value the whole time (never actually changes), so
-      // there's nothing on that axis to animate.
-      '.card.newBadges-hpExpanded{transition:flex-basis .32s cubic-bezier(.2,.8,.2,1);}' +
+      // there's nothing on that axis to animate. will-change hints the
+      // browser to optimize for this specific change ahead of time, since
+      // a flex-basis change is a real layout-affecting animation (siblings
+      // genuinely reflow every frame) rather than a cheap compositor-only
+      // one - a slightly longer duration + gentler ease-out reads as more
+      // deliberately "animated" than a short linear-ish move.
+      '.card.newBadges-hpExpanded{transition:flex-basis .38s cubic-bezier(.25,.46,.45,.94);' +
+      'will-change:flex-basis;}' +
       '.newBadges-hpOverlay{position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
       'background-color:#1a1e26;background-size:cover;background-position:center 25%;' +
       'opacity:0;transition:opacity .22s ease;z-index:3;}' +
       '.newBadges-hpOverlay.is-ready{opacity:1;}' +
+      // Extended further up (and a touch darker at the base) than before -
+      // makes room for more overview text without it fighting the backdrop
+      // image for legibility.
       '.newBadges-hpOverlay::after{content:"";position:absolute;inset:0;' +
-      'background:linear-gradient(to top,rgba(15,17,22,.96) 0%,rgba(15,17,22,.35) 55%,rgba(15,17,22,0) 100%);}' +
-      '.newBadges-hpOverlayBody{position:absolute;left:0;right:0;bottom:0;padding:.8em 1em;z-index:1;}' +
-      '.newBadges-hpLoading{padding:.6em 0;opacity:.7;font-size:.85em;}' +
-      '.newBadges-hpTitle{font-size:1.05em;font-weight:800;margin:0 0 .2em;' +
+      'background:linear-gradient(to top,rgba(15,17,22,.97) 0%,rgba(15,17,22,.6) 45%,' +
+      'rgba(15,17,22,.15) 75%,rgba(15,17,22,0) 100%);}' +
+      '.newBadges-hpOverlayBody{position:absolute;left:0;right:0;bottom:0;padding:.7em 1em;z-index:1;}' +
+      '.newBadges-hpTitle{font-size:1em;font-weight:800;margin:0 0 .15em;' +
       'text-shadow:0 1px 3px rgba(0,0,0,.6);}' +
-      '.newBadges-hpMeta{opacity:.8;font-size:.75em;margin-bottom:.4em;font-weight:600;}' +
-      '.newBadges-hpOverview{opacity:.85;font-size:.78em;line-height:1.4;' +
-      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.6em;}' +
+      '.newBadges-hpMeta{opacity:.8;font-size:.72em;margin-bottom:.3em;font-weight:600;}' +
+      // Line-clamp raised from 2 to 5 - the whole point of this feature is
+      // the description, and a 400px-wide/16:9 box has the room for it now
+      // that title/meta above were trimmed down to make space.
+      '.newBadges-hpOverview{opacity:.9;font-size:.76em;line-height:1.38;' +
+      'display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.5em;}' +
       '.newBadges-hpButtons{display:flex;gap:.5em;align-items:center;}' +
       // Both buttons match Jellyfin's OWN existing card-hover play button
       // (.cardOverlayFab-primary in jellyfin-web's card.scss) - same grey,

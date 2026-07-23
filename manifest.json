@@ -263,6 +263,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.7.2.0",
+        "changelog": "To justeringer af hover-udvidelsen: Animationen ind i 16:9-boksen og tilbage igen skulle se markant mere flydende ud - den egentlige årsag var, at det udvidede kort viste \"Henter...\" og derefter pludselig skiftede til det rigtige indhold midt i selve væksten, hvilket kæmpede visuelt imod bevægelsen. Kortets data hentes nu i baggrunden, så snart musen rammer det (ikke først når boksen begynder at vokse), så indholdet normalt allerede er klar når boksen er færdig med at vokse - boksen vokser stille og roligt, og indholdet toner først ind, når det rent faktisk er klar, i stedet for at springe ind midtvejs. Væksten selv er også gjort en anelse længere og blødere. Derudover: beskrivelsen fylder nu markant mere (op til 5 linjer i stedet for 2), med mindre plads brugt på titel/info ovenover for at gøre plads.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.7.2.0/newbadges_1.7.2.0.zip",
+        "checksum": "d89581d34156d6b8df4f95fe61145c7b",
+        "timestamp": "2026-07-23T22:55:00Z"
+      },
+      {
         "version": "1.7.1.0",
         "changelog": "Hover-forhåndsvisningen er lavet om: i stedet for en flydende boks er det nu selve kortet, der animeret vokser fra sin normale stående form til en 16:9-boks i samme højde som før, og naboerne i rækken flytter sig pænt til side - med det samme indhold som før (resumé, afspil-knap, 'Læs mere'). Går selv tilbage til sin oprindelige form igen, når musen flyttes væk. Fortsæt afspilning: den lydløse forhåndsvisning starter hurtigere - sigter nu efter den rigtige position i videoen fra første hentning i stedet for altid at hente fra begyndelsen og derefter springe til stedet, bruger en hurtigere (omtrentlig) spring-metode hvor understøttet, og viser ikke længere et kort sort blink mens den henter.",
         "targetAbi": "10.11.0.0",
