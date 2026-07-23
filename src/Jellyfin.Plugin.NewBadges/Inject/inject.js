@@ -883,8 +883,16 @@
 
     // Same card-hoverable + empty cardOverlayContainer combo the Trending
     // cards use to pick up the native hover-ring and glare-sweep effects.
+    // newBadges-cwCard marks this as a Continue Watching card specifically -
+    // these get the inline hover-preview-playback treatment instead of the
+    // info popover every other home card gets (see wireContinueWatchingPreview
+    // / wireCardHoverPreview's exclusion of this class). data-ticks is
+    // captured now so the preview/click-through don't need a second fetch
+    // just to learn the resume position.
+    var ticks = (item.UserData && item.UserData.PlaybackPositionTicks) || 0;
     return (
-      '<div class="card overflowBackdropCard card-hoverable" data-id="' + item.Id + '" data-type="' + item.Type + '">' +
+      '<div class="card overflowBackdropCard card-hoverable newBadges-cwCard" data-id="' + item.Id +
+        '" data-type="' + item.Type + '" data-ticks="' + ticks + '">' +
         '<div class="cardBox cardBox-bottompadded">' +
           '<div class="cardScalable">' +
             '<div class="cardPadder cardPadder-overflowBackdrop"></div>' +
@@ -1596,6 +1604,8 @@
       renderMoviesRedesignIfPresent();
       renderDrawerPlus();
       hookHeaderSearch();
+      wireCardHoverPreview();
+      wireContinueWatchingPreview();
     }, 400);
   }
 
@@ -1999,9 +2009,483 @@
     }
   }
 
+  // ==================================================================
+  //  Home-page card hover-expand preview
+  //  Hovering any card on the home page (native rows AND this plugin's own
+  //  Trending/Continue Watching/redesigned rows - they all share the same
+  //  .card[data-id] convention) expands it into a floating panel with the
+  //  overview - the episode's own synopsis for an episode, the show's own
+  //  synopsis for a series, the movie's tagline/overview for a movie
+  //  (Jellyfin's Items/{id} already scopes Overview correctly per type, no
+  //  special-casing needed there) - a play button, and a "Læs mere" link to
+  //  the item's details page. Desktop only (matchMedia hover check), same
+  //  gating Seerr Requests' own equivalent feature uses - touch devices
+  //  never see it. Shell layout mirrors that feature's popover; the two
+  //  buttons instead match Jellyfin's OWN existing card-hover play button
+  //  (.cardOverlayFab-primary, confirmed live in jellyfin-web's own
+  //  card.scss: a rgba(0,0,0,.7) circle) - "Læs mere" reuses that exact
+  //  grey so both buttons read as one native-feeling pair.
+  // ==================================================================
+
+  // Deliberately longer than Seerr Requests' own equivalent popover (700ms):
+  // these cards run the native hover zoom/overlay-fade transition first,
+  // and popping the panel up while that's still settling reads as fighting
+  // with it rather than following it.
+  var HP_DELAY_MS = 1100;
+  var HP_WIDTH = 340;
+  var hpShowTimer = null;
+  var hpHideTimer = null;
+  var hpCard = null;
+  var hpEl = null;
+  var hpDetailsCache = {}; // itemId -> Promise<BaseItemDto>
+
+  function fetchHoverItemDetails(itemId) {
+    if (hpDetailsCache[itemId]) {
+      return hpDetailsCache[itemId];
+    }
+    var apiClient = window.ApiClient;
+    var promise = apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items/' + itemId, {
+      Fields: 'Overview,Genres,ProductionYear,CommunityRating,OfficialRating,BackdropImageTags,' +
+        'ParentBackdropImageTags,ParentBackdropItemId,SeriesId,SeriesName,ParentIndexNumber,IndexNumber'
+    }));
+    hpDetailsCache[itemId] = promise;
+    promise.catch(function () { delete hpDetailsCache[itemId]; });
+    return promise;
+  }
+
+  // A series card has no single "the" episode to play - resolve the same
+  // way Continue Watching already does: an in-progress episode of THIS
+  // series wins, otherwise the next unwatched one. Shows/NextUp's own
+  // seriesId filter (confirmed in Jellyfin's TvShowsController source, not
+  // guessed) makes this a single targeted call instead of scanning the
+  // broad 30-40 item lists the home-page rows already use.
+  function resolveSeriesPlayTarget(seriesId) {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+    var resumeP = apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/Resume', {
+      Limit: 40, MediaTypes: 'Video', Fields: 'SeriesId'
+    })).catch(function () { return {}; });
+    var nextUpP = apiClient.getJSON(apiClient.getUrl('Shows/NextUp', {
+      userId: userId, seriesId: seriesId, Limit: 1
+    })).catch(function () { return {}; });
+
+    return Promise.all([resumeP, nextUpP]).then(function (results) {
+      var resumeItem = (results[0].Items || []).filter(function (i) {
+        return i.SeriesId === seriesId;
+      })[0];
+      if (resumeItem) {
+        return { id: resumeItem.Id, ticks: (resumeItem.UserData && resumeItem.UserData.PlaybackPositionTicks) || 0, label: 'Fortsæt' };
+      }
+      var nextItem = (results[1].Items || [])[0];
+      if (nextItem) {
+        return { id: nextItem.Id, ticks: 0, label: 'Afspil' };
+      }
+      return null; // nothing downloaded/playable yet for this show
+    });
+  }
+
+  function resolveHoverPlayTarget(details) {
+    if (details.Type === 'Series') {
+      return resolveSeriesPlayTarget(details.Id);
+    }
+    // Movie or Episode - the item itself is the playable thing.
+    var ticks = (details.UserData && details.UserData.PlaybackPositionTicks) || 0;
+    return Promise.resolve({ id: details.Id, ticks: ticks, label: ticks > 0 ? 'Fortsæt' : 'Afspil' });
+  }
+
+  function hoverPreviewImageUrl(details) {
+    var apiClient = window.ApiClient;
+    if (details.BackdropImageTags && details.BackdropImageTags.length) {
+      return apiClient.getScaledImageUrl(details.Id, { type: 'Backdrop', tag: details.BackdropImageTags[0], maxWidth: 780 });
+    }
+    // Episodes rarely carry their own backdrop - fall back to the series'.
+    if (details.ParentBackdropItemId && details.ParentBackdropImageTags && details.ParentBackdropImageTags.length) {
+      return apiClient.getScaledImageUrl(details.ParentBackdropItemId, { type: 'Backdrop', tag: details.ParentBackdropImageTags[0], maxWidth: 780 });
+    }
+    if (details.ImageTags && details.ImageTags.Primary) {
+      return apiClient.getScaledImageUrl(details.Id, { type: 'Primary', tag: details.ImageTags.Primary, maxWidth: 500 });
+    }
+    return null;
+  }
+
+  function hoverPreviewTitle(details) {
+    // An episode's own Name is just the episode title, which reads as
+    // confusing floating alone in a popover - lead with the SHOW name,
+    // same convention the Continue Watching row already uses.
+    if (details.Type === 'Episode') {
+      return details.SeriesName || details.Name;
+    }
+    return details.Name;
+  }
+
+  function hoverPreviewMetaLine(details) {
+    var parts = [];
+    if (details.Type === 'Episode' && (details.ParentIndexNumber != null || details.IndexNumber != null)) {
+      parts.push('Sæson ' + (details.ParentIndexNumber != null ? details.ParentIndexNumber : '?') +
+        ', Afsnit ' + (details.IndexNumber != null ? details.IndexNumber : '?'));
+      if (details.Name) {
+        parts.push(details.Name);
+      }
+    }
+    if (details.CommunityRating) {
+      parts.push('★ ' + details.CommunityRating.toFixed(1));
+    }
+    if (details.ProductionYear) {
+      parts.push(details.ProductionYear);
+    }
+    if (details.OfficialRating) {
+      parts.push(details.OfficialRating);
+    }
+    if (details.Genres && details.Genres.length) {
+      parts.push(details.Genres.slice(0, 3).join(', '));
+    }
+    return parts.map(escapeHtml).join(' &nbsp;•&nbsp; ');
+  }
+
+  function buildHoverPreviewHtml(details, playTarget) {
+    var imgUrl = hoverPreviewImageUrl(details);
+    var overview = details.Overview ? escapeHtml(details.Overview) : 'Ingen beskrivelse tilgængelig.';
+    var playHtml = playTarget
+      ? '<button type="button" class="newBadges-hpPlay" data-item-id="' + escapeHtml(playTarget.id) +
+        '" data-ticks="' + playTarget.ticks + '" title="' + escapeHtml(playTarget.label) + '">' +
+        '<span class="material-icons play_arrow" aria-hidden="true"></span></button>'
+      : '';
+
+    return (
+      '<div class="newBadges-hpBackdrop"' + (imgUrl ? ' style="background-image:url(&quot;' + imgUrl + '&quot;)"' : '') + '></div>' +
+      '<div class="newBadges-hpBody">' +
+        '<h3 class="newBadges-hpTitle">' + escapeHtml(hoverPreviewTitle(details)) + '</h3>' +
+        '<div class="newBadges-hpMeta">' + hoverPreviewMetaLine(details) + '</div>' +
+        '<div class="newBadges-hpOverview">' + overview + '</div>' +
+        '<div class="newBadges-hpButtons">' +
+          playHtml +
+          '<a class="newBadges-hpMore" href="#/details?id=' + escapeHtml(details.Id) + '">Læs mere</a>' +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function ensureHoverPreviewEl() {
+    if (hpEl) {
+      return hpEl;
+    }
+    hpEl = document.createElement('div');
+    hpEl.className = 'newBadges-hoverPop';
+    // Appended to body, not the card - position:fixed then stays
+    // viewport-relative regardless of any transformed/scrolling ancestor.
+    document.body.appendChild(hpEl);
+
+    hpEl.addEventListener('mouseenter', function () { clearTimeout(hpHideTimer); });
+    hpEl.addEventListener('mouseleave', scheduleHideHoverPreview);
+    hpEl.addEventListener('click', function (e) {
+      var playBtn = e.target.closest ? e.target.closest('.newBadges-hpPlay') : null;
+      if (playBtn) {
+        e.preventDefault();
+        var itemId = playBtn.getAttribute('data-item-id');
+        var ticks = parseInt(playBtn.getAttribute('data-ticks'), 10) || 0;
+        hideHoverPreview();
+        drawerPlayItem(itemId, ticks); // same self-remote-control PlayNow the drawer's resume row uses
+      }
+    });
+
+    // A fixed popover doesn't track its card through a row/page scroll -
+    // hide immediately rather than let it drift apart from what it's
+    // supposedly previewing.
+    window.addEventListener('scroll', function () {
+      if (hpEl.classList.contains('is-open')) {
+        hideHoverPreview();
+      }
+    }, true);
+    window.addEventListener('hashchange', hideHoverPreview);
+    return hpEl;
+  }
+
+  function positionHoverPreview(card) {
+    var rect = card.getBoundingClientRect();
+    var width = Math.min(HP_WIDTH, window.innerWidth - 16);
+    var left = Math.min(Math.max(rect.left + rect.width / 2 - width / 2, 8), window.innerWidth - width - 8);
+    var top = Math.min(Math.max(rect.top - 20, 8), Math.max(window.innerHeight - 420, 8));
+    hpEl.style.width = width + 'px';
+    hpEl.style.left = left + 'px';
+    hpEl.style.top = top + 'px';
+  }
+
+  function hideHoverPreview() {
+    if (hpEl) {
+      hpEl.classList.remove('is-open');
+    }
+    hpCard = null;
+  }
+
+  function scheduleHideHoverPreview() {
+    clearTimeout(hpHideTimer);
+    hpHideTimer = setTimeout(hideHoverPreview, 250);
+  }
+
+  function showHoverPreview(card) {
+    var itemId = card.getAttribute('data-id');
+    if (!itemId) {
+      return;
+    }
+    ensureHoverPreviewEl();
+    positionHoverPreview(card);
+    hpEl.setAttribute('data-key', itemId);
+    hpEl.innerHTML = '<div class="newBadges-hpBody"><div class="newBadges-hpLoading">Henter...</div></div>';
+    hpEl.classList.add('is-open');
+
+    fetchHoverItemDetails(itemId)
+      .then(function (details) {
+        // The user may already have moved to a different card.
+        if (hpEl.getAttribute('data-key') !== itemId || !hpEl.classList.contains('is-open')) {
+          return;
+        }
+        return resolveHoverPlayTarget(details).then(function (playTarget) {
+          if (hpEl.getAttribute('data-key') !== itemId || !hpEl.classList.contains('is-open')) {
+            return;
+          }
+          hpEl.innerHTML = buildHoverPreviewHtml(details, playTarget);
+        });
+      })
+      .catch(function () {
+        if (hpEl.getAttribute('data-key') === itemId) {
+          hideHoverPreview();
+        }
+      });
+  }
+
+  var HOVER_WIRED_ATTR = 'data-nb-hover-wired';
+
+  function wireCardHoverPreview() {
+    document.querySelectorAll('.page.homePage').forEach(function (homePage) {
+      if (homePage.hasAttribute(HOVER_WIRED_ATTR)) {
+        return;
+      }
+      homePage.setAttribute(HOVER_WIRED_ATTR, 'true');
+
+      homePage.addEventListener('mouseover', function (e) {
+        if (!window.matchMedia('(hover: hover)').matches) {
+          return;
+        }
+        var card = e.target.closest ? e.target.closest('.card[data-id]') : null;
+        // Continue Watching cards get the inline preview-playback feature
+        // instead (wireContinueWatchingPreview) - they'd otherwise also
+        // match this generic .card[data-id] selector.
+        if (!card || card.classList.contains('newBadges-cwCard')) {
+          return;
+        }
+        if (card === hpCard) {
+          clearTimeout(hpHideTimer);
+          return;
+        }
+        hpCard = card;
+        clearTimeout(hpShowTimer);
+        clearTimeout(hpHideTimer);
+        hpShowTimer = setTimeout(function () {
+          if (hpCard === card) {
+            showHoverPreview(card);
+          }
+        }, HP_DELAY_MS);
+      });
+
+      homePage.addEventListener('mouseout', function (e) {
+        var card = e.target.closest ? e.target.closest('.card[data-id]') : null;
+        if (!card || card !== hpCard) {
+          return;
+        }
+        var to = e.relatedTarget;
+        if (to && (card.contains(to) || (hpEl && hpEl.contains(to)))) {
+          return;
+        }
+        clearTimeout(hpShowTimer);
+        hpCard = null;
+        scheduleHideHoverPreview();
+      });
+    });
+  }
+
+  function injectHoverPreviewStyle() {
+    if (document.getElementById('nbHoverPreviewStyle')) {
+      return;
+    }
+    var style = document.createElement('style');
+    style.id = 'nbHoverPreviewStyle';
+    style.textContent =
+      '.newBadges-hoverPop{position:fixed;z-index:1000;background:#1a1e26;border-radius:14px;' +
+      'box-shadow:0 14px 44px rgba(0,0,0,.75);overflow:hidden;opacity:0;transform:scale(.96);' +
+      'transition:opacity .18s ease,transform .18s ease;pointer-events:none;' +
+      'border:1px solid rgba(255,255,255,.08);}' +
+      '.newBadges-hoverPop.is-open{opacity:1;transform:scale(1);pointer-events:auto;}' +
+      '.newBadges-hpBackdrop{height:165px;background-size:cover;background-position:center 25%;position:relative;}' +
+      '.newBadges-hpBackdrop::after{content:"";position:absolute;inset:0;' +
+      'background:linear-gradient(to top,#1a1e26 0%,rgba(26,30,38,0) 60%);}' +
+      '.newBadges-hpBody{padding:.9em 1.1em 1.1em;}' +
+      '.newBadges-hpLoading{padding:1.4em 0;text-align:center;opacity:.7;font-size:.9em;}' +
+      '.newBadges-hpTitle{font-size:1.15em;font-weight:800;margin:0 0 .25em;}' +
+      '.newBadges-hpMeta{opacity:.75;font-size:.8em;margin-bottom:.5em;font-weight:600;}' +
+      '.newBadges-hpOverview{opacity:.85;font-size:.85em;line-height:1.45;' +
+      'display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.9em;}' +
+      '.newBadges-hpButtons{display:flex;gap:.6em;align-items:center;}' +
+      // Both buttons match Jellyfin's OWN existing card-hover play button
+      // (.cardOverlayFab-primary in jellyfin-web's card.scss) - same grey,
+      // so this reads as one native-feeling pair rather than a new style.
+      '.newBadges-hpPlay{display:flex;align-items:center;justify-content:center;border:none;border-radius:100em;' +
+      'width:2.6em;height:2.6em;background-color:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.3em;' +
+      'transition:transform .15s;}' +
+      '.newBadges-hpPlay:hover{transform:scale(1.08);}' +
+      '.newBadges-hpMore{display:inline-flex;align-items:center;background-color:rgba(0,0,0,.7);color:#fff;' +
+      'font-weight:700;border-radius:999px;padding:.55em 1.2em;font-size:.85em;text-decoration:none;' +
+      'transition:transform .15s,background-color .15s;}' +
+      '.newBadges-hpMore:hover{background-color:rgba(0,0,0,.85);transform:scale(1.05);}';
+    document.head.appendChild(style);
+  }
+
+  // ==================================================================
+  //  Continue Watching: inline hover-preview playback
+  //  Excluded from the info popover above by design (newBadges-cwCard) -
+  //  these cards get a Netflix-style treatment instead: hover 3s and the
+  //  card itself starts quietly playing (muted, resuming from the same
+  //  saved position a real resume would), and a click anywhere on the card
+  //  jumps straight into the real player at that same saved position -
+  //  "Continue Watching" cards exist to continue watching, not to detour
+  //  through the details page first, so their own native <a href> to
+  //  details is overridden here too, not just while a preview is active.
+  // ==================================================================
+
+  var CW_PREVIEW_DELAY_MS = 3000;
+  var CW_PREVIEW_WIRED_ATTR = 'data-nb-cwpreview-wired';
+  var cwPreviewTimer = null;
+  var cwPreviewCard = null;
+  var cwPreviewVideoEl = null;
+
+  function ticksToSeconds(ticks) {
+    return (ticks || 0) / 10000000; // Jellyfin ticks are 100ns units
+  }
+
+  function stopContinuePreview() {
+    if (cwPreviewVideoEl) {
+      cwPreviewVideoEl.pause();
+      cwPreviewVideoEl.removeAttribute('src');
+      cwPreviewVideoEl.load(); // release the connection/decoder, not just hide it
+      cwPreviewVideoEl.remove();
+      cwPreviewVideoEl = null;
+    }
+  }
+
+  function startContinuePreview(card) {
+    var itemId = card.getAttribute('data-id');
+    var scalable = card.querySelector('.cardScalable');
+    if (!itemId || !scalable || scalable.querySelector('.newBadges-cwPreviewVideo')) {
+      return;
+    }
+    var ticks = parseInt(card.getAttribute('data-ticks'), 10) || 0;
+    var apiClient = window.ApiClient;
+
+    var video = document.createElement('video');
+    video.className = 'newBadges-cwPreviewVideo';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    // Direct/static stream, not a full PlaybackInfo transcode negotiation -
+    // this is a lightweight preview, not the real player (that's what the
+    // click-through is for). A codec the browser can't natively decode just
+    // fails to load (caught below) and the poster art stays put - a quiet
+    // degrade, not a broken feature.
+    video.src = apiClient.getUrl('Videos/' + itemId + '/stream', {
+      static: true,
+      api_key: apiClient.accessToken()
+    });
+    video.addEventListener('loadedmetadata', function () {
+      try {
+        video.currentTime = ticksToSeconds(ticks);
+      } catch (e) { /* seek failed - still fine to just play from 0 */ }
+      video.play().catch(function () { /* autoplay/codec failure - leave poster showing */ });
+    });
+    video.addEventListener('error', function () {
+      video.remove();
+      if (cwPreviewVideoEl === video) {
+        cwPreviewVideoEl = null;
+      }
+    });
+
+    scalable.appendChild(video);
+    cwPreviewVideoEl = video;
+  }
+
+  function wireContinueWatchingPreview() {
+    document.querySelectorAll('.page.homePage').forEach(function (homePage) {
+      if (homePage.hasAttribute(CW_PREVIEW_WIRED_ATTR)) {
+        return;
+      }
+      homePage.setAttribute(CW_PREVIEW_WIRED_ATTR, 'true');
+
+      homePage.addEventListener('mouseover', function (e) {
+        if (!window.matchMedia('(hover: hover)').matches) {
+          return;
+        }
+        var card = e.target.closest ? e.target.closest('.newBadges-cwCard') : null;
+        if (!card || card === cwPreviewCard) {
+          return;
+        }
+        cwPreviewCard = card;
+        clearTimeout(cwPreviewTimer);
+        cwPreviewTimer = setTimeout(function () {
+          if (cwPreviewCard === card) {
+            startContinuePreview(card);
+          }
+        }, CW_PREVIEW_DELAY_MS);
+      });
+
+      homePage.addEventListener('mouseout', function (e) {
+        var card = e.target.closest ? e.target.closest('.newBadges-cwCard') : null;
+        if (!card || card !== cwPreviewCard) {
+          return;
+        }
+        var to = e.relatedTarget;
+        if (to && card.contains(to)) {
+          return;
+        }
+        clearTimeout(cwPreviewTimer);
+        cwPreviewCard = null;
+        stopContinuePreview();
+      });
+
+      // Click anywhere on the card jumps into real playback at the saved
+      // position, overriding the card's own <a href="#/details?...">.
+      homePage.addEventListener('click', function (e) {
+        var card = e.target.closest ? e.target.closest('.newBadges-cwCard') : null;
+        if (!card) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        var itemId = card.getAttribute('data-id');
+        var ticks = parseInt(card.getAttribute('data-ticks'), 10) || 0;
+        stopContinuePreview();
+        cwPreviewCard = null;
+        clearTimeout(cwPreviewTimer);
+        drawerPlayItem(itemId, ticks);
+      });
+    });
+  }
+
+  function injectContinuePreviewStyle() {
+    if (document.getElementById('nbCwPreviewStyle')) {
+      return;
+    }
+    var style = document.createElement('style');
+    style.id = 'nbCwPreviewStyle';
+    style.textContent =
+      '.newBadges-cwCard{cursor:pointer;}' +
+      '.newBadges-cwPreviewVideo{position:absolute;inset:0;width:100%;height:100%;' +
+      'object-fit:cover;z-index:2;background:#000;pointer-events:none;}';
+    document.head.appendChild(style);
+  }
+
   function init() {
     injectBadgeStyle();
     injectSearchStyle();
+    injectHoverPreviewStyle();
+    injectContinuePreviewStyle();
     scheduleScan();
 
     var observer = new MutationObserver(function (mutations) {
