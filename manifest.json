@@ -442,6 +442,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.9.0",
+        "changelog": "Rettet: skift mellem Hjem/Favoritter og de to indbyggede faner (Tilføj Film/Serie, Udgivelseskalender) endte ofte forkert - typisk på Hjem, eller helt tomt - og krævede flere klik frem og tilbage før den rigtige fane (typisk Favoritter) rent faktisk viste sig. Årsag: koden der finder ud af hvilken Jellyfin-fane der skal vises igen, kiggede efter hvilken native fane-knap DER ER markeret aktiv lige nu - men det er netop den knap, som Jellyfins egen kode først markerer aktiv EFTER klikket, så der opstod et kapløb hvor vores kode nogle gange kiggede for tidligt og enten fandt den forkerte (Udgivelseskalender-fanens egen midlertidigt aktive knap blev fejlagtigt regnet som 'den rigtige'), eller slet ingen. Rettelsen bruger nu direkte det data-index den klikkede knap selv har, i stedet for at gætte ud fra en tilstand der endnu ikke er opdateret.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.9.0/seerrrequests_1.9.9.0.zip",
+        "checksum": "8eb38fb75f5f795244b24abeef8e3f44",
+        "timestamp": "2026-07-23T14:38:00Z"
+      },
+      {
         "version": "1.9.8.0",
         "changelog": "Udgivelseskalenderen (Kommer Snart) var smertefuldt langsom første gang den blev åbnet efter en genstart - kunne tage op mod et minut på et stort bibliotek. Tre rettelser: allerede-tilgængelige FILM (i modsætning til serier) tjekkes ikke længere enkeltvis for en fremtidig dato, da en udgivet film per definition aldrig får en ny dato; antallet af samtidige Seerr-opslag er hævet fra 5 til 15 (Seerr kører lokalt, ikke en ekstern tjeneste med hastighedsgrænser); og vigtigst: kalenderen forvarmes nu automatisk i baggrunden (30 sek. efter opstart, derefter hvert 20. minut) i stedet for at blive bygget først når en bruger rent faktisk åbner fanen - både efter en genstart og ved det daglige kl. 04:00-tjek. Normalt opleves opbygningen slet ikke mere.",
         "targetAbi": "10.11.0.0",

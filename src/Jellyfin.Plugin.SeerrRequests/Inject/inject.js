@@ -498,8 +498,17 @@
       var nativeBtn = e.target.closest('.emby-tab-button');
       // A real Jellyfin tab was clicked - stand down BOTH of our tabs.
       if (nativeBtn && !isInjectedTabButton(nativeBtn)) {
-        deactivateSeerrTab();
-        deactivateCalendarTab();
+        // Pass the CLICKED button's own data-index straight through instead
+        // of letting restoreNativeActiveTab go query "whichever native
+        // button is currently marked active" - this listener can run BEFORE
+        // Jellyfin's own click handling has updated that button's active
+        // class, which raced unpredictably (confirmed: sometimes ours ran
+        // first and saw no active native button yet, other times it didn't -
+        // exactly the "often shows Home, takes a few clicks" symptom). We
+        // already know exactly which tab was clicked; no need to guess.
+        var index = nativeBtn.getAttribute('data-index');
+        deactivateSeerrTab(null, index);
+        deactivateCalendarTab(null, index);
       }
     });
   }
@@ -830,11 +839,30 @@
   // confirmed live. That's the generic hook used to figure out which native
   // tab should become visible again once ours is deactivated, without
   // hardcoding tab names/ids that could differ per install.
-  function restoreNativeActiveTab(homePage) {
-    var activeBtn = document.querySelector(
-      '.tabs-viewmenubar .emby-tab-button.emby-tab-button-active:not([' + BUTTON_MARKER + '])'
-    );
-    var index = activeBtn ? activeBtn.getAttribute('data-index') : '0';
+  function restoreNativeActiveTab(homePage, explicitIndex) {
+    var index = explicitIndex;
+    if (index == null) {
+      // No explicit index (the hashchange-driven path, where there's no
+      // click to read a data-index from) - fall back to querying which
+      // native button is currently active. Safe here because a hashchange
+      // fires only after Jellyfin's router has already finished syncing
+      // that state, unlike a click where our own listener can run first.
+      // Excludes BOTH injected markers, not just one - the old version only
+      // excluded the "Tilføj" marker, so it could match the CALENDAR tab's
+      // own (still momentarily active) button and resolve a bogus index.
+      var activeBtn = document.querySelector(
+        '.tabs-viewmenubar .emby-tab-button.emby-tab-button-active:not([' + BUTTON_MARKER + ']):not([' + CAL_BUTTON_MARKER + '])'
+      );
+      index = activeBtn ? activeBtn.getAttribute('data-index') : '0';
+    }
+
+    // Defensive: clear any other content div that's stuck is-active before
+    // activating the resolved target, so a previous bad guess can never
+    // leave two panels simultaneously marked active.
+    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
+      el.classList.remove('is-active');
+    });
+
     var target = homePage.querySelector(':scope > .tabContent.pageTabContent[data-index="' + index + '"]');
     if (target) {
       target.classList.add('is-active');
@@ -874,7 +902,7 @@
     loadCalendar(tab);
   }
 
-  function deactivateCalendarTab(homePage) {
+  function deactivateCalendarTab(homePage, explicitIndex) {
     homePage = homePage || getActiveHomePage();
     if (!homePage) {
       return;
@@ -882,7 +910,7 @@
     var tab = homePage.querySelector('#' + CAL_TAB_CONTENT_ID);
     if (tab && tab.classList.contains('is-active')) {
       tab.classList.remove('is-active');
-      restoreNativeActiveTab(homePage);
+      restoreNativeActiveTab(homePage, explicitIndex);
     }
     var ourBtn = document.querySelector('[' + CAL_BUTTON_MARKER + ']');
     if (ourBtn) {
@@ -1053,7 +1081,7 @@
     });
   }
 
-  function deactivateSeerrTab(homePage) {
+  function deactivateSeerrTab(homePage, explicitIndex) {
     homePage = homePage || getActiveHomePage();
     if (!homePage) {
       return;
@@ -1066,7 +1094,7 @@
       // call (see deactivateAllSeerrTabs below) has no such native swap to
       // rely on, so this is the only thing that puts a real tab back on
       // screen in that case.
-      restoreNativeActiveTab(homePage);
+      restoreNativeActiveTab(homePage, explicitIndex);
     }
     var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
     if (ourBtn) {
