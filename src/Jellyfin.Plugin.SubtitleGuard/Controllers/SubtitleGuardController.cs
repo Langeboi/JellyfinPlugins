@@ -91,6 +91,14 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
                 return Json(new JObject { ["queued"] = 0, ["message"] = "Ingen eksterne tekst-undertekster på dette element." });
             }
 
+            // Explicit one-off click from the item page - jump ahead of
+            // whatever the nightly batch already queued (CollectJobs is
+            // shared with SyncSubtitlesTask, which does NOT set this).
+            foreach (var job in jobs)
+            {
+                job["priority"] = true;
+            }
+
             try
             {
                 await SyncWorker.DistributeAndSubmit(jobs, cancellationToken).ConfigureAwait(false);
@@ -135,7 +143,9 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
                 // Per-item button is an explicit "re-transcribe this" - force
                 // a re-run even if we already produced a subtitle before, so
                 // tuning improvements can be re-applied with one click.
-                ["force"] = true
+                ["force"] = true,
+                // Jump ahead of whatever the nightly batch already queued.
+                ["priority"] = true
             };
 
             var cfg = Plugin.Instance!.Configuration;
@@ -340,7 +350,9 @@ namespace Jellyfin.Plugin.SubtitleGuard.Controllers
             {
                 ["type"] = "transcribe",
                 ["media_path"] = body!.MediaPath,
-                ["force"] = true
+                ["force"] = true,
+                // Explicit "retry this now" click - jump ahead of the nightly batch.
+                ["priority"] = true
             };
 
             var cfg = Plugin.Instance!.Configuration;

@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.6.0",
+        "changelog": "Manuelle klik (Fix undertekst-sync / Generér undertekster / Prøv igen) springer nu foran den natlige kø i stedet for at vente bag den - en natlig batch-kørsel kunne lægge hundredvis af filer foran et enkelt klik, så \"Tilføjet til kø\" reelt kunne betyde en lang ventetid. Bemærk: kræver genstart af Jellyfin for at tage effekt (denne del af rettelsen ligger i selve plugin'et, ikke i sync-workeren).",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.6.0/subtitleguard_2.0.6.0.zip",
+        "checksum": "e1b9684bbe2018f20eda22509af2a267",
+        "timestamp": "2026-07-23T11:29:00Z"
+      },
+      {
         "version": "2.0.5.0",
         "changelog": "Selvdiagnosticerende advarsel hvis siden virker helt ustylet: en statisk boks øverst forklarer at File Transformation-pluginet formentlig mangler eller er inaktivt (det plugin der får Subtitle Guards egen kode til at køre) - synlig som ren HTML uden nogen afhængighed af JavaScript, og gemmes automatisk igen så snart pluginet faktisk kører korrekt. Ramte en ven der installerede pluginet og fik en helt ustylet side uden nogen forklaring; nu står årsagen der direkte i stedet.",
         "targetAbi": "10.11.0.0",
