@@ -442,6 +442,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.9.8.0",
+        "changelog": "Udgivelseskalenderen (Kommer Snart) var smertefuldt langsom første gang den blev åbnet efter en genstart - kunne tage op mod et minut på et stort bibliotek. Tre rettelser: allerede-tilgængelige FILM (i modsætning til serier) tjekkes ikke længere enkeltvis for en fremtidig dato, da en udgivet film per definition aldrig får en ny dato; antallet af samtidige Seerr-opslag er hævet fra 5 til 15 (Seerr kører lokalt, ikke en ekstern tjeneste med hastighedsgrænser); og vigtigst: kalenderen forvarmes nu automatisk i baggrunden (30 sek. efter opstart, derefter hvert 20. minut) i stedet for at blive bygget først når en bruger rent faktisk åbner fanen - både efter en genstart og ved det daglige kl. 04:00-tjek. Normalt opleves opbygningen slet ikke mere.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v1.9.8.0/seerrrequests_1.9.8.0.zip",
+        "checksum": "27a1ca47fbf46c1c3699a8b22e90bef1",
+        "timestamp": "2026-07-23T14:27:00Z"
+      },
+      {
         "version": "1.9.7.0",
         "changelog": "Fundet og rettet: filmenes udgivelsesdatoer blev stille og roligt lavet om til et forkert format under indlæsning fra Seerr (Newtonsoft.Json genkender automatisk dato-agtige tekststrenge og laver dem om til et DateTime-objekt - som så bliver formateret efter serverens sprogindstilling i stedet for at forblive den oprindelige tekst). Det ødelagde både 14-dages-vinduet og selve sorteringen: en dato som '21-07-2026' sorteres efter alt der starter med '2026-...', så en film der udkommer I DAG endte nederst på listen i stedet for øverst. Bekræftet direkte mod Disclosure Days rigtige data fra Seerr og rettet ved kilden, så det gælder alle datoer kalenderen læser - film, serier og alt andet.",
         "targetAbi": "10.11.0.0",

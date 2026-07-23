@@ -378,7 +378,15 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                 {
                     var tmdbId = item["tmdbId"]?.Value<int?>();
                     var mediaType = item["mediaType"]?.ToString();
-                    if (tmdbId != null && (mediaType == "movie" || mediaType == "tv"))
+                    // TV only: the whole point of this source is catching a
+                    // RECURRING show with an announced return date despite
+                    // being "available" (finished its current season). A
+                    // movie that's already available has, by definition,
+                    // already released - it will never have a future digital
+                    // date, so resolving it here is a wasted detail call. On
+                    // a library with more movies than shows this alone cuts
+                    // the resolve-list size (and first-launch wait) a lot.
+                    if (tmdbId != null && mediaType == "tv")
                     {
                         targets.Add((mediaType!, tmdbId.Value));
                     }
@@ -396,8 +404,11 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         }
 
         // One detail call per unique requested title would hammer Seerr on a
-        // big library, so cap the parallelism and lean on the 12h item cache.
-        private static readonly SemaphoreSlim DetailLimiter = new(5);
+        // big library, so cap the parallelism and lean on the 3h item cache.
+        // Seerr is a self-hosted service on the same local network, not a
+        // rate-limited external API - raised from 5 to cut cold-path wall
+        // time roughly 3x on a first launch / post-04:00-rebuild request.
+        private static readonly SemaphoreSlim DetailLimiter = new(15);
 
         // Digital dates are per-country and TMDB often has no DK entry at
         // all, so US is the pragmatic fallback before "whatever exists".
