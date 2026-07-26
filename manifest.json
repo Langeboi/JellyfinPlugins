@@ -485,7 +485,7 @@
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Alle farver aflæses nu fra det tema du kører i stedet for at være hardkodede - den øverste fade var håndmatchet til ElegantFins header-farve og så derfor forkert ud på alle andre temaer. Teksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget), inklusive datoer og \"om 3 dage\"-linjerne i kalenderen. Nye indstillinger: sprog, Seerr-indigo eller dit eget tema som accentfarve, og til/fra for hver af de to faner. Sproglisten under \"Excluded original languages\" starter nu tom i stedet for at bortfiltrere 24 sprog som standard. Overskriften over bibliotek-rækken findes nu via dine egne forside-indstillinger i stedet for teksten \"Mine medier\", så den også virker på andre sprog. Fjernet: en global CSS-regel der ommalede Media Bar-pluginets hero - det hører ikke hjemme i et plugin andre skal installere.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.0.0.0/seerrrequests_2.0.0.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/SeerrRequests-v2.0.0.0/seerrrequests_2.0.0.0.zip",
         "checksum": "c53650b711b1e8630110bb586526f6f9",
         "timestamp": "2026-07-26T14:00:00Z"
       },
