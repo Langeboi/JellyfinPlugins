@@ -3,8 +3,11 @@
 Fire plugins der gør en Jellyfin-server pænere, smartere og mere selvkørende.
 Alt kører lokalt på dine egne maskiner — intet data forlader din server.
 
-*Everything is in Danish by default; Subtitle Guard's UI can be switched to
-English on its settings page.*
+*Hero Bar og New Badges taler selv dit sprog (dansk/engelsk efter Jellyfins
+egen sprogindstilling) og henter deres farver fra det tema du kører — de
+tilpasser sig altså din server uden opsætning. Subtitle Guard er dansk som
+standard og kan skiftes til engelsk på dens indstillingsside. Alle
+indstillingssider er på engelsk.*
 
 ## Hurtig installation
 
@@ -61,18 +64,52 @@ Jellyseerr/Overseerr.
 
 ### 🎬 Hero Bar
 
-En hero-sektion i toppen af forsiden med udvalgte titler — i normalt flow
-(skubber indholdet ned i stedet for at ligge ovenpå).
+En roterende hero-sektion i toppen af forsiden med udvalgte titler — i
+normalt flow (skubber indholdet ned i stedet for at ligge ovenpå).
+
+* Blander nyligt tilføjet med hvad de andre brugere på serveren rent faktisk
+  ser (kræver **Playback Reporting**; uden det vises kun nyligt tilføjet).
+* Afspil-knappen fortsætter hvor du slap — også for serier, hvor serveren
+  selv finder det rigtige afsnit.
+* Antal slides, rotationstid, højde, synopsis og favoritknap sættes på
+  plugin-siden.
 
 ### 🏷 New Badges
 
-Badges på nye/nyligt tilføjede titler i biblioteket, med JS-rettelser for
-de ting CSS ikke kan nå.
+De ting Jellyfins eget CSS ikke kan nå — hver funktion kan slås fra på
+plugin-siden:
+
+* **NEW-badge** der bruger den rigtige tilføjelsesdato (Jellyfins egen
+  "Nyligt tilføjet"-række viser bare de nyeste, uanset alder), og
+  **S9E7-mærkat** i stedet for tælleren på serier der stadig sender.
+* **Trending-række** i stedet for "Næste afsnit": hvad de andre brugere har
+  set, rangeret efter hvor mange forskellige der har set det (kræver
+  **Playback Reporting**).
+* **Fortsæt-rækken** får "næste afsnit" flettet ind, så en serie du er
+  ajour med ikke bare forsvinder — og et kort spiller direkte ved klik med
+  forhåndsvisning ved hover.
+* **Hover-kort** der folder sig ud med synopsis, afspil og info.
+* **Lynsøgning** i fuld skærm med medvirkende og andet fra instruktøren.
+* **Fornyet filmbibliotek**: anbefalinger, favoritter og hele kataloget
+  bag genre-, set- og årti-filtre.
+* **Genveje i menuen** og backdrops i smalle vinduer (som Jellyfin ellers
+  nægter under 1000 px).
+* Valgfrit **eget logo** i headeren i stedet for Jellyfin-ordmærket.
+
+## Farver og sprog
+
+Hero Bar og New Badges aflæser det aktive tema live — baggrund, tekstfarve
+og accentfarve — og tegner alt i de farver. Det virker derfor lige godt på
+Jellyfins mørke og lyse temaer og på tredjeparts-skins som ElegantFin, uden
+at der skal sættes en eneste farve. Kun NEW-badgets farve er en indstilling,
+netop fordi den skal skille sig ud frem for at falde i med temaet.
 
 ## Krav
 
 * Jellyfin **10.11+**
 * **File Transformation**-pluginet
+* **Playback Reporting** (kun til Trending-rækken og Hero Bars trending —
+  begge falder pænt tilbage uden)
 * Subtitle Guard-workers: Debian/Ubuntu med medierne mountet;
   NVIDIA-GPU til transskription/oversættelse i fuld kvalitet
   (CPU kan transskribere med en mindre model)

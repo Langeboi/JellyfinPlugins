@@ -4,12 +4,26 @@
   <title>Hero Bar</title>
 </head>
 <body>
-  <div id="HeroBarConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+  <div id="HeroBarConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
     <div data-role="content">
       <div class="content-primary">
         <div class="verticalSection">
           <h2>Hero Bar</h2>
-          <p>Rotating featured-content hero at the top of the home page, built in-flow so it never overlaps or clashes with other sections.</p>
+          <p>
+            Rotating featured-content hero at the top of the home page, built in-flow so it never
+            overlaps or clashes with other sections. Its colours are read from whichever theme you
+            are running, so it blends into any skin without configuration.
+          </p>
+        </div>
+
+        <div class="selectContainer">
+          <label class="selectLabel" for="UiLanguage">Language of the hero's buttons</label>
+          <select is="emby-select" id="UiLanguage" name="UiLanguage">
+            <option value="auto">Follow Jellyfin / browser</option>
+            <option value="en">English</option>
+            <option value="da">Dansk</option>
+          </select>
+          <div class="fieldDescription">This settings page is always English.</div>
         </div>
 
         <div class="inputContainer">
@@ -24,12 +38,42 @@
           <div class="fieldDescription">How long each slide stays up before crossfading to the next.</div>
         </div>
 
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="HeightPercent">Height (%)</label>
+          <input id="HeightPercent" name="HeightPercent" type="number" is="emby-input" min="50" max="150" />
+          <div class="fieldDescription">Relative to the normal size, which already scales with the window. 100 leaves it as designed.</div>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input id="ShowOverview" name="ShowOverview" type="checkbox" is="emby-checkbox" />
+            <span>Show the synopsis</span>
+          </label>
+          <div class="fieldDescription">Two lines under the title. Turn off for a cleaner, poster-led hero.</div>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
+            <input id="ShowFavoriteButton" name="ShowFavoriteButton" type="checkbox" is="emby-checkbox" />
+            <span>Show the favourite button</span>
+          </label>
+        </div>
+
         <div class="checkboxContainer checkboxContainer-withDescription">
           <label>
             <input id="IncludeTrending" name="IncludeTrending" type="checkbox" is="emby-checkbox" />
             <span>Include trending items</span>
           </label>
-          <div class="fieldDescription">Mixes in items other household members have been watching recently (via Playback Reporting), alongside recently added items. Turn off to show recently added only.</div>
+          <div class="fieldDescription">
+            Mixes in what other users on this server have been watching recently, alongside recently
+            added items. <b>Requires the Playback Reporting plugin</b> &mdash; without it there is no
+            cross-user watch data, and the hero quietly falls back to recently added only.
+          </div>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="TrendingWindowDays">Trending looks back (days)</label>
+          <input id="TrendingWindowDays" name="TrendingWindowDays" type="number" is="emby-input" min="1" max="365" />
         </div>
 
         <div style="margin-top:1.5em;">
@@ -37,6 +81,10 @@
             <span>Save</span>
           </button>
         </div>
+
+        <p style="margin-top:1.5em;opacity:.7;font-size:.9em;">
+          Changes take effect the next time the home page is loaded &mdash; no server restart needed.
+        </p>
       </div>
     </div>
   </div>

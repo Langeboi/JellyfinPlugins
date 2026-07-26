@@ -204,6 +204,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.0.0",
+        "changelog": "Bygget til at kunne deles. Farvetonen hen over billedet og knapperne henter nu deres farver fra det tema du kører, i stedet for at være håndmatchet til ét bestemt skin, så heroen glider ind i et hvilket som helst tema - også de lyse. Knapteksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Nye indstillinger: sprog, højde, om synopsis og favoritknappen skal vises, og hvor langt tilbage trending kigger.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.1.0.0/herobar_2.0.0.0.zip",
+        "checksum": "4d5d8525c576eed6e737565080cf3cfb",
+        "timestamp": "2026-07-26T12:00:00Z"
+      },
+      {
         "version": "1.1.2.0",
         "changelog": "Ens knapform i alle vinduesstørrelser. Info/Afspil/Favorit-knapperne har nu præcis samme facon i fuldskærm, halvt vindue og på mobil: fast min-højde + border-box ligger i grundreglen, og media queries ændrer ikke længere padding/højde (det var dem der gjorde knapperne synligt anderledes ved smallere bredder).",
         "targetAbi": "10.11.0.0",
@@ -262,6 +270,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.0.0.0",
+        "changelog": "Bygget til at kunne deles. Alle funktioner kan nu slås til og fra på en ny indstillingsside; alle farver aflæses fra det tema du kører i stedet for at være hardkodede, så pluginet ser rigtigt ud på både mørke, lyse og tredjeparts-temaer; og teksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Logoet i headeren er nu en indstilling (tomt = Jellyfins eget logo) i stedet for et fast billede. Forsidens rækker genkendes på brugerens forside-indstillinger frem for overskriftens tekst, så Trending og den flettede Fortsæt-række virker på alle sprog og overlever Jellyfin 10.12's omdøbninger. Seerr-genvejen vises kun hvis Seerr Requests faktisk er installeret.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.1.0.0/newbadges_2.0.0.0.zip",
+        "checksum": "9f5545369805bb336d015277fc63f048",
+        "timestamp": "2026-07-26T12:00:00Z"
+      },
       {
         "version": "1.7.2.0",
         "changelog": "To justeringer af hover-udvidelsen: Animationen ind i 16:9-boksen og tilbage igen skulle se markant mere flydende ud - den egentlige årsag var, at det udvidede kort viste \"Henter...\" og derefter pludselig skiftede til det rigtige indhold midt i selve væksten, hvilket kæmpede visuelt imod bevægelsen. Kortets data hentes nu i baggrunden, så snart musen rammer det (ikke først når boksen begynder at vokse), så indholdet normalt allerede er klar når boksen er færdig med at vokse - boksen vokser stille og roligt, og indholdet toner først ind, når det rent faktisk er klar, i stedet for at springe ind midtvejs. Væksten selv er også gjort en anelse længere og blødere. Derudover: beskrivelsen fylder nu markant mere (op til 5 linjer i stedet for 2), med mindre plads brugt på titel/info ovenover for at gøre plads.",

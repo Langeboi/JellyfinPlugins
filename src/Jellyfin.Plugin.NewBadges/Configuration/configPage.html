@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>New Badges</title>
+</head>
+<body>
+  <div id="NewBadgesConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
+    <div data-role="content">
+      <div class="content-primary">
+
+        <div class="verticalSection">
+          <h2>New Badges</h2>
+          <p>
+            Home-page and library upgrades that Jellyfin's own CSS cannot reach. Everything below is
+            optional &mdash; switch off what you do not want. Colours are read from whichever theme
+            you are running, so nothing here assumes a particular skin.
+          </p>
+        </div>
+
+        <div class="verticalSection">
+          <h3>General</h3>
+
+          <div class="selectContainer">
+            <label class="selectLabel" for="NbUiLanguage">Language of the texts on the home page</label>
+            <select is="emby-select" id="NbUiLanguage" name="NbUiLanguage">
+              <option value="auto">Follow Jellyfin / browser</option>
+              <option value="en">English</option>
+              <option value="da">Dansk</option>
+            </select>
+            <div class="fieldDescription">This settings page is always English.</div>
+          </div>
+        </div>
+
+        <div class="verticalSection">
+          <h3>Badges</h3>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableNewBadge" name="NbEnableNewBadge" type="checkbox" is="emby-checkbox" />
+              <span>"NEW" ribbon on recently added items</span>
+            </label>
+            <div class="fieldDescription">
+              Uses the real date the file was added, unlike Jellyfin's own Recently Added row, which
+              simply shows the newest items however old they are. For a series the date of its newest
+              episode counts, not when the show was first added.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbNewBadgeMaxAgeDays">Ribbon shows for (days)</label>
+            <input id="NbNewBadgeMaxAgeDays" name="NbNewBadgeMaxAgeDays" type="number" is="emby-input" min="1" max="90" />
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbNewBadgeColor">Ribbon colour</label>
+            <input id="NbNewBadgeColor" name="NbNewBadgeColor" type="text" is="emby-input" placeholder="#e50914" />
+            <div class="fieldDescription">
+              Any CSS colour. This one is deliberately not taken from your theme's accent colour &mdash;
+              the ribbon is meant to stand out, and a muted accent would hide it.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableEpisodeLabel" name="NbEnableEpisodeLabel" type="checkbox" is="emby-checkbox" />
+              <span>Show "S9E7" instead of the unwatched count on running shows</span>
+            </label>
+            <div class="fieldDescription">
+              On Recently Added rows only, and only for series whose status is still "Continuing".
+            </div>
+          </div>
+        </div>
+
+        <div class="verticalSection">
+          <h3>Home page</h3>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableTrendingRow" name="NbEnableTrendingRow" type="checkbox" is="emby-checkbox" />
+              <span>Replace "Next Up" with a "Trending" row</span>
+            </label>
+            <div class="fieldDescription">
+              What the other users on this server have actually been watching, ranked by how many
+              different people watched it. <b>Requires the Playback Reporting plugin</b> &mdash; without
+              it there is no cross-user watch data to rank, and your normal Next Up row is left alone.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbTrendingWindowDays">Trending looks back (days)</label>
+            <input id="NbTrendingWindowDays" name="NbTrendingWindowDays" type="number" is="emby-input" min="1" max="365" />
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableMergedContinueWatching" name="NbEnableMergedContinueWatching" type="checkbox" is="emby-checkbox" />
+              <span>Merge "Next Up" into "Continue Watching"</span>
+            </label>
+            <div class="fieldDescription">
+              A show you have caught up on keeps its place in the row with its next unwatched episode,
+              instead of vanishing until you start it.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableContinueWatchingPreview" name="NbEnableContinueWatchingPreview" type="checkbox" is="emby-checkbox" />
+              <span>Continue Watching cards preview and play on click</span>
+            </label>
+            <div class="fieldDescription">
+              Hovering a card for three seconds starts a muted preview from where you left off, and
+              clicking resumes straight away instead of opening the details page first. Desktop only;
+              the preview is a direct stream, so it is skipped for anything your browser cannot decode.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableHoverPreview" name="NbEnableHoverPreview" type="checkbox" is="emby-checkbox" />
+              <span>Cards expand on hover to show the synopsis</span>
+            </label>
+            <div class="fieldDescription">Desktop only.</div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbHoverPreviewDelayMs">Hover before expanding (ms)</label>
+            <input id="NbHoverPreviewDelayMs" name="NbHoverPreviewDelayMs" type="number" is="emby-input" min="300" max="4000" />
+          </div>
+        </div>
+
+        <div class="verticalSection">
+          <h3>Elsewhere</h3>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableMoviesRedesign" name="NbEnableMoviesRedesign" type="checkbox" is="emby-checkbox" />
+              <span>Redesign movie libraries</span>
+            </label>
+            <div class="fieldDescription">
+              Replaces the flat alphabetical wall with a recommendations row, your favourites, and the
+              full catalogue behind genre / watched / decade filters. Applies to every library of type
+              "Movies".
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableSearchOverlay" name="NbEnableSearchOverlay" type="checkbox" is="emby-checkbox" />
+              <span>Full-screen instant search</span>
+            </label>
+            <div class="fieldDescription">
+              Takes over the magnifier in the header: results as you type, and the cast plus other work
+              by the director of whichever result is focused.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableDrawerExtras" name="NbEnableDrawerExtras" type="checkbox" is="emby-checkbox" />
+              <span>Extras at the top of the burger menu</span>
+            </label>
+            <div class="fieldDescription">
+              A search box, your three most recent unfinished items with progress bars, and a
+              "surprise me" button that plays a random unwatched film.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableSeerrShortcut" name="NbEnableSeerrShortcut" type="checkbox" is="emby-checkbox" />
+              <span>"Request a film/series" shortcut in the burger menu</span>
+            </label>
+            <div class="fieldDescription">
+              Only appears when the Seerr Requests plugin is installed on this server anyway.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableDetailsBackdrop" name="NbEnableDetailsBackdrop" type="checkbox" is="emby-checkbox" />
+              <span>Backdrops on narrow windows</span>
+            </label>
+            <div class="fieldDescription">
+              Jellyfin refuses to load the backdrop image on a details page below 1000px wide. This
+              fetches and renders it anyway.
+            </div>
+          </div>
+        </div>
+
+        <div class="verticalSection">
+          <h3>Header logo</h3>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbHeaderLogoUrl">Logo image URL</label>
+            <input id="NbHeaderLogoUrl" name="NbHeaderLogoUrl" type="text" is="emby-input" placeholder="(leave empty for Jellyfin's own logo)" />
+            <div class="fieldDescription">
+              Replaces the Jellyfin wordmark in the top-left corner. Any URL your browser can load,
+              including a file you drop into Jellyfin's web folder. Leave empty to change nothing.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="NbHeaderLogoWidth">Logo width</label>
+            <input id="NbHeaderLogoWidth" name="NbHeaderLogoWidth" type="text" is="emby-input" placeholder="9.5em" />
+            <div class="fieldDescription">A CSS length. The image is scaled to fit inside it.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:1.5em;display:flex;gap:.6em;flex-wrap:wrap;align-items:center;">
+          <button is="emby-button" type="button" id="NewBadgesSaveButton" class="raised button-submit emby-button">
+            <span>Save</span>
+          </button>
+          <span id="NewBadgesSaveStatus" style="opacity:.75;"></span>
+        </div>
+
+        <p style="margin-top:1.5em;opacity:.7;font-size:.9em;">
+          Changes take effect the next time a page is loaded in the browser &mdash; no server restart needed.
+        </p>
+
+      </div>
+    </div>
+  </div>
+  <!--
+    No inline <script> and no surrounding <form>: inline scripts in plugin
+    config pages do not execute on this server (confirmed with SeerrRequests
+    and Hero Bar), so all wiring lives in Inject/inject.js instead.
+  -->
+</body>
+</html>

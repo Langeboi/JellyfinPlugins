@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Jellyfin.Plugin.NewBadges</AssemblyName>
     <RootNamespace>Jellyfin.Plugin.NewBadges</RootNamespace>
-    <Version>1.7.2.0</Version>
+    <Version>2.0.0.0</Version>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -20,6 +20,12 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Inject\inject.js" />
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <!--
+      Kept so an existing install can keep pointing HeaderLogoUrl at
+      /NewBadges/langehub_logo.png. Nothing references it unless that setting
+      is filled in, so a fresh install never shows it.
+    -->
     <EmbeddedResource Include="Inject\langehub_logo.png" />
   </ItemGroup>
 

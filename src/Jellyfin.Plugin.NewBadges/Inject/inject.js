@@ -1,9 +1,365 @@
 (function () {
   'use strict';
 
+  var PLUGIN_ID = 'b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70';
+  // The sibling Seerr Requests plugin. Its drawer shortcut is only rendered
+  // when this is actually installed, so a server without it never shows a
+  // button that leads nowhere.
+  var SEERR_PLUGIN_ID = '23b52a27-7ca8-4923-9e3b-65889d3e98e8';
+
   var BADGE_CLASS = 'newBadges-badge';
   var EPISODE_LABEL_CLASS = 'newBadges-episodeLabel';
-  var MAX_AGE_DAYS = 7;
+
+  // ==================================================================
+  //  Configuration
+  //  Every feature is switchable from the plugin's settings page, so this
+  //  can be installed on someone else's server and trimmed to whatever they
+  //  actually want. These defaults mirror PluginConfiguration.cs exactly and
+  //  are what gets used if the config request fails - a fresh install answers
+  //  404 until the settings page has been saved once, and the plugin should
+  //  still work in that window.
+  // ==================================================================
+  var DEFAULTS = {
+    UiLanguage: 'auto',
+    EnableNewBadge: true,
+    NewBadgeMaxAgeDays: 7,
+    NewBadgeColor: '#e50914',
+    EnableEpisodeLabel: true,
+    EnableTrendingRow: true,
+    TrendingWindowDays: 30,
+    EnableMergedContinueWatching: true,
+    EnableContinueWatchingPreview: true,
+    EnableHoverPreview: true,
+    HoverPreviewDelayMs: 1100,
+    EnableMoviesRedesign: true,
+    EnableDrawerExtras: true,
+    EnableSeerrShortcut: true,
+    EnableSearchOverlay: true,
+    EnableDetailsBackdrop: true,
+    HeaderLogoUrl: '',
+    HeaderLogoWidth: '9.5em'
+  };
+
+  var cfg = DEFAULTS;
+
+  function clampInt(value, min, max, fallback) {
+    var n = parseInt(value, 10);
+    if (isNaN(n)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function normalizeConfig(data) {
+    if (!data) {
+      return DEFAULTS;
+    }
+    function flag(name) {
+      return data[name] !== false;
+    }
+    return {
+      UiLanguage: data.UiLanguage || 'auto',
+      EnableNewBadge: flag('EnableNewBadge'),
+      NewBadgeMaxAgeDays: clampInt(data.NewBadgeMaxAgeDays, 1, 90, DEFAULTS.NewBadgeMaxAgeDays),
+      NewBadgeColor: data.NewBadgeColor || DEFAULTS.NewBadgeColor,
+      EnableEpisodeLabel: flag('EnableEpisodeLabel'),
+      EnableTrendingRow: flag('EnableTrendingRow'),
+      TrendingWindowDays: clampInt(data.TrendingWindowDays, 1, 365, DEFAULTS.TrendingWindowDays),
+      EnableMergedContinueWatching: flag('EnableMergedContinueWatching'),
+      EnableContinueWatchingPreview: flag('EnableContinueWatchingPreview'),
+      EnableHoverPreview: flag('EnableHoverPreview'),
+      HoverPreviewDelayMs: clampInt(data.HoverPreviewDelayMs, 300, 4000, DEFAULTS.HoverPreviewDelayMs),
+      EnableMoviesRedesign: flag('EnableMoviesRedesign'),
+      EnableDrawerExtras: flag('EnableDrawerExtras'),
+      EnableSeerrShortcut: flag('EnableSeerrShortcut'),
+      EnableSearchOverlay: flag('EnableSearchOverlay'),
+      EnableDetailsBackdrop: flag('EnableDetailsBackdrop'),
+      HeaderLogoUrl: data.HeaderLogoUrl || '',
+      HeaderLogoWidth: data.HeaderLogoWidth || DEFAULTS.HeaderLogoWidth
+    };
+  }
+
+  // ==================================================================
+  //  Texts
+  //  English is the source language; Danish is the translation. "auto"
+  //  follows whatever language the Jellyfin client itself is running in, so
+  //  someone installing this on their own server gets their own language
+  //  without having to find a setting first.
+  // ==================================================================
+  var EN = {
+    trending: 'Trending',
+    continueWatching: 'Continue Watching',
+    play: 'Play',
+    resume: 'Resume',
+    quickSearch: 'Quick search...',
+    continueHeader: 'Continue',
+    surpriseMe: 'Surprise me',
+    requestMedia: 'Request a film or series',
+    moviesRecommended: 'Recommended for you',
+    moviesFavourites: 'Favourites',
+    moviesAll: 'All films',
+    loading: 'Loading...',
+    moviesNoMatch: 'No films match these filters.',
+    moviesLoadFailed: 'Could not load films.',
+    showMore: 'Show more',
+    unwatched: 'Unwatched',
+    watched: 'Watched',
+    searchPlaceholder: 'Search films, series, actors...',
+    searchClose: 'Close (Esc)',
+    searchTypeToSearch: 'Type to search…',
+    searchNoResults: 'No results',
+    searchLoadingCast: 'Loading cast…',
+    searchCast: 'Cast',
+    searchMoreFrom: 'More from ',
+    typeSeries: 'Series',
+    typeMovie: 'Film',
+    noOverview: 'No description available.',
+    readMore: 'More info',
+    season: 'Season',
+    episode: 'Episode'
+  };
+
+  var DA = {
+    trending: 'Trending',
+    continueWatching: 'Fortsæt afspilning',
+    play: 'Afspil',
+    resume: 'Fortsæt',
+    quickSearch: 'Hurtig søgning...',
+    continueHeader: 'Fortsæt',
+    surpriseMe: 'Overrask mig',
+    requestMedia: 'Tilføj Film/Serie',
+    moviesRecommended: 'Anbefalet til dig',
+    moviesFavourites: 'Favoritter',
+    moviesAll: 'Alle film',
+    loading: 'Indlæser...',
+    moviesNoMatch: 'Ingen film matcher filtrene.',
+    moviesLoadFailed: 'Kunne ikke hente film.',
+    showMore: 'Vis flere',
+    unwatched: 'Usete',
+    watched: 'Sete',
+    searchPlaceholder: 'Søg film, serier, skuespillere...',
+    searchClose: 'Luk (Esc)',
+    searchTypeToSearch: 'Skriv for at søge…',
+    searchNoResults: 'Ingen resultater',
+    searchLoadingCast: 'Henter medvirkende…',
+    searchCast: 'Medvirkende',
+    searchMoreFrom: 'Mere fra ',
+    typeSeries: 'Serie',
+    typeMovie: 'Film',
+    noOverview: 'Ingen beskrivelse tilgængelig.',
+    readMore: 'Læs mere',
+    season: 'Sæson',
+    episode: 'Afsnit'
+  };
+
+  var LANG = 'en';
+
+  // Jellyfin writes the chosen UI language onto <html lang>; the browser's
+  // own language is the fallback for the brief window before that happens
+  // (and for anyone who never picked one).
+  function detectLanguage() {
+    var tag = '';
+    try {
+      tag = document.documentElement.getAttribute('lang') || '';
+    } catch (e) { /* fall through to navigator */ }
+    if (!tag) {
+      tag = (navigator.language || navigator.userLanguage || '');
+    }
+    return /^da/i.test(tag) ? 'da' : 'en';
+  }
+
+  function t(key) {
+    if (LANG === 'da' && Object.prototype.hasOwnProperty.call(DA, key)) {
+      return DA[key];
+    }
+    return EN[key] != null ? EN[key] : key;
+  }
+
+  // "1990'erne" in Danish, "1990s" in English.
+  function decadeLabel(decade) {
+    return LANG === 'da' ? (decade + "'erne") : (decade + 's');
+  }
+
+  // ==================================================================
+  //  Theme adaptation
+  //  Jellyfin's themes hardcode their colours - there are no CSS custom
+  //  properties to read (checked against jellyfin-web's own theme.scss) -
+  //  and skins like ElegantFin override them wholesale. So rather than
+  //  assuming a palette, this samples the live page: a hidden probe element
+  //  wearing Jellyfin's own button classes reports whatever accent the
+  //  active theme paints, and the page's real background and text colours
+  //  give the surface and foreground. Everything this plugin draws is
+  //  expressed in CSS variables derived from those samples, so it follows
+  //  whatever theme is installed instead of the one it was written against.
+  // ==================================================================
+  var PROBE_CLASS = 'newBadges-themeProbe';
+  var FALLBACK_ACCENT = { r: 0, g: 164, b: 220, a: 1 }; // Jellyfin's own #00a4dc
+
+  function parseColor(str) {
+    if (!str) {
+      return null;
+    }
+    var m = String(str).match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,/\s]+([\d.%]+))?\s*\)$/i);
+    if (m) {
+      var alpha = m[4] === undefined
+        ? 1
+        : (String(m[4]).indexOf('%') !== -1 ? parseFloat(m[4]) / 100 : parseFloat(m[4]));
+      return { r: +m[1], g: +m[2], b: +m[3], a: isNaN(alpha) ? 1 : alpha };
+    }
+    var hex = String(str).trim().match(/^#([0-9a-f]{3,8})$/i);
+    if (hex) {
+      var v = hex[1];
+      if (v.length === 3 || v.length === 4) {
+        v = v.split('').map(function (c) { return c + c; }).join('');
+      }
+      if (v.length < 6) {
+        return null;
+      }
+      return {
+        r: parseInt(v.slice(0, 2), 16),
+        g: parseInt(v.slice(2, 4), 16),
+        b: parseInt(v.slice(4, 6), 16),
+        a: v.length >= 8 ? parseInt(v.slice(6, 8), 16) / 255 : 1
+      };
+    }
+    return null;
+  }
+
+  // Perceived brightness, 0 (black) to 1 (white). Standard sRGB luminance
+  // weights - enough to decide "is this theme dark?" and "does white or
+  // black text sit better on this colour?" without full WCAG maths.
+  function luminance(c) {
+    return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+  }
+
+  function mixColor(a, b, ratio) {
+    return {
+      r: Math.round(a.r + (b.r - a.r) * ratio),
+      g: Math.round(a.g + (b.g - a.g) * ratio),
+      b: Math.round(a.b + (b.b - a.b) * ratio),
+      a: 1
+    };
+  }
+
+  function rgbList(c) {
+    return c.r + ',' + c.g + ',' + c.b;
+  }
+
+  function rgbaStr(c, alpha) {
+    return 'rgba(' + rgbList(c) + ',' + alpha + ')';
+  }
+
+  // The colour an element actually ends up painted, walking up past
+  // transparent ancestors the same way the browser composites them.
+  function opaqueBackground(el) {
+    var node = el;
+    while (node && node.nodeType === 1) {
+      var c = parseColor(getComputedStyle(node).backgroundColor);
+      if (c && c.a > 0.5) {
+        return c;
+      }
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  // A themed colour can only be measured off an element that is really in
+  // the document, so this briefly inserts one wearing Jellyfin's own classes
+  // and reads back whatever the active theme painted on it.
+  function probeColor(className, prop) {
+    var el = document.createElement('button');
+    el.className = className + ' ' + PROBE_CLASS;
+    el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;' +
+      'pointer-events:none;opacity:0;';
+    document.body.appendChild(el);
+    var value = getComputedStyle(el)[prop];
+    el.parentNode.removeChild(el);
+    return parseColor(value);
+  }
+
+  function sameColor(a, b) {
+    return !!a && !!b && a.r === b.r && a.g === b.g && a.b === b.b;
+  }
+
+  function applyPalette() {
+    if (!document.body) {
+      return;
+    }
+
+    var fg = parseColor(getComputedStyle(document.body).color) || { r: 255, g: 255, b: 255, a: 1 };
+    var surface = opaqueBackground(document.querySelector('.backgroundContainer') || document.body) ||
+      opaqueBackground(document.documentElement) ||
+      (luminance(fg) > 0.5 ? { r: 16, g: 16, b: 16, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
+
+    // .button-submit is the one class every Jellyfin theme - and every skin
+    // built on top of one - paints with its accent colour: stock dark uses
+    // #00a4dc, ElegantFin uses its own purple.
+    var accent = probeColor('emby-button raised button-submit', 'backgroundColor');
+    // A bare button wearing none of Jellyfin's classes shows what the
+    // browser itself paints. If the themed probe matches that, no theme
+    // claimed the class and the reading is the user agent's own default
+    // grey - which must not be mistaken for someone's accent colour.
+    var uaDefault = probeColor('', 'backgroundColor');
+    if (!accent || accent.a < 0.5 || sameColor(accent, uaDefault) ||
+        Math.abs(luminance(accent) - luminance(surface)) < 0.04) {
+      accent = FALLBACK_ACCENT;
+    }
+
+    var black = { r: 0, g: 0, b: 0, a: 1 };
+    var dark = luminance(surface) < 0.5;
+
+    // Panels that sit ON the page follow the theme. Scrims that sit on top
+    // of ARTWORK deliberately do not: a light-theme scrim over a film
+    // backdrop would mean pale text on a bright photo. Those stay dark, but
+    // tinted towards the theme's own surface so they still read as part of
+    // the skin rather than a foreign black box.
+    var scrim = mixColor(surface, black, dark ? 0.25 : 0.82);
+
+    var badge = parseColor(cfg.NewBadgeColor) || parseColor(DEFAULTS.NewBadgeColor);
+
+    // Panel fills are expressed as the foreground colour at a low alpha
+    // rather than as pre-mixed opaque shades, so they stay correct over
+    // whatever is actually behind them (a card, a drawer, a blurred page)
+    // instead of only over the base surface.
+    var vars = {
+      '--nb-fg': rgbaStr(fg, 1),
+      '--nb-fg-rgb': rgbList(fg),
+      '--nb-surface-rgb': rgbList(surface),
+      '--nb-border': rgbaStr(fg, 0.18),
+      '--nb-accent': rgbaStr(accent, 1),
+      '--nb-accent-fg': luminance(accent) > 0.6 ? '#000' : '#fff',
+      '--nb-scrim-rgb': rgbList(scrim),
+      '--nb-shadow': dark ? 'rgba(0,0,0,.5)' : 'rgba(0,0,0,.25)',
+      // Anything drawn over artwork is white in every theme, for the same
+      // reason the scrim stays dark.
+      '--nb-on-media': '#fff',
+      '--nb-new-badge': rgbaStr(badge, 1),
+      '--nb-new-badge-dark': rgbaStr(mixColor(badge, black, 0.25), 1),
+      '--nb-new-badge-fg': luminance(badge) > 0.6 ? '#000' : '#fff'
+    };
+
+    var root = document.documentElement;
+    Object.keys(vars).forEach(function (name) {
+      root.style.setProperty(name, vars[name]);
+    });
+  }
+
+  // Themes can be switched without a reload, and a theme stylesheet can land
+  // after this script runs, so the palette is re-derived periodically rather
+  // than only once. Throttled because each pass touches the DOM (the probe),
+  // which the scan observer would otherwise see as work to do.
+  var PALETTE_MIN_INTERVAL_MS = 10000;
+  var lastPaletteAt = 0;
+
+  function refreshPalette(force) {
+    var now = Date.now();
+    if (!force && now - lastPaletteAt < PALETTE_MIN_INTERVAL_MS) {
+      return;
+    }
+    lastPaletteAt = now;
+    applyPalette();
+  }
+
   var dateCache = {}; // itemId -> DateCreated string (or null if unknown)
   var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
   var ongoingCache = {}; // seriesId -> true if the show's Status is "Continuing"
@@ -31,6 +387,19 @@
     return true;
   }
 
+  // Config values that get interpolated straight into a stylesheet have to be
+  // kept from closing the url()/declaration they sit in - an admin typing a
+  // stray quote should get a broken logo, not an injected CSS rule.
+  function cssUrl(value) {
+    return String(value).replace(/["'()\\\s]/g, encodeURIComponent);
+  }
+
+  function cssLength(value) {
+    return /^[0-9.]+(px|em|rem|%|vw|vh|ch)$/.test(String(value).trim())
+      ? String(value).trim()
+      : DEFAULTS.HeaderLogoWidth;
+  }
+
   function injectBadgeStyle() {
     if (document.getElementById('newBadges-style')) {
       return;
@@ -38,18 +407,23 @@
     var style = document.createElement('style');
     style.id = 'newBadges-style';
     style.textContent =
+      // Badge colours come from the configured ribbon colour rather than the
+      // theme accent - see PluginConfiguration.NewBadgeColor for why.
       '.' + BADGE_CLASS + '{position:absolute;top:8px;left:8px;z-index:6;' +
-      'background:linear-gradient(135deg,#e50914,#b0060f);color:#fff;' +
+      'background:linear-gradient(135deg,var(--nb-new-badge),var(--nb-new-badge-dark));' +
+      'color:var(--nb-new-badge-fg);' +
       'font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 7px;' +
-      'border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,.4);pointer-events:none;}' +
+      'border-radius:4px;box-shadow:0 2px 6px var(--nb-shadow);pointer-events:none;}' +
       '.countIndicator.indicator.' + EPISODE_LABEL_CLASS + '{' +
       'width:auto!important;min-width:26.1875px!important;height:20px!important;' +
       'padding:0 7px!important;border-radius:10px!important;font-size:11px!important;' +
       'font-weight:700!important;letter-spacing:0!important;}' +
+      // Sits on top of poster art, so it uses the media scrim rather than the
+      // page surface - a light theme must not put a pale chip on a poster.
       '.newBadges-rankBadge{position:absolute;top:8px;left:8px;z-index:6;' +
-      'background:rgba(20,20,20,.85);color:#ffd60a;font-size:13px;font-weight:800;' +
+      'background:rgba(var(--nb-scrim-rgb),.85);color:#ffd60a;font-size:13px;font-weight:800;' +
       'letter-spacing:.02em;padding:3px 8px;border-radius:4px;' +
-      'box-shadow:0 2px 6px rgba(0,0,0,.5);pointer-events:none;}' +
+      'box-shadow:0 2px 6px var(--nb-shadow);pointer-events:none;}' +
       // On trending cards the rank badge and NEW ribbon can both apply -
       // wrap them in a flex row (rank first, then NEW) instead of letting
       // them stack on top of each other at the same top-left position.
@@ -57,31 +431,33 @@
       'display:flex;align-items:flex-start;gap:4px;}' +
       '.newBadges-badgeRow .' + BADGE_CLASS + ',' +
       '.newBadges-badgeRow .newBadges-rankBadge{position:static;top:auto;left:auto;}' +
-      // Custom server logo (Langehub) replacing the default Jellyfin banner
-      // in the header. The image is served from this plugin's own embedded
-      // resources - no external hosting involved. The header logo lives as a
-      // background-image on .pageTitle, confirmed live.
-      '.pageTitleWithDefaultLogo{background-image:url("/NewBadges/langehub_logo.png")!important;' +
-      'background-size:contain;background-position:left center;background-repeat:no-repeat;' +
-      'width:9.5em;}' +
+      // Optional custom server logo in place of the Jellyfin wordmark. Only
+      // emitted when someone has actually configured one - the header logo
+      // lives as a background-image on .pageTitle, confirmed live.
+      (cfg.HeaderLogoUrl
+        ? '.pageTitleWithDefaultLogo{background-image:url("' + cssUrl(cfg.HeaderLogoUrl) + '")!important;' +
+          'background-size:contain;background-position:left center;background-repeat:no-repeat;' +
+          'width:' + cssLength(cfg.HeaderLogoWidth) + ';}'
+        : '') +
       // Movies library redesign: filter pills, alphabetical grid, load-more.
       '.newBadges-moviesHome{padding-top:1em;}' +
       '.newBadges-moviesPills{display:flex;gap:.5em;flex-wrap:wrap;margin:.3em 0 .6em;}' +
       '.newBadges-moviesPills:empty{display:none;}' +
-      '.newBadges-pill{background:rgba(255,255,255,.05);color:rgba(255,255,255,.85);' +
-      'border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:.35em .9em;' +
+      '.newBadges-pill{background:rgba(var(--nb-fg-rgb),.06);color:var(--nb-fg);' +
+      'border:1px solid var(--nb-border);border-radius:16px;padding:.35em .9em;' +
       'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
-      '.newBadges-pill:hover{border-color:rgba(140,130,255,.9);}' +
-      '.newBadges-pill.newBadges-pillActive{background:rgba(140,130,255,.9);' +
-      'border-color:rgba(140,130,255,.9);color:#fff;}' +
-      '.newBadges-pillDivider{width:1px;align-self:stretch;background:rgba(255,255,255,.15);margin:0 .3em;}' +
+      '.newBadges-pill:hover{border-color:var(--nb-accent);}' +
+      '.newBadges-pill.newBadges-pillActive{background:var(--nb-accent);' +
+      'border-color:var(--nb-accent);color:var(--nb-accent-fg);}' +
+      '.newBadges-pillDivider{width:1px;align-self:stretch;background:var(--nb-border);margin:0 .3em;}' +
       '.newBadges-moviesGrid{margin-top:.5em;}' +
       '.newBadges-moviesLoading{opacity:.7;padding:1.5em;text-align:center;width:100%;}' +
       '.newBadges-moviesMoreWrap{display:flex;justify-content:center;padding:1em 0 2em;}' +
-      '.newBadges-moviesMore{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.2);' +
+      '.newBadges-moviesMore{background:rgba(var(--nb-fg-rgb),.09);color:var(--nb-fg);' +
+      'border:1px solid var(--nb-border);' +
       'border-radius:999px;padding:.6em 2.2em;font-weight:700;font-size:.9em;cursor:pointer;' +
       'transition:background .15s,transform .15s;}' +
-      '.newBadges-moviesMore:hover{background:rgba(255,255,255,.16);transform:scale(1.04);}' +
+      '.newBadges-moviesMore:hover{background:rgba(var(--nb-fg-rgb),.17);transform:scale(1.04);}' +
       '@media (max-width:800px){' +
       '.newBadges-moviesPills{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
       'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
@@ -89,22 +465,23 @@
       '.newBadges-pill{flex:0 0 auto;padding:.45em 1em;}' +
       '}' +
       // Drawer quick actions.
-      '.newBadges-drawerPlus{padding:.4em .8em .6em;border-bottom:1px solid rgba(255,255,255,.08);}' +
+      '.newBadges-drawerPlus{padding:.4em .8em .6em;border-bottom:1px solid rgba(var(--nb-fg-rgb),.09);}' +
       '.newBadges-drawerSearchWrap{display:flex;align-items:center;gap:.5em;' +
-      'background:rgba(255,255,255,.07);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
+      'background:rgba(var(--nb-fg-rgb),.08);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
       '.newBadges-drawerSearchWrap .material-icons{font-size:18px;opacity:.6;}' +
       '.newBadges-drawerSearch{background:transparent;border:none;outline:none;color:inherit;' +
       'width:100%;font-size:16px;}' +
-      '.newBadges-drawerSearch::placeholder{color:rgba(255,255,255,.4);}' +
+      '.newBadges-drawerSearch::placeholder{color:rgba(var(--nb-fg-rgb),.45);}' +
       '.newBadges-drawerResume{display:flex;flex-direction:column;gap:2px;}' +
       '.newBadges-drawerResumeItem{display:flex;align-items:center;gap:.7em;width:100%;' +
       'background:transparent;border:none;color:inherit;text-align:left;cursor:pointer;' +
       'padding:.4em .2em;border-radius:8px;transition:background .15s;}' +
-      '.newBadges-drawerResumeItem:hover{background:rgba(255,255,255,.08);}' +
+      '.newBadges-drawerResumeItem:hover{background:rgba(var(--nb-fg-rgb),.09);}' +
       '.newBadges-drawerThumb{position:relative;flex:0 0 64px;height:38px;border-radius:6px;' +
-      'background-size:cover;background-position:center;background-color:rgba(255,255,255,.08);' +
+      'background-size:cover;background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);' +
       'display:flex;align-items:center;justify-content:center;overflow:hidden;}' +
-      '.newBadges-drawerThumb .material-icons{font-size:20px;color:#fff;' +
+      // Over the thumbnail image, so white regardless of theme.
+      '.newBadges-drawerThumb .material-icons{font-size:20px;color:var(--nb-on-media);' +
       'text-shadow:0 1px 4px rgba(0,0,0,.8);opacity:.9;}' +
       '.newBadges-drawerResumeText{display:flex;flex-direction:column;min-width:0;flex:1;gap:1px;}' +
       '.newBadges-drawerResumeTitle{font-size:.85em;font-weight:600;white-space:nowrap;' +
@@ -112,14 +489,14 @@
       '.newBadges-drawerResumeSub{font-size:.72em;opacity:.6;white-space:nowrap;' +
       'overflow:hidden;text-overflow:ellipsis;}' +
       '.newBadges-drawerProgress{display:block;height:3px;border-radius:2px;' +
-      'background:rgba(255,255,255,.15);margin-top:3px;overflow:hidden;}' +
+      'background:rgba(var(--nb-fg-rgb),.16);margin-top:3px;overflow:hidden;}' +
       '.newBadges-drawerProgress span{display:block;height:100%;border-radius:2px;' +
-      'background:rgba(140,130,255,.95);}' +
+      'background:var(--nb-accent);}' +
       '.newBadges-drawerActions{display:flex;flex-direction:column;gap:2px;margin-top:.5em;}' +
       '.newBadges-drawerAction{display:flex;align-items:center;gap:.7em;width:100%;' +
       'background:transparent;border:none;color:inherit;text-align:left;cursor:pointer;' +
       'padding:.55em .2em;border-radius:8px;font-size:.9em;font-weight:600;transition:background .15s;}' +
-      '.newBadges-drawerAction:hover{background:rgba(255,255,255,.08);}' +
+      '.newBadges-drawerAction:hover{background:rgba(var(--nb-fg-rgb),.09);}' +
       '.newBadges-drawerAction .material-icons{font-size:20px;opacity:.75;}' +
       '.newBadges-drawerAction:disabled{opacity:.5;cursor:default;}';
     document.head.appendChild(style);
@@ -141,7 +518,7 @@
   // of whether that episode itself is within the "NEW" freshness window -
   // this is independent of the red NEW ribbon below.
   function applyEpisodeLabelIfOngoing(card, id) {
-    if (!ongoingCache[id]) {
+    if (!cfg.EnableEpisodeLabel || !ongoingCache[id]) {
       return;
     }
     var label = episodeLabelCache[id];
@@ -156,11 +533,11 @@
   }
 
   function isRecentDate(dateStr) {
-    if (!dateStr) {
+    if (!cfg.EnableNewBadge || !dateStr) {
       return false;
     }
     var ageMs = Date.now() - new Date(dateStr).getTime();
-    return ageMs >= 0 && ageMs < MAX_AGE_DAYS * 86400000;
+    return ageMs >= 0 && ageMs < cfg.NewBadgeMaxAgeDays * 86400000;
   }
 
   function applyNewRibbonIfRecent(card, id) {
@@ -351,7 +728,7 @@
   }
 
   function ensureBackdrop() {
-    if (!isItemDetailsRoute()) {
+    if (!cfg.EnableDetailsBackdrop || !isItemDetailsRoute()) {
       return;
     }
     var itemId = getCurrentDetailsItemId();
@@ -430,13 +807,94 @@
   // API has no cross-user "what's popular" concept. Episode plays are
   // resolved up to their parent series so a show ranks as one unit
   // regardless of which episode was watched.
-  var NEXT_UP_TITLES = ['Næste afsnit', 'Next Up'];
-  var TRENDING_WINDOW_DAYS = 30;
   var TRENDING_MIN_ITEMS = 4;
   var TRENDING_MAX_ITEMS = 16;
   // The 30-day trending window barely shifts minute to minute, so a longer
   // cache is safe.
   var TRENDING_CACHE_TTL_MS = 10 * 60 * 1000;
+
+  // ==================================================================
+  //  Identifying Jellyfin's own home rows
+  //  Jellyfin renders each configured home row into a container carrying a
+  //  positional class (section0, section1, ...) and the user's display
+  //  preferences say what each of those positions holds - "resume",
+  //  "nextup", "latestmedia" and so on. Reading that mapping identifies a
+  //  row by what it IS rather than by what its heading happens to read,
+  //  which matters because those headings are translated per language and
+  //  were renamed outright between Jellyfin 10.11 and 10.12. Matching on the
+  //  heading text survives below purely as a fallback for the case where
+  //  display preferences cannot be read at all.
+  // ==================================================================
+
+  // jellyfin-web's own DEFAULT_SECTIONS (types/homeSectionType.ts), used for
+  // any position the user has never explicitly set - which is most of them.
+  var HOME_SECTION_DEFAULTS = [
+    'smalllibrarytiles', 'resume', 'resumeaudio', 'resumebook',
+    'livetv', 'nextup', 'latestmedia', 'none'
+  ];
+  var HOME_SECTION_MAX = 12;
+  var homeSectionTypes = null; // index -> section type, once loaded
+  var homeSectionTypesPending = false;
+
+  function loadHomeSectionTypes() {
+    if (homeSectionTypes || homeSectionTypesPending) {
+      return;
+    }
+    var apiClient = window.ApiClient;
+    if (!apiClient || !apiClient.getDisplayPreferences) {
+      return;
+    }
+    homeSectionTypesPending = true;
+    apiClient.getDisplayPreferences('usersettings', apiClient.getCurrentUserId(), 'emby')
+      .then(function (prefs) {
+        var custom = (prefs && prefs.CustomPrefs) || {};
+        var list = [];
+        for (var i = 0; i < HOME_SECTION_MAX; i++) {
+          var value = custom['homesection' + i] || HOME_SECTION_DEFAULTS[i] || '';
+          // Jellyfin's own backwards-compatibility shim for a legacy value.
+          if (value === 'folders') {
+            value = HOME_SECTION_DEFAULTS[0];
+          }
+          list.push(String(value).toLowerCase());
+        }
+        // In TV layout Jellyfin prepends a library row when the user's own
+        // list has none, which shifts every following index by one.
+        if (document.body.classList.contains('layout-tv') &&
+            list.indexOf('smalllibrarytiles') === -1 &&
+            list.indexOf('librarybuttons') === -1) {
+          list.unshift('smalllibrarytiles');
+        }
+        homeSectionTypes = list;
+      })
+      .catch(function () {
+        // An empty list means "unknown" - callers fall back to heading text.
+        homeSectionTypes = [];
+      })
+      .then(function () {
+        homeSectionTypesPending = false;
+      });
+  }
+
+  function findHomeSectionByType(homePage, type) {
+    if (!homeSectionTypes || !homeSectionTypes.length) {
+      return null;
+    }
+    for (var i = 0; i < homeSectionTypes.length; i++) {
+      if (homeSectionTypes[i] !== type) {
+        continue;
+      }
+      var el = homePage.querySelector('.verticalSection.section' + i);
+      if (el) {
+        return el;
+      }
+    }
+    return null;
+  }
+
+  // Fallback only (see above). Jellyfin 10.11's own strings for these two
+  // rows in the two languages this plugin speaks; anything else falls
+  // through and the row is simply left alone, which is the safe outcome.
+  var NEXT_UP_TITLES = ['Næste afsnit', 'Next Up'];
 
   function isNextUpSection(section) {
     var titleEl = section.querySelector('.sectionTitle, [class*="sectionTitle"]');
@@ -445,6 +903,24 @@
     }
     var title = titleEl.textContent.trim();
     return NEXT_UP_TITLES.indexOf(title) !== -1;
+  }
+
+  // Finds a native home row, preferring the display-preferences mapping and
+  // falling back to a heading-text scan. `excludeClass` keeps our own
+  // replacement row - which deliberately carries the same heading - from
+  // matching itself.
+  function findNativeSection(homePage, type, matchByTitle, excludeClass) {
+    var mapped = findHomeSectionByType(homePage, type);
+    if (mapped && !mapped.classList.contains(excludeClass)) {
+      return mapped;
+    }
+    var sections = homePage.querySelectorAll('.verticalSection');
+    for (var i = 0; i < sections.length; i++) {
+      if (matchByTitle(sections[i]) && !sections[i].classList.contains(excludeClass)) {
+        return sections[i];
+      }
+    }
+    return null;
   }
 
   function isHomeRoute() {
@@ -497,7 +973,7 @@
     var apiClient = window.ApiClient;
     var currentUserId = apiClient.getCurrentUserId();
     var sql = "SELECT UserId, ItemId, ItemType FROM PlaybackActivity WHERE DateCreated >= datetime('now', '-" +
-      TRENDING_WINDOW_DAYS + " days') AND UserId != '" + currentUserId + "'";
+      cfg.TrendingWindowDays + " days') AND UserId != '" + currentUserId + "'";
 
     return fetch(apiClient.getUrl('user_usage_stats/submit_custom_query'), {
       method: 'POST',
@@ -658,7 +1134,7 @@
     section.className = 'verticalSection newBadges-trendingSection';
     section.innerHTML =
       '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-        '<h2 class="sectionTitle sectionTitle-cards">Trending</h2>' +
+        '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('trending')) + '</h2>' +
       '</div>' +
       '<div is="emby-scroller" class="padded-top-focusscale padded-bottom-focusscale" data-centerfocus="true">' +
         '<div class="itemsContainer scrollSlider focuscontainer-x"></div>' +
@@ -666,7 +1142,9 @@
 
     nextUpSection.parentNode.insertBefore(section, nextUpSection.nextSibling);
 
-    var cacheKey = 'trending-' + window.ApiClient.getCurrentUserId();
+    // The window length is part of the key so changing it in settings does
+    // not keep serving a cached ranking from the old window.
+    var cacheKey = 'trending-' + window.ApiClient.getCurrentUserId() + '-' + cfg.TrendingWindowDays;
     fetchWithCache(cacheKey, TRENDING_CACHE_TTL_MS, fetchTrendingItems)
       .then(function (items) {
         if (items.length === 0) {
@@ -721,7 +1199,7 @@
   var TRENDING_FAILED_ATTR = 'data-newbadges-trending-failed';
 
   function renderTrendingIfHome() {
-    if (!isHomeRoute()) {
+    if (!cfg.EnableTrendingRow || !isHomeRoute()) {
       return;
     }
     var homePage = getActiveHomePage();
@@ -729,14 +1207,7 @@
       return;
     }
 
-    var nextUpSection = null;
-    var sections = homePage.querySelectorAll('.verticalSection');
-    for (var i = 0; i < sections.length; i++) {
-      if (isNextUpSection(sections[i]) && !sections[i].classList.contains('newBadges-trendingSection')) {
-        nextUpSection = sections[i];
-        break;
-      }
-    }
+    var nextUpSection = findNativeSection(homePage, 'nextup', isNextUpSection, 'newBadges-trendingSection');
 
     var existing = homePage.querySelector('.newBadges-trendingSection');
     if (existing) {
@@ -765,6 +1236,7 @@
   // finished get a plain recommendation card for the next unwatched episode,
   // instead of the show just vanishing from Continue Watching once it's
   // caught up.
+  // Fallback only - see findNativeSection / loadHomeSectionTypes above.
   var CONTINUE_WATCHING_TITLES = ['Fortsæt afspilning', 'Continue Watching'];
   var CONTINUE_MAX_ITEMS = 20;
   // Short TTL - Resume position changes as you actively watch, so this can't
@@ -858,6 +1330,7 @@
     if (item.Type === 'Episode') {
       var season = item.ParentIndexNumber != null ? item.ParentIndexNumber : '';
       var episode = item.IndexNumber != null ? item.IndexNumber : '';
+      // "S1:E4" is a numbering convention, not prose - no translation needed.
       var epLabel = 'S' + season + ':E' + episode + (item.Name ? ' - ' + item.Name : '');
       return [item.SeriesName || item.Name, epLabel];
     }
@@ -889,9 +1362,13 @@
     // / wireCardHoverPreview's exclusion of this class). data-ticks is
     // captured now so the preview/click-through don't need a second fetch
     // just to learn the resume position.
+    // Without the inline-playback feature these are ordinary cards again -
+    // dropping the marker class lets them fall back to the normal hover
+    // preview and their own link to the details page.
     var ticks = (item.UserData && item.UserData.PlaybackPositionTicks) || 0;
+    var cwClass = cfg.EnableContinueWatchingPreview ? ' newBadges-cwCard' : '';
     return (
-      '<div class="card overflowBackdropCard card-hoverable newBadges-cwCard" data-id="' + item.Id +
+      '<div class="card overflowBackdropCard card-hoverable' + cwClass + '" data-id="' + item.Id +
         '" data-type="' + item.Type + '" data-ticks="' + ticks + '">' +
         '<div class="cardBox cardBox-bottompadded">' +
           '<div class="cardScalable">' +
@@ -911,8 +1388,10 @@
   function renderContinueSection(cwSection) {
     // Caller (renderContinueIfHome) already hides cwSection and keeps
     // re-hiding it on every tick.
+    // Reuse whatever Jellyfin itself calls this row so the merged version
+    // reads identically in whatever language the client is running.
     var titleEl = cwSection.querySelector('.sectionTitle, [class*="sectionTitle"]');
-    var titleText = titleEl ? titleEl.textContent.trim() : 'Fortsæt afspilning';
+    var titleText = titleEl ? titleEl.textContent.trim() : t('continueWatching');
 
     var section = document.createElement('div');
     section.className = 'verticalSection newBadges-continueSection';
@@ -951,23 +1430,17 @@
   var CONTINUE_FAILED_ATTR = 'data-newbadges-continue-failed';
 
   function renderContinueIfHome() {
-    if (!isHomeRoute()) {
+    if (!cfg.EnableMergedContinueWatching || !isHomeRoute()) {
       return;
     }
     var homePage = getActiveHomePage();
     if (!homePage) {
       return;
     }
-    var sections = homePage.querySelectorAll('.verticalSection');
-    var nativeSection = null;
-    for (var i = 0; i < sections.length; i++) {
-      // Our own replacement row carries the same title text as the native
-      // one, so it has to be explicitly excluded here or it'd match too.
-      if (isContinueWatchingSection(sections[i]) && !sections[i].classList.contains('newBadges-continueSection')) {
-        nativeSection = sections[i];
-        break;
-      }
-    }
+    // Our own replacement row carries the same heading as the native one, so
+    // it has to be excluded explicitly or it would match itself.
+    var nativeSection = findNativeSection(
+      homePage, 'resume', isContinueWatchingSection, 'newBadges-continueSection');
     if (!nativeSection || nativeSection.hasAttribute(CONTINUE_FAILED_ATTR)) {
       // Failed earlier: the native row stays visible as the fallback, and
       // the marker dies with the node when Jellyfin renders home fresh.
@@ -1086,7 +1559,13 @@
     // enrichment) instead of bouncing to Jellyfin's native search page.
     function launchSearch(seed) {
       closeDrawer();
-      openSearchOverlay(seed || '');
+      if (cfg.EnableSearchOverlay) {
+        openSearchOverlay(seed || '');
+      } else {
+        // Overlay switched off - hand the query to Jellyfin's own search page
+        // rather than silently swallowing it.
+        location.hash = '#/search.html' + (seed ? '?query=' + encodeURIComponent(seed) : '');
+      }
       searchInput.value = '';
     }
 
@@ -1157,7 +1636,44 @@
     });
   }
 
+  // The Seerr shortcut is only worth drawing when the Seerr Requests plugin
+  // is actually installed - otherwise it is a button that leads nowhere on
+  // someone else's server. Asked once and remembered.
+  var seerrInstalled = null;
+  var seerrCheckPending = false;
+
+  function checkSeerrInstalled() {
+    if (seerrInstalled !== null || seerrCheckPending || !window.ApiClient) {
+      return;
+    }
+    seerrCheckPending = true;
+    window.ApiClient.getJSON(window.ApiClient.getUrl('Plugins'))
+      .then(function (plugins) {
+        seerrInstalled = (plugins || []).some(function (p) {
+          return String(p.Id).replace(/-/g, '').toLowerCase() ===
+            SEERR_PLUGIN_ID.replace(/-/g, '').toLowerCase();
+        });
+      })
+      .catch(function () {
+        // Non-admin users cannot list plugins. Falling back to "yes" keeps
+        // the shortcut working for them; it degrades to landing on the home
+        // page if the plugin genuinely is not there.
+        seerrInstalled = true;
+      })
+      .then(function () {
+        seerrCheckPending = false;
+      });
+  }
+
+  function showSeerrShortcut() {
+    return cfg.EnableSeerrShortcut && seerrInstalled !== false;
+  }
+
   function renderDrawerPlus() {
+    if (!cfg.EnableDrawerExtras) {
+      return;
+    }
+    checkSeerrInstalled();
     var drawer = document.querySelector('.mainDrawer');
     if (!drawer) {
       return;
@@ -1185,15 +1701,19 @@
     block.innerHTML =
       '<div class="newBadges-drawerSearchWrap">' +
         '<span class="material-icons search" aria-hidden="true"></span>' +
-        '<input type="text" class="newBadges-drawerSearch" placeholder="Hurtig søgning..." />' +
+        '<input type="text" class="newBadges-drawerSearch" placeholder="' + escapeHtml(t('quickSearch')) + '" />' +
       '</div>' +
-      '<h3 class="sidebarHeader newBadges-drawerResumeHeader" style="display:none">Fortsæt</h3>' +
+      '<h3 class="sidebarHeader newBadges-drawerResumeHeader" style="display:none">' +
+        escapeHtml(t('continueHeader')) + '</h3>' +
       '<div class="newBadges-drawerResume"></div>' +
       '<div class="newBadges-drawerActions">' +
         '<button type="button" class="newBadges-drawerAction newBadges-drawerSurprise">' +
-          '<span class="material-icons casino" aria-hidden="true"></span>Overrask mig</button>' +
-        '<button type="button" class="newBadges-drawerAction newBadges-drawerSeerr">' +
-          '<span class="material-icons add_circle_outline" aria-hidden="true"></span>Tilføj Film/Serie</button>' +
+          '<span class="material-icons casino" aria-hidden="true"></span>' + escapeHtml(t('surpriseMe')) + '</button>' +
+        (showSeerrShortcut()
+          ? '<button type="button" class="newBadges-drawerAction newBadges-drawerSeerr">' +
+            '<span class="material-icons add_circle_outline" aria-hidden="true"></span>' +
+            escapeHtml(t('requestMedia')) + '</button>'
+          : '') +
       '</div>';
 
     homeLink.parentNode.insertBefore(block, homeLink.nextSibling);
@@ -1396,7 +1916,7 @@
     var moreBtn = container.querySelector('.newBadges-moviesMore');
     if (!append) {
       state.startIndex = 0;
-      grid.innerHTML = '<div class="newBadges-moviesLoading">Indlæser...</div>';
+      grid.innerHTML = '<div class="newBadges-moviesLoading">' + escapeHtml(t('loading')) + '</div>';
     }
 
     var params = {
@@ -1425,14 +1945,15 @@
         if (append) {
           grid.insertAdjacentHTML('beforeend', html);
         } else {
-          grid.innerHTML = html || '<div class="newBadges-moviesLoading">Ingen film matcher filtrene.</div>';
+          grid.innerHTML = html ||
+            '<div class="newBadges-moviesLoading">' + escapeHtml(t('moviesNoMatch')) + '</div>';
         }
         state.startIndex += items.length;
         moreBtn.style.display = state.startIndex < (result.TotalRecordCount || 0) ? '' : 'none';
       })
       .catch(function () {
         if (!append) {
-          grid.innerHTML = '<div class="newBadges-moviesLoading">Kunne ikke hente film.</div>';
+          grid.innerHTML = '<div class="newBadges-moviesLoading">' + escapeHtml(t('moviesLoadFailed')) + '</div>';
         }
       });
   }
@@ -1458,11 +1979,13 @@
     var decadeHtml = '';
     for (var d = currentDecade; d >= 1960; d -= 10) {
       decadeHtml += '<button type="button" class="newBadges-pill" data-filter="decade" data-value="' + d + '">' +
-        (d + "'erne") + '</button>';
+        escapeHtml(decadeLabel(d)) + '</button>';
     }
     decadeRow.innerHTML =
-      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="unplayed">Usete</button>' +
-      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="played">Sete</button>' +
+      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="unplayed">' +
+        escapeHtml(t('unwatched')) + '</button>' +
+      '<button type="button" class="newBadges-pill" data-filter="watched" data-value="played">' +
+        escapeHtml(t('watched')) + '</button>' +
       '<span class="newBadges-pillDivider"></span>' + decadeHtml;
   }
 
@@ -1497,23 +2020,24 @@
     container.innerHTML =
       '<div class="verticalSection newBadges-moviesRecsSection" style="display:none">' +
         '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-          '<h2 class="sectionTitle sectionTitle-cards">Anbefalet til dig</h2>' +
+          '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('moviesRecommended')) + '</h2>' +
         '</div>' + moviesScrollRowHtml('newBadges-moviesRecsRow') +
       '</div>' +
       '<div class="verticalSection newBadges-moviesFavsSection" style="display:none">' +
         '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-          '<h2 class="sectionTitle sectionTitle-cards">Favoritter</h2>' +
+          '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('moviesFavourites')) + '</h2>' +
         '</div>' + moviesScrollRowHtml('newBadges-moviesFavsRow') +
       '</div>' +
       '<div class="verticalSection">' +
         '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-          '<h2 class="sectionTitle sectionTitle-cards">Alle film</h2>' +
+          '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('moviesAll')) + '</h2>' +
         '</div>' +
         '<div class="newBadges-moviesPills newBadges-moviesGenreRow padded-left padded-right"></div>' +
         '<div class="newBadges-moviesPills newBadges-moviesDecadeRow padded-left padded-right"></div>' +
         '<div class="itemsContainer vertical-wrap padded-left padded-right newBadges-moviesGrid"></div>' +
         '<div class="newBadges-moviesMoreWrap">' +
-          '<button type="button" class="newBadges-moviesMore" style="display:none">Vis flere</button>' +
+          '<button type="button" class="newBadges-moviesMore" style="display:none">' +
+            escapeHtml(t('showMore')) + '</button>' +
         '</div>' +
       '</div>';
 
@@ -1552,7 +2076,7 @@
   }
 
   function renderMoviesRedesignIfPresent() {
-    if (location.hash.indexOf('#/movies') !== 0) {
+    if (!cfg.EnableMoviesRedesign || location.hash.indexOf('#/movies') !== 0) {
       return;
     }
     var libId = getTopParentIdFromHash();
@@ -1597,6 +2121,8 @@
       clearTimeout(debounceTimer);
     }
     debounceTimer = setTimeout(function () {
+      refreshPalette(false);
+      loadHomeSectionTypes();
       scan();
       ensureBackdrop();
       renderTrendingIfHome();
@@ -1653,30 +2179,32 @@
     var s = document.createElement('style');
     s.id = 'newBadges-searchStyle';
     s.textContent =
+      // This panel sits over the page, not over artwork, so unlike the card
+      // overlays it follows the theme's own surface and text colours.
       '.newBadges-searchOverlay{position:fixed;inset:0;z-index:1200;display:flex;justify-content:center;' +
-      'align-items:flex-start;background:rgba(10,12,16,.72);backdrop-filter:blur(8px);' +
+      'align-items:flex-start;background:rgba(var(--nb-surface-rgb),.78);backdrop-filter:blur(8px);' +
       '-webkit-backdrop-filter:blur(8px);opacity:0;visibility:hidden;transition:opacity .18s ease;' +
-      'padding:6vh 4vw;overflow-y:auto;}' +
+      'padding:6vh 4vw;overflow-y:auto;color:var(--nb-fg);}' +
       '.newBadges-searchOverlay.is-open{opacity:1;visibility:visible;}' +
       '.newBadges-searchPanel{width:100%;max-width:820px;transform:translateY(-8px);transition:transform .2s ease;}' +
       '.newBadges-searchOverlay.is-open .newBadges-searchPanel{transform:translateY(0);}' +
-      '.newBadges-searchBar{display:flex;align-items:center;gap:.6em;background:rgba(255,255,255,.1);' +
-      'border-radius:14px;padding:.7em 1em;box-shadow:0 8px 40px rgba(0,0,0,.45);}' +
+      '.newBadges-searchBar{display:flex;align-items:center;gap:.6em;background:rgba(var(--nb-fg-rgb),.1);' +
+      'border-radius:14px;padding:.7em 1em;box-shadow:0 8px 40px var(--nb-shadow);}' +
       '.newBadges-searchBar .material-icons.search{opacity:.7;font-size:24px;}' +
-      '.newBadges-searchInput{flex:1;background:transparent;border:none;outline:none;color:#fff;' +
+      '.newBadges-searchInput{flex:1;background:transparent;border:none;outline:none;color:var(--nb-fg);' +
       'font-size:20px;font-weight:500;min-width:0;}' +
-      '.newBadges-searchInput::placeholder{color:rgba(255,255,255,.4);}' +
-      '.newBadges-searchClose{background:transparent;border:none;color:rgba(255,255,255,.6);cursor:pointer;' +
+      '.newBadges-searchInput::placeholder{color:rgba(var(--nb-fg-rgb),.45);}' +
+      '.newBadges-searchClose{background:transparent;border:none;color:rgba(var(--nb-fg-rgb),.6);cursor:pointer;' +
       'display:flex;padding:.2em;border-radius:8px;}' +
-      '.newBadges-searchClose:hover{background:rgba(255,255,255,.12);color:#fff;}' +
+      '.newBadges-searchClose:hover{background:rgba(var(--nb-fg-rgb),.13);color:var(--nb-fg);}' +
       '.newBadges-searchBody{margin-top:1em;}' +
-      '.newBadges-searchHint{padding:1.2em;text-align:center;color:rgba(255,255,255,.45);font-size:.95em;}' +
+      '.newBadges-searchHint{padding:1.2em;text-align:center;color:rgba(var(--nb-fg-rgb),.5);font-size:.95em;}' +
       '.newBadges-searchResults{display:flex;flex-direction:column;gap:2px;}' +
       '.newBadges-searchResult{display:flex;align-items:center;gap:.9em;width:100%;text-align:left;' +
       'background:transparent;border:none;color:inherit;cursor:pointer;padding:.5em .7em;border-radius:10px;}' +
-      '.newBadges-searchResult:hover,.newBadges-searchResult.is-focused{background:rgba(255,255,255,.1);}' +
+      '.newBadges-searchResult:hover,.newBadges-searchResult.is-focused{background:rgba(var(--nb-fg-rgb),.11);}' +
       '.newBadges-searchThumb{flex:0 0 46px;height:66px;border-radius:6px;background-size:cover;' +
-      'background-position:center;background-color:rgba(255,255,255,.08);}' +
+      'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);}' +
       '.newBadges-searchThumbEmpty{display:flex;align-items:center;justify-content:center;}' +
       '.newBadges-searchThumbEmpty .material-icons{opacity:.4;}' +
       '.newBadges-searchResultText{display:flex;flex-direction:column;min-width:0;gap:2px;}' +
@@ -1690,7 +2218,7 @@
       '.newBadges-searchActor{flex:0 0 84px;display:flex;flex-direction:column;align-items:center;gap:.35em;' +
       'background:transparent;border:none;color:inherit;cursor:pointer;text-align:center;}' +
       '.newBadges-searchActorImg{width:72px;height:72px;border-radius:50%;background-size:cover;' +
-      'background-position:center;background-color:rgba(255,255,255,.08);transition:transform .12s;}' +
+      'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);transition:transform .12s;}' +
       '.newBadges-searchActor:hover .newBadges-searchActorImg{transform:scale(1.06);}' +
       '.newBadges-searchActorImgEmpty{display:flex;align-items:center;justify-content:center;}' +
       '.newBadges-searchActorImgEmpty .material-icons{opacity:.4;font-size:34px;}' +
@@ -1701,14 +2229,14 @@
       '.newBadges-searchDirCard{flex:0 0 110px;display:flex;flex-direction:column;gap:.35em;' +
       'background:transparent;border:none;color:inherit;cursor:pointer;text-align:left;}' +
       '.newBadges-searchDirPoster{width:110px;height:165px;border-radius:8px;background-size:cover;' +
-      'background-position:center;background-color:rgba(255,255,255,.08);transition:transform .12s;}' +
+      'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);transition:transform .12s;}' +
       '.newBadges-searchDirCard:hover .newBadges-searchDirPoster{transform:scale(1.04);}' +
       '.newBadges-searchDirTitle{font-size:.82em;font-weight:600;white-space:nowrap;overflow:hidden;' +
       'text-overflow:ellipsis;}' +
       '.newBadges-searchDirYear{font-size:.75em;opacity:.5;}' +
       'body.newBadges-searchOpen{overflow:hidden;}' +
       '@media (max-width:600px){.newBadges-searchOverlay{padding:0;}' +
-      '.newBadges-searchPanel{max-width:100%;min-height:100%;background:rgba(16,18,22,.98);padding:1em;}' +
+      '.newBadges-searchPanel{max-width:100%;min-height:100%;background:rgba(var(--nb-surface-rgb),.98);padding:1em;}' +
       '.newBadges-searchInput{font-size:17px;}}';
     document.head.appendChild(s);
   }
@@ -1721,9 +2249,9 @@
       '<div class="newBadges-searchPanel">' +
         '<div class="newBadges-searchBar">' +
           '<span class="material-icons search" aria-hidden="true"></span>' +
-          '<input type="text" class="newBadges-searchInput" placeholder="Søg film, serier, skuespillere..." ' +
+          '<input type="text" class="newBadges-searchInput" placeholder="' + escapeHtml(t('searchPlaceholder')) + '" ' +
             'autocomplete="off" autocorrect="off" spellcheck="false" />' +
-          '<button type="button" class="newBadges-searchClose" title="Luk (Esc)">' +
+          '<button type="button" class="newBadges-searchClose" title="' + escapeHtml(t('searchClose')) + '">' +
             '<span class="material-icons close" aria-hidden="true"></span></button>' +
         '</div>' +
         '<div class="newBadges-searchBody">' +
@@ -1784,7 +2312,7 @@
     searchState.focused = -1;
     if (searchOverlay) {
       searchOverlay.querySelector('.newBadges-searchResults').innerHTML =
-        '<div class="newBadges-searchHint">Skriv for at søge…</div>';
+        '<div class="newBadges-searchHint">' + escapeHtml(t('searchTypeToSearch')) + '</div>';
       searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
     }
   }
@@ -1834,7 +2362,7 @@
     if (!searchOverlay) { return; }
     var box = searchOverlay.querySelector('.newBadges-searchResults');
     if (!items.length) {
-      box.innerHTML = '<div class="newBadges-searchHint">Ingen resultater</div>';
+      box.innerHTML = '<div class="newBadges-searchHint">' + escapeHtml(t('searchNoResults')) + '</div>';
       searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
       searchState.focused = -1;
       return;
@@ -1853,7 +2381,7 @@
       thumb = '<span class="newBadges-searchThumb newBadges-searchThumbEmpty"><span class="material-icons">' +
         (item.Type === 'Series' ? 'live_tv' : 'movie') + '</span></span>';
     }
-    var typeLabel = item.Type === 'Series' ? 'Serie' : 'Film';
+    var typeLabel = item.Type === 'Series' ? t('typeSeries') : t('typeMovie');
     return '<button type="button" class="newBadges-searchResult" data-id="' + item.Id + '" data-idx="' + idx + '">' +
       thumb +
       '<span class="newBadges-searchResultText">' +
@@ -1920,7 +2448,7 @@
     var reqId = ++searchState.enrichReqId;
     var cached = searchState.enrichCache.get(item.Id);
     if (cached) { renderEnrich(cached); return; }   // instant
-    panel.innerHTML = '<div class="newBadges-searchHint">Henter medvirkende…</div>';
+    panel.innerHTML = '<div class="newBadges-searchHint">' + escapeHtml(t('searchLoadingCast')) + '</div>';
     fetchEnrichData(item).then(function (data) {
       if (reqId === searchState.enrichReqId) { renderEnrich(data); }  // a newer focus wins
     }).catch(function () {
@@ -1933,7 +2461,7 @@
     var html = '';
     if (data.actors && data.actors.length) {
       html += '<div class="newBadges-searchSection">' +
-        '<h3 class="newBadges-searchSectionTitle">Medvirkende</h3>' +
+        '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchCast')) + '</h3>' +
         '<div class="newBadges-searchCast">' +
         data.actors.map(function (p) {
           var img = p.PrimaryImageTag
@@ -1951,7 +2479,7 @@
     }
     if (data.director && data.works && data.works.length) {
       html += '<div class="newBadges-searchSection">' +
-        '<h3 class="newBadges-searchSectionTitle">Mere fra ' + escapeHtml(data.director.Name) + '</h3>' +
+        '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchMoreFrom') + data.director.Name) + '</h3>' +
         '<div class="newBadges-searchDirRow">' +
         data.works.map(function (w) {
           var bg = (w.ImageTags && w.ImageTags.Primary)
@@ -1999,6 +2527,9 @@
 
   // Turn Jellyfin's own header magnifier into our overlay's trigger.
   function hookHeaderSearch() {
+    if (!cfg.EnableSearchOverlay) {
+      return;
+    }
     var btn = document.querySelector('.headerSearchButton');
     if (btn && !btn.getAttribute('data-nb-search')) {
       btn.setAttribute('data-nb-search', '1');
@@ -2040,7 +2571,6 @@
   // these cards run the native hover zoom/overlay-fade transition first,
   // and expanding while that's still settling reads as fighting with it
   // rather than following it.
-  var HP_DELAY_MS = 1100;
   var HP_HIDE_DELAY_MS = 250;
   var HP_TARGET_RATIO = 9 / 16; // height / width for a 16:9 box
   var hpShowTimer = null;
@@ -2084,11 +2614,15 @@
         return i.SeriesId === seriesId;
       })[0];
       if (resumeItem) {
-        return { id: resumeItem.Id, ticks: (resumeItem.UserData && resumeItem.UserData.PlaybackPositionTicks) || 0, label: 'Fortsæt' };
+        return {
+          id: resumeItem.Id,
+          ticks: (resumeItem.UserData && resumeItem.UserData.PlaybackPositionTicks) || 0,
+          label: t('resume')
+        };
       }
       var nextItem = (results[1].Items || [])[0];
       if (nextItem) {
-        return { id: nextItem.Id, ticks: 0, label: 'Afspil' };
+        return { id: nextItem.Id, ticks: 0, label: t('play') };
       }
       return null; // nothing downloaded/playable yet for this show
     });
@@ -2100,7 +2634,7 @@
     }
     // Movie or Episode - the item itself is the playable thing.
     var ticks = (details.UserData && details.UserData.PlaybackPositionTicks) || 0;
-    return Promise.resolve({ id: details.Id, ticks: ticks, label: ticks > 0 ? 'Fortsæt' : 'Afspil' });
+    return Promise.resolve({ id: details.Id, ticks: ticks, label: ticks > 0 ? t('resume') : t('play') });
   }
 
   function hoverPreviewImageUrl(details) {
@@ -2131,8 +2665,8 @@
   function hoverPreviewMetaLine(details) {
     var parts = [];
     if (details.Type === 'Episode' && (details.ParentIndexNumber != null || details.IndexNumber != null)) {
-      parts.push('Sæson ' + (details.ParentIndexNumber != null ? details.ParentIndexNumber : '?') +
-        ', Afsnit ' + (details.IndexNumber != null ? details.IndexNumber : '?'));
+      parts.push(t('season') + ' ' + (details.ParentIndexNumber != null ? details.ParentIndexNumber : '?') +
+        ', ' + t('episode') + ' ' + (details.IndexNumber != null ? details.IndexNumber : '?'));
       if (details.Name) {
         parts.push(details.Name);
       }
@@ -2153,7 +2687,7 @@
   }
 
   function buildHoverOverlayContentHtml(details, playTarget) {
-    var overview = details.Overview ? escapeHtml(details.Overview) : 'Ingen beskrivelse tilgængelig.';
+    var overview = details.Overview ? escapeHtml(details.Overview) : escapeHtml(t('noOverview'));
     var playHtml = playTarget
       ? '<button type="button" class="newBadges-hpPlay" data-item-id="' + escapeHtml(playTarget.id) +
         '" data-ticks="' + playTarget.ticks + '" title="' + escapeHtml(playTarget.label) + '">' +
@@ -2166,7 +2700,8 @@
       '<div class="newBadges-hpOverview">' + overview + '</div>' +
       '<div class="newBadges-hpButtons">' +
         playHtml +
-        '<a class="newBadges-hpMore" href="#/details?id=' + escapeHtml(details.Id) + '">Læs mere</a>' +
+        '<a class="newBadges-hpMore" href="#/details?id=' + escapeHtml(details.Id) + '">' +
+          escapeHtml(t('readMore')) + '</a>' +
       '</div>'
     );
   }
@@ -2316,6 +2851,9 @@
   var HOVER_WIRED_ATTR = 'data-nb-hover-wired';
 
   function wireCardHoverPreview() {
+    if (!cfg.EnableHoverPreview) {
+      return;
+    }
     document.querySelectorAll('.page.homePage').forEach(function (homePage) {
       if (homePage.hasAttribute(HOVER_WIRED_ATTR)) {
         return;
@@ -2358,7 +2896,7 @@
           if (hpCard === card) {
             showHoverPreview(card);
           }
-        }, HP_DELAY_MS);
+        }, cfg.HoverPreviewDelayMs);
       });
 
       homePage.addEventListener('mouseout', function (e) {
@@ -2399,16 +2937,19 @@
       // deliberately "animated" than a short linear-ish move.
       '.card.newBadges-hpExpanded{transition:flex-basis .38s cubic-bezier(.25,.46,.45,.94);' +
       'will-change:flex-basis;}' +
+      // This overlay lies on top of a backdrop image, so it uses the media
+      // scrim and white text rather than the page's own surface/foreground -
+      // a light theme's pale panel over a bright still would be unreadable.
       '.newBadges-hpOverlay{position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
-      'background-color:#1a1e26;background-size:cover;background-position:center 25%;' +
-      'opacity:0;transition:opacity .22s ease;z-index:3;}' +
+      'background-color:rgb(var(--nb-scrim-rgb));background-size:cover;background-position:center 25%;' +
+      'color:var(--nb-on-media);opacity:0;transition:opacity .22s ease;z-index:3;}' +
       '.newBadges-hpOverlay.is-ready{opacity:1;}' +
       // Extended further up (and a touch darker at the base) than before -
       // makes room for more overview text without it fighting the backdrop
       // image for legibility.
       '.newBadges-hpOverlay::after{content:"";position:absolute;inset:0;' +
-      'background:linear-gradient(to top,rgba(15,17,22,.97) 0%,rgba(15,17,22,.6) 45%,' +
-      'rgba(15,17,22,.15) 75%,rgba(15,17,22,0) 100%);}' +
+      'background:linear-gradient(to top,rgba(var(--nb-scrim-rgb),.97) 0%,rgba(var(--nb-scrim-rgb),.6) 45%,' +
+      'rgba(var(--nb-scrim-rgb),.15) 75%,rgba(var(--nb-scrim-rgb),0) 100%);}' +
       '.newBadges-hpOverlayBody{position:absolute;left:0;right:0;bottom:0;padding:.7em 1em;z-index:1;}' +
       '.newBadges-hpTitle{font-size:1em;font-weight:800;margin:0 0 .15em;' +
       'text-shadow:0 1px 3px rgba(0,0,0,.6);}' +
@@ -2423,10 +2964,11 @@
       // (.cardOverlayFab-primary in jellyfin-web's card.scss) - same grey,
       // so this reads as one native-feeling pair rather than a new style.
       '.newBadges-hpPlay{display:flex;align-items:center;justify-content:center;border:none;border-radius:100em;' +
-      'width:2.2em;height:2.2em;background-color:rgba(0,0,0,.7);color:#fff;cursor:pointer;font-size:1.1em;' +
-      'transition:transform .15s;flex-shrink:0;}' +
+      'width:2.2em;height:2.2em;background-color:rgba(0,0,0,.7);color:var(--nb-on-media);cursor:pointer;' +
+      'font-size:1.1em;transition:transform .15s;flex-shrink:0;}' +
       '.newBadges-hpPlay:hover{transform:scale(1.08);}' +
-      '.newBadges-hpMore{display:inline-flex;align-items:center;background-color:rgba(0,0,0,.7);color:#fff;' +
+      '.newBadges-hpMore{display:inline-flex;align-items:center;background-color:rgba(0,0,0,.7);' +
+      'color:var(--nb-on-media);' +
       'font-weight:700;border-radius:999px;padding:.4em 1em;font-size:.78em;text-decoration:none;' +
       'transition:transform .15s,background-color .15s;white-space:nowrap;}' +
       '.newBadges-hpMore:hover{background-color:rgba(0,0,0,.85);transform:scale(1.05);}';
@@ -2523,6 +3065,9 @@
   }
 
   function wireContinueWatchingPreview() {
+    if (!cfg.EnableContinueWatchingPreview) {
+      return;
+    }
     document.querySelectorAll('.page.homePage').forEach(function (homePage) {
       if (homePage.hasAttribute(CW_PREVIEW_WIRED_ATTR)) {
         return;
@@ -2596,30 +3141,201 @@
     document.head.appendChild(style);
   }
 
-  function init() {
+  // ==================================================================
+  //  Settings page
+  //  Inline <script> tags in plugin config pages do not execute on this
+  //  server (confirmed with SeerrRequests and Hero Bar), so the page ships
+  //  as markup only and every field is wired from here instead.
+  // ==================================================================
+
+  var CONFIG_WIRED_ATTR = 'data-newbadges-config-wired';
+
+  // id -> [config field, kind]. Keeping this as data rather than a wall of
+  // repeated get/set lines means adding a setting is one line in two places
+  // (here and the HTML) instead of four.
+  var CONFIG_FIELDS = [
+    ['NbUiLanguage', 'UiLanguage', 'select'],
+    ['NbEnableNewBadge', 'EnableNewBadge', 'bool'],
+    ['NbNewBadgeMaxAgeDays', 'NewBadgeMaxAgeDays', 'int'],
+    ['NbNewBadgeColor', 'NewBadgeColor', 'text'],
+    ['NbEnableEpisodeLabel', 'EnableEpisodeLabel', 'bool'],
+    ['NbEnableTrendingRow', 'EnableTrendingRow', 'bool'],
+    ['NbTrendingWindowDays', 'TrendingWindowDays', 'int'],
+    ['NbEnableMergedContinueWatching', 'EnableMergedContinueWatching', 'bool'],
+    ['NbEnableContinueWatchingPreview', 'EnableContinueWatchingPreview', 'bool'],
+    ['NbEnableHoverPreview', 'EnableHoverPreview', 'bool'],
+    ['NbHoverPreviewDelayMs', 'HoverPreviewDelayMs', 'int'],
+    ['NbEnableMoviesRedesign', 'EnableMoviesRedesign', 'bool'],
+    ['NbEnableSearchOverlay', 'EnableSearchOverlay', 'bool'],
+    ['NbEnableDrawerExtras', 'EnableDrawerExtras', 'bool'],
+    ['NbEnableSeerrShortcut', 'EnableSeerrShortcut', 'bool'],
+    ['NbEnableDetailsBackdrop', 'EnableDetailsBackdrop', 'bool'],
+    ['NbHeaderLogoUrl', 'HeaderLogoUrl', 'text'],
+    ['NbHeaderLogoWidth', 'HeaderLogoWidth', 'text']
+  ];
+
+  function wireConfigPageIfPresent() {
+    var page = document.querySelector('#NewBadgesConfigPage');
+    if (!page || page.hasAttribute(CONFIG_WIRED_ATTR)) {
+      return;
+    }
+    // The page can appear a beat before the dashboard's own globals do -
+    // leave it unmarked so the next observer tick tries again.
+    if (!window.ApiClient || !window.Dashboard) {
+      return;
+    }
+    page.setAttribute(CONFIG_WIRED_ATTR, 'true');
+
+    var apiClient = window.ApiClient;
+    var status = page.querySelector('#NewBadgesSaveStatus');
+
+    function fill(saved) {
+      CONFIG_FIELDS.forEach(function (field) {
+        var el = page.querySelector('#' + field[0]);
+        if (!el) {
+          return;
+        }
+        var value = saved[field[1]];
+        if (value === undefined) {
+          value = DEFAULTS[field[1]];
+        }
+        if (field[2] === 'bool') {
+          el.checked = value !== false;
+        } else {
+          el.value = value;
+        }
+      });
+    }
+
+    window.Dashboard.showLoadingMsg();
+    apiClient.getPluginConfiguration(PLUGIN_ID)
+      .then(function (saved) {
+        fill(saved || {});
+      })
+      .catch(function () {
+        // Never saved yet - show the defaults so the page is still usable.
+        fill({});
+      })
+      .then(function () {
+        window.Dashboard.hideLoadingMsg();
+      });
+
+    page.querySelector('#NewBadgesSaveButton').addEventListener('click', function () {
+      window.Dashboard.showLoadingMsg();
+      status.textContent = '';
+      apiClient.getPluginConfiguration(PLUGIN_ID).catch(function () { return {}; })
+        .then(function (saved) {
+          saved = saved || {};
+          CONFIG_FIELDS.forEach(function (field) {
+            var el = page.querySelector('#' + field[0]);
+            if (!el) {
+              return;
+            }
+            if (field[2] === 'bool') {
+              saved[field[1]] = !!el.checked;
+            } else if (field[2] === 'int') {
+              saved[field[1]] = parseInt(el.value, 10) || DEFAULTS[field[1]];
+            } else {
+              saved[field[1]] = String(el.value || '').trim();
+            }
+          });
+          return apiClient.updatePluginConfiguration(PLUGIN_ID, saved);
+        })
+        .then(function (result) {
+          status.textContent = 'Saved. Reload a page to see the changes.';
+          window.Dashboard.processPluginConfigurationUpdateResult(result);
+        })
+        .catch(function () {
+          window.Dashboard.hideLoadingMsg();
+          status.textContent = 'Could not save - try again.';
+        });
+    });
+  }
+
+  function startScanning() {
     injectBadgeStyle();
     injectSearchStyle();
     injectHoverPreviewStyle();
     injectContinuePreviewStyle();
+    refreshPalette(true);
+    loadHomeSectionTypes();
     scheduleScan();
 
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
-        if (mutations[i].addedNodes.length > 0) {
-          // Ignore the search overlay's own high-frequency innerHTML churn
-          // (results/enrichment repaint on every keystroke) - it would spin
-          // the scan needlessly and never contains anything scan cares about.
-          var t = mutations[i].target;
-          if (t && t.closest && t.closest('.newBadges-searchOverlay')) {
-            continue;
-          }
-          scheduleScan();
-          return;
+        var mutation = mutations[i];
+        if (mutation.addedNodes.length === 0) {
+          continue;
         }
+        // Ignore the search overlay's own high-frequency innerHTML churn
+        // (results/enrichment repaint on every keystroke) - it would spin
+        // the scan needlessly and never contains anything scan cares about.
+        var target = mutation.target;
+        if (target && target.closest && target.closest('.newBadges-searchOverlay')) {
+          continue;
+        }
+        // The theme probe adds and removes an element of its own; treating
+        // that as page activity would make the palette refresh feed itself.
+        if (mutation.addedNodes.length === 1 &&
+            mutation.addedNodes[0].classList &&
+            mutation.addedNodes[0].classList.contains(PROBE_CLASS)) {
+          continue;
+        }
+        scheduleScan();
+        return;
       }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // window.ApiClient is only set some time after DOMContentLoaded - reading
+  // it at init killed the whole script in a sibling plugin, so poll for it
+  // instead. The settings page needs no waiting: it lives in the dashboard,
+  // where ApiClient is always up by the time the page element exists.
+  function whenApiClientReady(callback) {
+    if (window.ApiClient && window.ApiClient.getCurrentUserId) {
+      callback();
+      return;
+    }
+    var tries = 0;
+    var poll = setInterval(function () {
+      if (window.ApiClient && window.ApiClient.getCurrentUserId) {
+        clearInterval(poll);
+        callback();
+      } else if (++tries > 100) { // ~20s
+        clearInterval(poll);
+      }
+    }, 200);
+  }
+
+  function init() {
+    // The settings page is watched from the start, independently of the
+    // config load below, so a broken/absent configuration can still be
+    // fixed from the dashboard.
+    wireConfigPageIfPresent();
+    var configObserver = new MutationObserver(function () {
+      wireConfigPageIfPresent();
+    });
+    configObserver.observe(document.body, { childList: true, subtree: true });
+
+    whenApiClientReady(function () {
+      window.ApiClient.getPluginConfiguration(PLUGIN_ID)
+        .then(function (data) {
+          cfg = normalizeConfig(data);
+        })
+        .catch(function () {
+          // Never saved, or unreadable for this user - the defaults are the
+          // same ones the settings page would show, so nothing is lost.
+          cfg = DEFAULTS;
+        })
+        .then(function () {
+          LANG = cfg.UiLanguage === 'da' || cfg.UiLanguage === 'en'
+            ? cfg.UiLanguage
+            : detectLanguage();
+          startScanning();
+        });
+    });
   }
 
   if (document.readyState === 'loading') {
