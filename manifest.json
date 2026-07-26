@@ -207,7 +207,7 @@
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Farvetonen hen over billedet og knapperne henter nu deres farver fra det tema du kører, i stedet for at være håndmatchet til ét bestemt skin, så heroen glider ind i et hvilket som helst tema - også de lyse. Knapteksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Nye indstillinger: sprog, højde, om synopsis og favoritknappen skal vises, og hvor langt tilbage trending kigger.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.1.0.0/herobar_2.0.0.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.0.0.0/herobar_2.0.0.0.zip",
         "checksum": "4d5d8525c576eed6e737565080cf3cfb",
         "timestamp": "2026-07-26T12:00:00Z"
       },
@@ -274,7 +274,7 @@
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Alle funktioner kan nu slås til og fra på en ny indstillingsside; alle farver aflæses fra det tema du kører i stedet for at være hardkodede, så pluginet ser rigtigt ud på både mørke, lyse og tredjeparts-temaer; og teksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Logoet i headeren er nu en indstilling (tomt = Jellyfins eget logo) i stedet for et fast billede. Forsidens rækker genkendes på brugerens forside-indstillinger frem for overskriftens tekst, så Trending og den flettede Fortsæt-række virker på alle sprog og overlever Jellyfin 10.12's omdøbninger. Seerr-genvejen vises kun hvis Seerr Requests faktisk er installeret.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.1.0.0/newbadges_2.0.0.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.0.0.0/newbadges_2.0.0.0.zip",
         "checksum": "9f5545369805bb336d015277fc63f048",
         "timestamp": "2026-07-26T12:00:00Z"
       },
