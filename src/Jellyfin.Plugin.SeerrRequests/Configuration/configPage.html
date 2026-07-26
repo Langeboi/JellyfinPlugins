@@ -4,30 +4,105 @@
   <title>Seerr Requests</title>
 </head>
 <body>
-  <div id="SeerrRequestsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+  <div id="SeerrRequestsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
     <div data-role="content">
       <div class="content-primary">
         <div class="verticalSection">
           <h2>Seerr Requests</h2>
-          <p>Connect this Jellyfin server to your Seerr instance so household members can search for and request new movies/shows without leaving Jellyfin.</p>
+          <p>
+            Connect this Jellyfin server to your Seerr instance so household members can search for
+            and request new movies and shows without leaving Jellyfin. Colours are read from
+            whichever theme you are running, so the tabs blend into any skin.
+          </p>
         </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SeerrBaseUrl">Seerr Base URL</label>
-          <input id="SeerrBaseUrl" name="SeerrBaseUrl" type="text" is="emby-input" placeholder="http://10.10.100.3:5050" />
-          <div class="fieldDescription">The base URL of your Seerr instance, no trailing slash.</div>
+        <div class="verticalSection">
+          <h3>Connection</h3>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SeerrBaseUrl">Seerr Base URL</label>
+            <input id="SeerrBaseUrl" name="SeerrBaseUrl" type="text" is="emby-input" placeholder="http://192.168.1.10:5055" />
+            <div class="fieldDescription">
+              The base URL of your Seerr / Jellyseerr / Overseerr instance, no trailing slash.
+              Jellyfin reaches it server-side, so a LAN address is fine.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SeerrApiKey">Seerr API Key</label>
+            <input id="SeerrApiKey" name="SeerrApiKey" type="password" is="emby-input" placeholder="Settings &gt; General &gt; API Key in Seerr" />
+            <div class="fieldDescription">
+              An admin-level API key from Seerr. Stored server-side only, never sent to the browser.
+              Requests are attributed to each household member's own Seerr account, provided they
+              have signed into Seerr with their Jellyfin login at least once.
+            </div>
+          </div>
         </div>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SeerrApiKey">Seerr API Key</label>
-          <input id="SeerrApiKey" name="SeerrApiKey" type="password" is="emby-input" placeholder="Settings &gt; General &gt; API Key in Seerr" />
-          <div class="fieldDescription">An admin-level API key from Seerr. Stored server-side only, never sent to the browser.</div>
-        </div>
+        <div class="verticalSection">
+          <h3>Appearance</h3>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="SeerrExcludedLanguages">Excluded original languages</label>
-          <input id="SeerrExcludedLanguages" name="SeerrExcludedLanguages" type="text" is="emby-input" placeholder="ja,ko,zh,hi,..." />
-          <div class="fieldDescription">Comma-separated ISO 639-1 language codes. Browse rows, trending, and the upcoming hero hide titles whose original language is in this list. Search is never filtered. Leave empty to show everything.</div>
+          <div class="selectContainer">
+            <label class="selectLabel" for="SeerrUiLanguage">Language of the texts on the home page</label>
+            <select is="emby-select" id="SeerrUiLanguage" name="SeerrUiLanguage">
+              <option value="auto">Follow Jellyfin / browser</option>
+              <option value="en">English</option>
+              <option value="da">Dansk</option>
+            </select>
+            <div class="fieldDescription">This settings page is always English.</div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SeerrUseThemeAccent" name="SeerrUseThemeAccent" type="checkbox" is="emby-checkbox" />
+              <span>Use my theme's accent colour instead of Seerr's indigo</span>
+            </label>
+            <div class="fieldDescription">
+              Backgrounds and overlays always follow your theme. This only decides the colour of the
+              request buttons and highlights: off keeps Seerr's own indigo, which makes the tabs read
+              as "the Seerr part"; on makes them match the rest of Jellyfin.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SeerrShowRequestsTab" name="SeerrShowRequestsTab" type="checkbox" is="emby-checkbox" />
+              <span>Show the request tab on the home page</span>
+            </label>
+            <div class="fieldDescription">Search, trending, and browse by genre, with a request button on every poster.</div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SeerrShowCalendarTab" name="SeerrShowCalendarTab" type="checkbox" is="emby-checkbox" />
+              <span>Show the release-calendar tab on the home page</span>
+            </label>
+            <div class="fieldDescription">
+              When everything requested through Seerr actually arrives. Films show the streaming
+              date, never the cinema premiere.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="SeerrHideMyMediaHeading" name="SeerrHideMyMediaHeading" type="checkbox" is="emby-checkbox" />
+              <span>Hide the heading above the library row on the home page</span>
+            </label>
+            <div class="fieldDescription">
+              Cosmetic only &mdash; the library cards themselves stay. The whole row can also be
+              turned off in Jellyfin's own display preferences.
+            </div>
+          </div>
+
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="SeerrExcludedLanguages">Excluded original languages</label>
+            <input id="SeerrExcludedLanguages" name="SeerrExcludedLanguages" type="text" is="emby-input" placeholder="(leave empty to show everything)" />
+            <div class="fieldDescription">
+              Comma-separated ISO 639-1 language codes. Browse rows, trending and the upcoming hero
+              hide titles whose original language is in this list. Search is never filtered. Empty by
+              default.
+            </div>
+          </div>
         </div>
 
         <div id="SeerrRequestsTestResult" style="margin-top:1em;"></div>

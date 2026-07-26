@@ -3,10 +3,10 @@
 Fire plugins der gør en Jellyfin-server pænere, smartere og mere selvkørende.
 Alt kører lokalt på dine egne maskiner — intet data forlader din server.
 
-*Hero Bar og New Badges taler selv dit sprog (dansk/engelsk efter Jellyfins
-egen sprogindstilling) og henter deres farver fra det tema du kører — de
-tilpasser sig altså din server uden opsætning. Subtitle Guard er dansk som
-standard og kan skiftes til engelsk på dens indstillingsside. Alle
+*Hero Bar, New Badges og Seerr Requests taler selv dit sprog (dansk/engelsk
+efter Jellyfins egen sprogindstilling) og henter deres farver fra det tema du
+kører — de tilpasser sig altså din server uden opsætning. Subtitle Guard er
+dansk som standard og kan skiftes til engelsk på dens indstillingsside. Alle
 indstillingssider er på engelsk.*
 
 ## Hurtig installation
@@ -57,6 +57,9 @@ Jellyseerr/Overseerr.
 * Egen fane i forsidens menu med søgning, trending, genrer og upcoming.
 * Anmodninger knyttes til den rigtige Seerr-bruger (via Jellyfin-login) og
   kan fortrydes i et par sekunder efter et fejlklik.
+* Accentfarven er Seerrs egen indigo som standard, så fanerne læses som
+  "Seerr-delen" — kan skiftes til dit eget temas accentfarve på plugin-siden.
+  Begge faner kan slås fra hver for sig.
 * **Udgivelseskalender**: endnu en fane der viser hvornår alt det ønskede
   udkommer — film med **streaming-dato** (aldrig biograf-premieren), serier
   med næste afsnit/sæsonpremiere. Rullende 14-dages vindue, opdateres én
@@ -98,11 +101,17 @@ plugin-siden:
 
 ## Farver og sprog
 
-Hero Bar og New Badges aflæser det aktive tema live — baggrund, tekstfarve
-og accentfarve — og tegner alt i de farver. Det virker derfor lige godt på
-Jellyfins mørke og lyse temaer og på tredjeparts-skins som ElegantFin, uden
-at der skal sættes en eneste farve. Kun NEW-badgets farve er en indstilling,
-netop fordi den skal skille sig ud frem for at falde i med temaet.
+Hero Bar, New Badges og Seerr Requests aflæser det aktive tema live —
+baggrund, tekstfarve og accentfarve — og tegner alt i de farver. Det virker
+derfor lige godt på Jellyfins mørke og lyse temaer og på tredjeparts-skins
+som ElegantFin, uden at der skal sættes en eneste farve.
+
+To bevidste undtagelser: NEW-badgets farve er en indstilling, netop fordi den
+skal skille sig ud frem for at falde i med temaet, og Seerr-fanernes accent er
+Seerrs egen indigo som standard (kan slås om til dit temas accentfarve).
+Overlays der ligger oven på plakater og backdrops holdes altid mørke med hvid
+tekst — også i lyse temaer — for ellers ville teksten være ulæselig oven på
+et lyst filmbillede.
 
 ## Krav
 
