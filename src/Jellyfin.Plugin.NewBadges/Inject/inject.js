@@ -1081,6 +1081,38 @@
       });
   }
 
+  // Jellyfin's homesections.pause() does an UNGUARDED `e.pause()` on every
+  // .itemsContainer inside the home page's sections (its resume() IS guarded
+  // with `if (section.resume)` - pause() is not; confirmed in jellyfin-web's
+  // homesections.js). Our injected rows carry the .itemsContainer class for
+  // its layout/styling but are deliberately NOT is="emby-itemscontainer"
+  // custom elements - that element expects fetchData/getItemsHtml hooks we
+  // don't supply, so we pre-populate a plain div instead.
+  //
+  // The consequence was severe and completely non-obvious: a plain div has no
+  // pause(), so leaving the Hjem tab threw "TypeError: pause is not a
+  // function" from INSIDE Jellyfin's own onTabChange handler - which aborted
+  // that handler BEFORE it reached loadTab(). The Favoritter tab was made
+  // visible (a different, earlier handler does that) but its controller never
+  // resumed, so it never fetched anything: an empty Favoritter that only
+  // populated later if something else happened to trigger a load. Verified
+  // live on the real server: 0 network calls and 0 cards before this fix,
+  // 18 calls and a fully populated tab after it.
+  //
+  // A no-op is the semantically correct implementation here - pause() exists
+  // to suspend an auto-refreshing container, and ours are populated once with
+  // no timer or library-change listener to suspend.
+  function protectItemsContainers(root) {
+    if (!root) {
+      return;
+    }
+    root.querySelectorAll('.itemsContainer').forEach(function (el) {
+      if (typeof el.pause !== 'function') {
+        el.pause = function () { /* nothing to suspend - see comment above */ };
+      }
+    });
+  }
+
   function escapeHtml(str) {
     var div = document.createElement('div');
     div.textContent = str;
@@ -1140,6 +1172,7 @@
         '<div class="itemsContainer scrollSlider focuscontainer-x"></div>' +
       '</div>';
 
+    protectItemsContainers(section);
     nextUpSection.parentNode.insertBefore(section, nextUpSection.nextSibling);
 
     // The window length is part of the key so changing it in settings does
@@ -1403,6 +1436,7 @@
         '<div class="itemsContainer scrollSlider focuscontainer-x"></div>' +
       '</div>';
 
+    protectItemsContainers(section);
     cwSection.parentNode.insertBefore(section, cwSection.nextSibling);
 
     var cacheKey = 'continue-' + window.ApiClient.getCurrentUserId();
@@ -2041,6 +2075,10 @@
         '</div>' +
       '</div>';
 
+    // Library pages aren't reached by homesections.pause(), but these carry
+    // the same .itemsContainer class, so protect them on the same principle
+    // rather than relying on that staying true.
+    protectItemsContainers(container);
     tab.insertBefore(container, tab.firstChild);
     wireMoviesInteractions(container, libId);
     renderMoviesPills(container, libId);
@@ -2132,6 +2170,13 @@
       hookHeaderSearch();
       wireCardHoverPreview();
       wireContinueWatchingPreview();
+      // Safety net for the homesections.pause() TypeError described on
+      // protectItemsContainers: the individual call sites above already
+      // cover every container we currently inject, but that failure mode
+      // is silent-and-severe enough (it broke the whole Favoritter tab)
+      // that it shouldn't depend on nobody ever forgetting a call site.
+      // Cheap - a querySelectorAll plus a typeof check per tick.
+      document.querySelectorAll('.page.homePage').forEach(protectItemsContainers);
     }, 400);
   }
 

@@ -271,6 +271,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.1.0",
+        "changelog": "Kritisk rettelse: Favoritter-fanen var reelt ubrugelig - den blev vist, men stod tom og hentede aldrig noget indhold (det dukkede kun op senere, hvis noget andet tilfældigt udløste en indlæsning). Årsag: Jellyfins egen kode kalder pause() på ALLE rækker inde på forsiden, når man forlader Hjem-fanen, uden først at tjekke om metoden findes (til sammenligning tjekker den tilsvarende resume() korrekt efter). Dette plugins to egne rækker - Trending og den sammenlagte Fortsæt afspilning - bruger med vilje en almindelig beholder frem for Jellyfins egen specialkomponent, og har derfor ingen pause(). Det gav en fejl midt inde i Jellyfins egen faneskift-håndtering, som afbrød den FØR den nåede at indlæse den nye fane - derfor blev Favoritter vist, men aldrig fyldt ud. Rækkerne får nu en tom pause()-metode (der er intet at sætte på pause - de indlæses én gang), plus et sikkerhedsnet så samme fejl ikke kan opstå igen. Bekræftet direkte på serveren: 0 netværkskald og 0 kort før rettelsen, 16 kald og fuldt indlæst Favoritter efter.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.0.1.0/newbadges_2.0.1.0.zip",
+        "checksum": "0ca818428395f190d900f6a4ab3d5b32",
+        "timestamp": "2026-08-09T19:37:00Z"
+      },
+      {
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Alle funktioner kan nu slås til og fra på en ny indstillingsside; alle farver aflæses fra det tema du kører i stedet for at være hardkodede, så pluginet ser rigtigt ud på både mørke, lyse og tredjeparts-temaer; og teksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Logoet i headeren er nu en indstilling (tomt = Jellyfins eget logo) i stedet for et fast billede. Forsidens rækker genkendes på brugerens forside-indstillinger frem for overskriftens tekst, så Trending og den flettede Fortsæt-række virker på alle sprog og overlever Jellyfin 10.12's omdøbninger. Seerr-genvejen vises kun hvis Seerr Requests faktisk er installeret.",
         "targetAbi": "10.11.0.0",
