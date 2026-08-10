@@ -142,6 +142,47 @@ echo "SUBWORKER_NLLB_DEVICE=cpu" | sudo tee -a /opt/subtitle-worker/env
 sudo systemctl restart subtitle-worker
 ```
 
+## Genererede undertekster synkroniseres aldrig
+
+En Whisper-transskription er lavet ud fra lyden, og en oversættelse
+overtager kildens tidskoder uændret. Begge er derfor allerede så
+synkroniserede som de bliver, og at køre ffsubsync hen over dem har ingen
+gevinst og reel risiko.
+
+Workeren lægger derfor en lille markørfil ved siden af hver undertekst den
+selv har lavet - `min.film.en.srt.sgmeta` - og nægter at synkronisere en fil
+der har en. Markøren ligger sammen med medierne, som alle workers kan se, så
+beskyttelsen holder også når den maskine der lavede filen er slukket, når en
+workers database bliver nulstillet, eller når filens mtime ændrer sig. Før
+dette lå beskyttelsen kun som en række i én workers lokale database, og faldt
+væk i præcis de situationer.
+
+Undertekster der blev genereret **før** denne version får automatisk en
+markør ved næste opstart, ud fra workerens egen historik - der er ikke noget
+du skal gøre. Slå markørerne fra med `SUBWORKER_MARKERS=0` (så er man tilbage
+på den skrøbelige databasebeskyttelse - frarådes).
+
+## Framerate-korrektion
+
+ffsubsync kan både **forskyde** en undertekst og **strække** den i tid, hvis
+underteksten er lavet til en anden framerate (fx 23,976 mod 25). Strækningen
+er slået til, fordi den er testet og virker: et ægte 23,976→25-misforhold
+blev rettet helt præcist, og en korrekt undertekst der bare slutter før
+rulleteksterne blev *ikke* strakt - ffsubsync vurderede forholdet og valgte
+rigtigt.
+
+Fejlen lå hos workeren: den kiggede kun på forskydningen. En ren
+framerate-fejl forskyder ingenting (offset 0,000, skalering 0,959), så
+workeren konkluderede "under grænsen, altså i sync", kasserede rettelsen og
+skrev filen i sit register som færdig. Undertekster der var 100 sekunder gale
+til sidst i afsnittet blev altså målt korrekt, rettet korrekt - og rettelsen
+smidt væk. Det er rettet.
+
+Strækkes en fil, registreres den som `fixed-framerate:<faktor>` i stedet for
+`fixed`, så du kan se præcis hvilke filer der fik hele tidsaksen skrevet om
+(og de er med i "Gendan originale undertekster"). Vil du kun have rene
+forskydninger: `SUBWORKER_ALLOW_FRAMERATE_FIX=0`.
+
 ## Gendan originale undertekster
 
 Fortryder du alle rettelser (fx for at starte forfra), kan hele poolen

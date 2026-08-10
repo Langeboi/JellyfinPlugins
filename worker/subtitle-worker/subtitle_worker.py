@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.1.8"
+WORKER_VERSION = "2.2.0"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -43,7 +43,44 @@ MIN_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MIN_OFFSET", "0.4"))
 # Offsets LARGER than this are almost always a mis-alignment (ffsubsync
 # latched onto the wrong audio) rather than a real drift - applying them is
 # what produced "way off" subtitles. Reject and keep the original instead.
-MAX_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MAX_OFFSET", "60"))
+#
+# NOTE: with --skip-sync-on-low-quality, ffsubsync applies its OWN offset gate
+# first, at DEFAULT_QUALITY_MAX_OFFSET_SECONDS = 30.0 (read from the pinned
+# 0.5.0 source, not assumed). Anything past 30s is therefore already rejected
+# upstream as low-quality, so a ceiling above 30 here can never actually fire.
+# Kept configurable, but the default now matches the gate that really applies.
+MAX_OFFSET_SECONDS = float(os.environ.get("SUBWORKER_MAX_OFFSET", "30"))
+
+# ---- Framerate correction policy ----
+# ffsubsync does two things at once: it SHIFTS a subtitle (offset) and it can
+# RESCALE it in time to repair a framerate mismatch (a 23.976 subtitle against
+# a 25fps encode, etc.).
+#
+# Rescaling was initially suspected of being what mangled good subtitles here,
+# on the reasoning that a wrong ratio multiplies every timestamp and produces
+# exactly the "fine at the start, progressively wronger" symptom. That was
+# tested against the pinned 0.5.0 rather than assumed, and it did not hold up:
+#
+#   * A subtitle that is correctly timed but simply stops before the credits -
+#     the ordinary case that makes the length-inferred ratio look risky -
+#     produced a 1.073 candidate ratio that ffsubsync scored and CORRECTLY
+#     rejected in favour of 1.0. The inferred ratio is only ever a candidate,
+#     never applied on its own authority.
+#   * A genuine 23.976->25 stretch was repaired exactly, to the frame.
+#   * Turning rescaling off (which needs BOTH --no-fix-framerate AND
+#     --skip-infer-framerate-ratio - the first alone is not enough, since the
+#     two paths are gated separately) left that real defect unrepaired and
+#     103 seconds out by the end of the episode.
+#
+# So rescaling stays ON: it works, and disabling it is a regression. What was
+# actually broken is on our side - see the decision logic in process_job,
+# which used to inspect the offset alone and therefore threw away every
+# rescale-only repair. This flag exists only as an escape hatch; setting it to
+# 0 passes both flags, because one is useless without the other.
+ALLOW_FRAMERATE_FIX = os.environ.get("SUBWORKER_ALLOW_FRAMERATE_FIX", "1") == "1"
+# Below this, a reported scale factor is just floating-point noise around 1.0
+# and means "no rescale happened".
+FRAMERATE_EPSILON = 0.0005
 
 # ---- Per-worker path remapping (Windows workers / mixed mounts) ----
 # The plugin applies ONE global path mapping for the whole pool. A worker
@@ -129,6 +166,74 @@ def _detect_cuda() -> bool:
     except Exception:  # noqa: BLE001 - no nvidia-smi / no driver = no CUDA
         return False
 
+
+def _add_windows_cuda_dll_dirs():
+    """Make the pip-installed CUDA libraries findable on Windows.
+
+    Both installers pull in nvidia-cublas-cu12 / nvidia-cudnn-cu12, which drop
+    their DLLs under site-packages\\nvidia\\<pkg>\\bin. On Linux CTranslate2
+    resolves those fine. On Windows nothing ever adds those directories to the
+    DLL search path, so the libraries are present and still unloadable, and
+    the first transcription on a GPU box dies with:
+
+        Library cublas64_12.dll is not found or cannot be loaded
+
+    Not at import time, note - faster_whisper imports cleanly, so the worker
+    advertises transcribe=cuda and accepts the work before failing per job.
+    Every Windows GPU worker would take transcription jobs and fail all of
+    them. Found by actually running a transcription on a Windows box with an
+    RTX 3080; it cannot reproduce on the Linux workers.
+
+    Must run BEFORE faster_whisper is imported. Harmless elsewhere: the whole
+    thing is a no-op off Windows, and on a machine without those packages the
+    directories simply don't exist.
+
+    BOTH mechanisms below are required, and it is worth saying why, because
+    doing only the obvious one looks like it works:
+
+      * os.add_dll_directory() only affects loads that go through
+        LoadLibraryEx with LOAD_LIBRARY_SEARCH_USER_DIRS.
+      * CTranslate2 does not load cuBLAS at import, or even when the model is
+        constructed - it loads it lazily at the first actual compute, with a
+        plain LoadLibrary, which ignores those directories and searches PATH.
+
+    So with add_dll_directory alone, WhisperModel(...) succeeds and reports a
+    perfectly healthy CUDA model, and the process still dies on the first
+    encode() - which is to say, on the first real transcription. Verified
+    exactly that way here: "model OK" followed by RuntimeError from
+    model.encode(). Prepending to PATH is what actually fixes it.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import site
+
+        roots = list(site.getsitepackages())
+        if hasattr(site, "getusersitepackages"):
+            roots.append(site.getusersitepackages())
+    except Exception:  # noqa: BLE001 - fall back to this file's own env
+        roots = [os.path.join(os.path.dirname(sys.executable), "Lib", "site-packages")]
+
+    found = []
+    for root in roots:
+        nvidia = os.path.join(root, "nvidia")
+        if not os.path.isdir(nvidia):
+            continue
+        for pkg in sorted(os.listdir(nvidia)):
+            bin_dir = os.path.join(nvidia, pkg, "bin")
+            if os.path.isdir(bin_dir) and bin_dir not in found:
+                found.append(bin_dir)
+
+    for bin_dir in found:
+        try:
+            os.add_dll_directory(bin_dir)
+        except OSError:
+            pass
+    if found:
+        os.environ["PATH"] = os.pathsep.join(found) + os.pathsep + os.environ.get("PATH", "")
+
+
+_add_windows_cuda_dll_dirs()
 
 # ---- Whisper transcription (optional capability) ----
 # faster-whisper (CTranslate2) is installed by install.sh; if the import
@@ -481,6 +586,9 @@ def process_translate_job(job: dict):
         # file has pure downside (a good sync risks becoming a worse one)
         # and zero upside. Until this fix, translated .da.srt files had NO
         # such protection and were fully exposed to the nightly sync task.
+        # The marker is the durable half of that protection; the ledger row
+        # below is only the fast path (see MARKER_SUFFIX).
+        write_marker(target, "nllb")
         try:
             record(target, os.path.getmtime(target), 0.0, "in-sync")
         except OSError as exc:
@@ -903,7 +1011,126 @@ def db():
 # error) must NOT block a later retry - otherwise a transient problem (like
 # the ffsubsync-not-found bug) would poison every affected subtitle forever,
 # since the nightly task would keep skipping them.
-SUCCESS_STATUSES = ("fixed", "in-sync", "already-has-sub", "rolled-back", "translated", "suspect-offset")
+# "Success" here means RESOLVED, not "we changed something": a file we
+# deliberately decided to leave alone is just as finished as one we fixed, and
+# must not be picked up again.
+#
+# low-quality-skip was missing from this list, and that omission was the
+# "double work". It is a terminal decision - ffsubsync assessed the alignment,
+# rejected it, and wrote the original back untouched - and _stat_category has
+# always counted it as "skipped", i.e. resolved. But because it was absent
+# here, already_processed() kept returning False for those files, so every
+# single night the worker re-streamed the whole media file and re-ran a full
+# ffsubsync alignment on every subtitle ffsubsync had already refused, forever,
+# to arrive at the identical answer. Nothing ever recorded progress, so nothing
+# ever stopped. That gate rejects on ANY of three conditions (anti-correlated
+# score, offset over 30s, framerate deviation), so on a real library this is
+# not a rare path.
+SUCCESS_STATUSES = (
+    "fixed",
+    "in-sync",
+    "already-has-sub",
+    "rolled-back",
+    "translated",
+    "suspect-offset",
+    "low-quality-skip",
+    "generated-skip",
+)
+
+
+# The ledger stores a DECISION, and a decision is only as valid as the policy
+# it was made under. Turning framerate rescaling off changes what ffsubsync
+# would conclude about a file, so verdicts reached under the old policy have
+# to be reopened once - otherwise every file previously rejected as
+# low-quality would now be skipped forever on the strength of an answer this
+# worker would no longer give. (That becomes a permanent condition precisely
+# BECAUSE low-quality-skip is now a success status; before this release those
+# rows were re-tried nightly, which was its own bug.)
+#
+# Deliberately limited to the two re-evaluatable verdicts. It must never touch
+# 'in-sync', because that status is doubling as the sync-protection row for
+# machine-generated subtitles - clearing those would hand every transcription
+# and translation straight back to ffsubsync, i.e. cause the exact bug this
+# release exists to fix.
+SYNC_POLICY = f"framerate={int(ALLOW_FRAMERATE_FIX)};maxoffset={MAX_OFFSET_SECONDS}"
+
+
+def reset_stale_verdicts():
+    conn = db()
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+        row = conn.execute("SELECT value FROM meta WHERE key = 'sync_policy'").fetchone()
+        previous = row[0] if row else None
+        if previous == SYNC_POLICY:
+            return
+        cur = conn.execute(
+            "DELETE FROM processed WHERE status IN ('low-quality-skip', 'suspect-offset')"
+        )
+        conn.execute(
+            "REPLACE INTO meta (key, value) VALUES ('sync_policy', ?)", (SYNC_POLICY,)
+        )
+        conn.commit()
+        if previous is not None:
+            print(
+                f"[policy] sync policy changed ({previous} -> {SYNC_POLICY}); "
+                f"reopened {cur.rowcount} previous verdict(s) for one re-check",
+                flush=True,
+            )
+    finally:
+        conn.close()
+
+
+def backfill_markers():
+    """Mark subtitles this worker generated BEFORE markers existed.
+
+    Without this, the durable protection only covers files generated from now
+    on, and every transcription and translation already sitting in the library
+    - precisely the ones being damaged today - would stay exposed to the
+    nightly sync until something happened to regenerate them.
+
+    The ledger still knows what was produced, and the output paths are
+    deterministic: a transcribe row carries the media path in its key and the
+    detected language in its status, and a translate row always wrote
+    <base>.da.srt. So both can be reconstructed exactly.
+
+    Idempotent, and only ever marks a file that is actually on disk.
+    """
+    if not MARKERS_ENABLED:
+        return
+    conn = db()
+    try:
+        rows = conn.execute(
+            "SELECT sub_path, status FROM processed "
+            "WHERE sub_path LIKE 'transcribe:%' OR sub_path LIKE 'translate:%'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    marked = 0
+    for sub_path, status in rows:
+        s = str(status)
+        try:
+            if sub_path.startswith("transcribe:") and s.startswith("transcribed:"):
+                media = sub_path[len("transcribe:"):]
+                lang = s[len("transcribed:"):]
+                if not lang:
+                    continue
+                target = f"{os.path.splitext(media)[0]}.{lang}.srt"
+                origin = "whisper"
+            elif sub_path.startswith("translate:") and s == "translated":
+                media = sub_path[len("translate:"):]
+                target = os.path.splitext(media)[0] + ".da.srt"
+                origin = "nllb"
+            else:
+                continue
+            if os.path.isfile(target) and not os.path.exists(marker_path(target)):
+                write_marker(target, origin)
+                marked += 1
+        except OSError:
+            continue
+
+    if marked:
+        print(f"[marker] backfilled {marked} previously-generated subtitle(s)", flush=True)
 
 
 def already_processed(sub_path: str, mtime: float) -> bool:
@@ -915,7 +1142,11 @@ def already_processed(sub_path: str, mtime: float) -> bool:
         if row is None:
             return False
         # transcribed:<lang> counts as success too
-        ok = row[1] in SUCCESS_STATUSES or str(row[1]).startswith("transcribed:")
+        ok = (
+        row[1] in SUCCESS_STATUSES
+        or str(row[1]).startswith("transcribed:")
+        or str(row[1]).startswith("fixed-framerate:")
+    )
         return ok and abs(row[0] - mtime) < 1e-6
     finally:
         conn.close()
@@ -933,7 +1164,69 @@ def record(sub_path: str, mtime: float, offset, status: str):
         conn.close()
 
 
+# ---- Provenance markers for machine-generated subtitles ----
+# A Whisper transcription is built FROM the audio, and a translation copies
+# its source's cue timings verbatim. Both are therefore already as aligned as
+# they will ever be, and running ffsubsync over them has no upside and real
+# downside.
+#
+# That was already the intent: both paths write an "in-sync" row into the sync
+# ledger to make the nightly task skip them. But that protection is a row in
+# ONE worker's local SQLite, keyed on an exact mtime, and it is consulted as a
+# union across whichever workers happen to answer. It evaporates if the worker
+# that generated the file is offline at sync time (GetProcessedPaths swallows
+# the error and contributes nothing), if its /processed call fails, if the
+# mtime shifts by any amount, or if that worker's DB is ever reset or
+# reinstalled. Any one of those and a machine-generated subtitle is handed
+# straight to ffsubsync - which is what has been happening.
+#
+# So the fact is recorded next to the file instead, where it cannot drift out
+# of sync with the thing it describes: every worker mounts the same media, so
+# every worker can see it, no matter which one generated it or what happened
+# to anyone's database. The ledger rows stay as a cheap fast path; this is the
+# guarantee underneath them. Precedent for writing beside the media already
+# exists here - that is what .bak is.
+MARKER_SUFFIX = ".sgmeta"
+MARKERS_ENABLED = os.environ.get("SUBWORKER_MARKERS", "1") != "0"
+
+
+def marker_path(subtitle_path: str) -> str:
+    return subtitle_path + MARKER_SUFFIX
+
+
+def write_marker(subtitle_path: str, generated_by: str):
+    """Record that this subtitle is machine-generated. Best-effort: a
+    read-only share must not fail the job that just succeeded."""
+    if not MARKERS_ENABLED:
+        return
+    try:
+        import json
+        with open(marker_path(subtitle_path), "w", encoding="utf-8") as fh:
+            json.dump(
+                {
+                    "generated_by": generated_by,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                    "worker_version": WORKER_VERSION,
+                },
+                fh,
+            )
+    except OSError as exc:
+        print(f"[marker] could not mark {subtitle_path}: {exc}", flush=True)
+
+
+def is_machine_generated(subtitle_path: str) -> bool:
+    if not MARKERS_ENABLED:
+        return False
+    try:
+        return os.path.isfile(marker_path(subtitle_path))
+    except OSError:
+        return False
+
+
 OFFSET_RE = re.compile(r"offset seconds:\s*(-?[\d.]+)", re.IGNORECASE)
+# ffsubsync logs this right beside the offset ("framerate scale factor: %.3f").
+# Parsed so a rescale can never be applied without this worker noticing it.
+SCALE_RE = re.compile(r"framerate scale factor:\s*(-?[\d.]+)", re.IGNORECASE)
 # --skip-sync-on-low-quality's own rejection ("leaving subtitles unmodified")
 # still logs "offset seconds: X" BEFORE the quality check runs - so OFFSET_RE
 # alone can't tell a real fix from a no-op. This distinguishes them.
@@ -984,6 +1277,17 @@ def process_job(job: dict):
         return
 
     mtime = os.path.getmtime(sub)
+
+    # Never re-align something this pool generated itself. Checked before the
+    # ledger, because the whole point of the marker is to hold when the ledger
+    # does not (see MARKER_SUFFIX). Recorded as a resolved outcome so the
+    # plugin stops shipping the job at all after the first pass.
+    if is_machine_generated(sub):
+        record(sub, mtime, None, "generated-skip")
+        with state_lock:
+            state["skipped"] += 1
+        return
+
     if already_processed(sub, mtime):
         with state_lock:
             state["skipped"] += 1
@@ -992,17 +1296,28 @@ def process_job(job: dict):
     out_fd, out_path = tempfile.mkstemp(suffix=os.path.splitext(sub)[1])
     os.close(out_fd)
     try:
+        cmd = [
+            FFSUBSYNC, media, "-i", sub, "-o", out_path,
+            # ffsubsync's OWN confidence gate. Without this it applies
+            # whatever alignment it computes, however low-confidence -
+            # this flag makes it leave the subtitle unmodified instead
+            # when the score is anti-correlated, the offset implausible,
+            # or the framerate correction absurd. Note its framerate arm is
+            # far looser than it sounds (10% by default), which is why the
+            # explicit policy below exists rather than relying on it.
+            "--skip-sync-on-low-quality",
+        ]
+        if not ALLOW_FRAMERATE_FIX:
+            # BOTH flags, deliberately. ffsubsync reaches a rescale by two
+            # independently-gated routes - the discrete framerate ratios
+            # (--no-fix-framerate) and a ratio inferred from track lengths
+            # (--skip-infer-framerate-ratio) - so passing only the first
+            # silently leaves rescaling fully enabled. Verified against 0.5.0:
+            # with --no-fix-framerate alone a 23.976->25 stretch was still
+            # rescaled by the inferred path.
+            cmd.extend(["--no-fix-framerate", "--skip-infer-framerate-ratio"])
         proc = subprocess.run(
-            [
-                FFSUBSYNC, media, "-i", sub, "-o", out_path,
-                # ffsubsync's OWN confidence gate. Without this it applies
-                # whatever alignment it computes, however low-confidence -
-                # this flag makes it leave the subtitle unmodified instead
-                # when the score is anti-correlated, the offset implausible,
-                # or the framerate correction absurd. Defaults are sane (see
-                # ffsubsync --help); not overridden here.
-                "--skip-sync-on-low-quality",
-            ],
+            cmd,
             capture_output=True,
             text=True,
             timeout=1800,
@@ -1010,6 +1325,8 @@ def process_job(job: dict):
         log = (proc.stdout or "") + (proc.stderr or "")
         m = OFFSET_RE.search(log)
         offset = float(m.group(1)) if m else None
+        sm = SCALE_RE.search(log)
+        scale = float(sm.group(1)) if sm else None
         low_quality = bool(LOW_QUALITY_RE.search(log))
 
         if proc.returncode != 0 or not os.path.getsize(out_path):
@@ -1037,12 +1354,42 @@ def process_job(job: dict):
                 state["failed"] += 1
             return
 
-        if abs(offset) < MIN_OFFSET_SECONDS:
+        # Did ffsubsync actually rescale time, as opposed to just shifting?
+        rescaled = scale is not None and abs(scale - 1.0) > FRAMERATE_EPSILON
+
+        if abs(offset) < MIN_OFFSET_SECONDS and not rescaled:
             # Already in sync - leave the original untouched, remember that
             # this version was checked.
             record(sub, mtime, offset, "in-sync")
             with state_lock:
                 state["done"] += 1
+            return
+
+        # `and not rescaled` above is the fix for a whole class of subtitle
+        # this worker silently refused to repair.
+        #
+        # A pure framerate mismatch shifts nothing: the first cue is already
+        # in the right place, and only later ones drift as the error
+        # accumulates. ffsubsync reports exactly that - offset 0.000, scale
+        # 0.959 - and the old code, which read the offset and nothing else,
+        # concluded "under MIN_OFFSET, therefore fine", recorded in-sync, and
+        # discarded a correct repair. Measured on a real 23.976->25 case: the
+        # repair was accurate to the frame, and it was thrown away, leaving
+        # the subtitle 103 seconds out by the end of the episode. Recording it
+        # as in-sync then meant it was never looked at again.
+        #
+        # So the decision has to be made on the transformation that was
+        # actually computed, not on one half of it.
+
+        # Belt and braces on the rescale. --no-fix-framerate above should mean
+        # this never fires, but a version/flag drift that quietly re-enables
+        # rescaling would otherwise be invisible AND destructive, and this is
+        # the exact failure that corrupted subtitles in the first place. If a
+        # scale was applied that we did not ask for, keep the original.
+        if scale is not None and abs(scale - 1.0) > FRAMERATE_EPSILON and not ALLOW_FRAMERATE_FIX:
+            record(sub, mtime, offset, f"framerate-rejected:{scale:.4f}")
+            with state_lock:
+                state["failed"] += 1
             return
 
         if abs(offset) > MAX_OFFSET_SECONDS:
@@ -1061,8 +1408,12 @@ def process_job(job: dict):
         place_subtitle(out_path, sub)  # overwrite, or re-own if refused
         out_path = None
         # Record against the NEW mtime so the corrected file itself counts
-        # as processed.
-        record(sub, os.path.getmtime(sub), offset, "fixed")
+        # as processed. A rescale gets its own status carrying the factor:
+        # stretching every timestamp is a far bigger intervention than sliding
+        # them, and if one ever does go wrong the operator needs to be able to
+        # find precisely those files rather than sift the whole "fixed" pile.
+        status = f"fixed-framerate:{scale:.4f}" if rescaled else "fixed"
+        record(sub, os.path.getmtime(sub), offset, status)
         with state_lock:
             state["done"] += 1
     except subprocess.TimeoutExpired:
@@ -1203,10 +1554,11 @@ def process_transcribe_job(job: dict):
         out_path = None
         record(key, mtime, None, f"transcribed:{info.language}")
         # A Whisper transcription is built FROM the audio (word-level
-        # timestamps), so it's already audio-aligned. Record the new subtitle
-        # in the SYNC ledger as in-sync too, so the sync task skips it instead
-        # of streaming the whole media file to "fix" a file that's already
-        # perfect (and risking ffsubsync nudging it out of alignment).
+        # timestamps), so it's already audio-aligned. Two layers stop the
+        # nightly sync from "fixing" it: a marker beside the file, which any
+        # worker can see and which survives this one's database (see
+        # MARKER_SUFFIX), and a ledger row as the cheap fast path.
+        write_marker(target, "whisper")
         try:
             record(target, os.path.getmtime(target), 0.0, "in-sync")
         except OSError as exc:
@@ -1536,7 +1888,15 @@ def restore_all(x_api_key: str = Header(default="")):
     check_key(x_api_key)
     conn = db()
     try:
-        rows = conn.execute("SELECT sub_path FROM processed WHERE status = 'fixed'").fetchall()
+        # 'fixed-framerate:<factor>' rows are in-place modifications too - and
+        # the most drastic ones, since they rewrote every timestamp rather
+        # than sliding them. Omitting them here would have made exactly the
+        # files an operator is most likely to want undone the only ones
+        # "Gendan originale undertekster" could not touch.
+        rows = conn.execute(
+            "SELECT sub_path FROM processed "
+            "WHERE status = 'fixed' OR status LIKE 'fixed-framerate:%'"
+        ).fetchall()
     finally:
         conn.close()
 
@@ -1662,7 +2022,20 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
         else:
             if sub_path.startswith("transcribe:") or sub_path.startswith("translate:"):
                 continue
-            if s not in ("fixed", "in-sync", "rolled-back"):
+            # Every RESOLVED sync outcome belongs here, not just the ones that
+            # changed a file. suspect-offset, low-quality-skip and
+            # generated-skip are all final decisions, but were omitted, so the
+            # plugin kept re-shipping those jobs every night - and in
+            # low-quality-skip's case the worker then re-ran the full
+            # alignment, because it was missing from SUCCESS_STATUSES too.
+            if s not in (
+                "fixed",
+                "in-sync",
+                "rolled-back",
+                "suspect-offset",
+                "low-quality-skip",
+                "generated-skip",
+            ) and not s.startswith("fixed-framerate:"):
                 continue
             real = sub_path
         if verify:
@@ -1680,7 +2053,7 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
 # Buckets a raw ledger status into the categories the stats/graphs use.
 def _stat_category(status: str) -> str:
     s = str(status)
-    if s == "fixed":
+    if s == "fixed" or s.startswith("fixed-framerate:"):
         return "fixed"
     if s == "in-sync":
         return "in-sync"
@@ -1688,7 +2061,13 @@ def _stat_category(status: str) -> str:
         return "transcribed"
     if s == "translated":
         return "translated"
-    if s in ("already-has-sub", "rolled-back", "suspect-offset", "low-quality-skip"):
+    if s in (
+        "already-has-sub",
+        "rolled-back",
+        "suspect-offset",
+        "low-quality-skip",
+        "generated-skip",
+    ):
         return "skipped"
     return "failed"
 
@@ -1710,6 +2089,11 @@ def _failure_kind(status: str) -> str | None:
         return "sync-failed"
     if s == "unparseable-offset":
         return "sync-failed"
+    if s.startswith("framerate-rejected:"):
+        # Surfaced as its own kind because it means something upstream tried
+        # to rescale time despite the policy - worth an operator's attention,
+        # not silently lumped in with generic sync failures.
+        return "framerate-rejected"
     if s == "no-speech":
         return "no-speech"
     if s == "no-whisper":
@@ -1832,4 +2216,8 @@ def status(x_api_key: str = Header(default="")):
 if __name__ == "__main__":
     import uvicorn
 
+    # Before serving: protect anything generated before markers existed, then
+    # reopen any verdict reached under a different sync policy.
+    backfill_markers()
+    reset_stale_verdicts()
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("SUBWORKER_PORT", "8099")))
