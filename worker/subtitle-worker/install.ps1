@@ -176,6 +176,13 @@ if ($hasGpu -and $withTranslate -eq "1") {
             if (Test-Path $nllbDir) { Remove-Item -Recurse -Force $nllbDir }
         }
     }
+    # Point the worker at the model explicitly. It now also defaults to a
+    # "nllb-ct2" folder beside itself, which covers this install layout, but
+    # writing it makes a relocated INSTALL_DIR work too - and makes the
+    # setting visible in the env file rather than implicit.
+    if (Test-Path $nllbDir) {
+        Add-Content -Encoding utf8 $envFile "SUBWORKER_NLLB_DIR=$nllbDir"
+    }
     # Tokenizer ensured on EVERY run - the hard-earned lesson from Linux: a
     # single silently-failed pre-cache left translation broken for months.
     if (Test-Path $nllbDir) {

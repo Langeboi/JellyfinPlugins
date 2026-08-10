@@ -355,7 +355,21 @@ def _srt_timestamp(seconds: float) -> str:
 # NLLB is a dedicated translation model and the 1.3B distillation is close
 # to 1:1 for English->Danish - it just takes a couple of minutes per movie,
 # which was explicitly the acceptable trade-off.
-NLLB_DIR = os.environ.get("SUBWORKER_NLLB_DIR", "/opt/subtitle-worker/nllb-ct2")
+# Default resolved RELATIVE TO THIS FILE, not hardcoded to the Linux install
+# path. Both installers put the converted model in a "nllb-ct2" folder beside
+# the worker, so on Linux this still resolves to exactly
+# /opt/subtitle-worker/nllb-ct2 - but on Windows it now finds
+# C:\subtitle-worker\nllb-ct2 as well.
+#
+# Previously it could not: the default was the Linux path and install.ps1
+# never wrote SUBWORKER_NLLB_DIR, so a Windows box downloaded and converted
+# the ~6GB model, then reported translate=false forever and never used it.
+# Nothing surfaced the contradiction - the capability check is just
+# os.path.isdir() on a path that simply didn't exist there.
+_NLLB_DEFAULT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nllb-ct2")
+NLLB_DIR = os.environ.get("SUBWORKER_NLLB_DIR") or (
+    _NLLB_DEFAULT if os.path.isdir(_NLLB_DEFAULT) else "/opt/subtitle-worker/nllb-ct2"
+)
 NLLB_TOKENIZER = os.environ.get("SUBWORKER_NLLB_TOKENIZER", "facebook/nllb-200-distilled-1.3B")
 # Independent device override: NLLB shares WHISPER_DEVICE by default (both
 # models on the same GPU), which risks CUDA OOM the first time translation

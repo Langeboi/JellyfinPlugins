@@ -25,11 +25,17 @@ function Load-EnvFile {
 Load-EnvFile (Join-Path $InstallDir "env")
 
 # ctranslate2/faster-whisper find cuBLAS/cuDNN via PATH on Windows; the pip
-# wheels put the DLLs under site-packages\nvidia\*\bin.
+# wheels put the DLLs under site-packages\nvidia\*\bin. Enumerated rather than
+# hardcoded, so a package that isn't in the list yet (cuda_nvrtc, and whatever
+# a future CUDA wheel adds) is picked up too. The worker now also does this
+# for itself at import, which covers being launched without this wrapper.
 $sitePackages = Join-Path $InstallDir "venv\Lib\site-packages"
-foreach ($sub in @("nvidia\cublas\bin", "nvidia\cudnn\bin")) {
-    $dllDir = Join-Path $sitePackages $sub
-    if (Test-Path $dllDir) { $env:Path = "$dllDir;$env:Path" }
+$nvidiaRoot = Join-Path $sitePackages "nvidia"
+if (Test-Path $nvidiaRoot) {
+    foreach ($pkg in Get-ChildItem $nvidiaRoot -Directory) {
+        $dllDir = Join-Path $pkg.FullName "bin"
+        if (Test-Path $dllDir) { $env:Path = "$dllDir;$env:Path" }
+    }
 }
 
 $python = Join-Path $InstallDir "venv\Scripts\python.exe"
@@ -43,7 +49,21 @@ while ($true) {
         Move-Item -Force $log $rotated
     }
     "[start.ps1] $(Get-Date -Format s) launching worker" | Out-File -Append -Encoding utf8 $log
-    & $python $worker >> $log 2>&1
+    # Redirect via cmd, NOT via PowerShell's own `>> $log 2>&1`.
+    #
+    # PowerShell wraps a native process's stderr in ErrorRecords, and with
+    # $ErrorActionPreference = "Stop" (set at the top of this file) the first
+    # such record is a TERMINATING error. uvicorn logs to stderr, so its very
+    # first startup line - "INFO: Started server process" - killed this
+    # wrapper before the worker had finished booting. The scheduled task then
+    # exited with code 1 and the worker was gone, while worker.log showed only
+    # "launching worker" and no exit line, because the loop never reached it.
+    #
+    # The effect was that a Windows worker never stayed up: it appeared to
+    # install correctly, and the plugin simply showed it permanently offline.
+    # cmd does the redirection itself, so PowerShell never sees the stream and
+    # the log gets the worker's real output instead of ErrorRecord noise.
+    & cmd.exe /c "`"$python`" `"$worker`" >> `"$log`" 2>&1"
     $code = $LASTEXITCODE
     "[start.ps1] $(Get-Date -Format s) worker exited with code $code" | Out-File -Append -Encoding utf8 $log
     if ($code -ne 0) { Start-Sleep -Seconds 5 }
