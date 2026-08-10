@@ -396,6 +396,23 @@
     return 'https://image.tmdb.org/t/p/w' + (width || 300) + posterPath;
   }
 
+  // TMDB only serves backdrops in four fixed sizes - w300, w780, w1280 and
+  // original - so asking for "the width I need" is really picking the first
+  // one that isn't an upscale. The hero is the one place that matters: it
+  // spans the full content column (up to ~1336px inside the 1400px-max
+  // .sections box), which on a 2x display is ~2700 real pixels, and w1280
+  // stretched to that is exactly the soft, mushy look a backdrop gets when
+  // it's upscaled 2x. Sizing off CSS width alone would miss that entirely,
+  // hence the devicePixelRatio factor.
+  function tmdbBackdropUrl(backdropPath, cssWidth) {
+    if (!backdropPath) {
+      return null;
+    }
+    var needed = (cssWidth || 1280) * (window.devicePixelRatio || 1);
+    var size = needed > 1280 ? 'original' : (needed > 780 ? 'w1280' : (needed > 300 ? 'w780' : 'w300'));
+    return 'https://image.tmdb.org/t/p/' + size + backdropPath;
+  }
+
   function apiFetch(path, options) {
     var apiClient = window.ApiClient;
     options = options || {};
@@ -464,11 +481,48 @@
       // live it moves the row by exactly the pixel value given, regardless
       // of the surrounding grid/flex layout.
       '.seerrRequests-homeTabRow{position:relative;top:18px;}' +
+      // Sized in em so it tracks the tab row's own type scale (see
+      // addTabButton for why this is a sibling of the label, not a child).
+      // Jellyfin's base .emby-tab-button is display:inline-block, which
+      // would stack a child span onto its own line - the inline-flex that
+      // makes icon and label share a baseline comes from skins. Declaring it
+      // here too makes the layout hold on a bare Jellyfin theme as well,
+      // and is a no-op on skins that already set it.
+      '.emby-tab-button:has(> .seerrRequests-tabIcon){display:inline-flex;align-items:center;gap:.45em;}' +
+      // Three classes deep on purpose. jellyfin-web's own bundle carries
+      // `.emby-button > .material-icons{font-size:1.36em}`, which outranks a
+      // single-class rule and rendered these icons at 20.2px against the
+      // skin's own 17.9px tab icons - visibly the odd ones out. 1.2em is the
+      // ratio the skin itself uses (17.856px against a 14.88px label),
+      // measured live rather than eyeballed.
+      // FILL 0 is what makes these read as OUTLINE icons. Material Symbols
+      // is a variable font whose FILL axis picks outline vs solid, and the
+      // `.material-icons` baseline here resolves to FILL 1 - so without this
+      // the two injected tabs got solid glyphs sitting next to the skin's
+      // own hairline-outline Hjem/Favoritter icons, which is precisely what
+      // made them look bolted on. Skins using a static icon font simply
+      // ignore the axis, so this is safe everywhere. `liga` is what turns
+      // the icon name in the markup into its glyph.
+      '.emby-tab-button > .material-icons.seerrRequests-tabIcon{font-size:1.2em;line-height:1;flex:none;' +
+      'font-variation-settings:"FILL" 0;font-feature-settings:"liga";}' +
       // This is now a real sibling tab (like Hjem/Favoritter), not a
       // takeover overlay - no fixed positioning/background of its own, it
       // just flows as normal home-page content.
-      '#' + TAB_CONTENT_ID + ' .sections{padding:0 2em 3em;max-width:1400px;margin:0 auto;' +
-      'position:relative;z-index:1;}' +
+      // Top padding here is load-bearing, not decoration: .skinHeader is
+      // position:fixed and taller than the offset Jellyfin leaves for it, so
+      // the first ~15px of this tab's content sits UNDER the top bar
+      // (measured live: header bottom 96.7px, content top 81.8px). With
+      // padding-top:0 that landed squarely on the upcoming hero, whose hard
+      // rounded top edge made the overlap obvious - it read as the banner
+      // being clipped into the top bar.
+      //
+      // The neighbouring tabs only escape it by accident: the home tab's
+      // hero fades its own top 18% out to transparent, and the calendar tab
+      // already carries 1.6em of top padding. Matching that same 1.6em keeps
+      // the two injected tabs starting at exactly the same height as each
+      // other, and leaves ~9px of deliberate gap under the bar.
+      '#' + TAB_CONTENT_ID + ' .sections{padding:1.6em 2em 3em;' +
+      'max-width:1400px;margin:0 auto;position:relative;z-index:1;}' +
       // Media Bar's own slideshow (#slides-container, a fixed child of
       // <body>) only renders while the native #homeTab content is active -
       // confirmed live it isn't broken by anything here, it's just scoped to
@@ -618,9 +672,23 @@
       '.seerrRequests-upcomingHero{position:relative;width:100%;height:0;overflow:hidden;' +
       'border-radius:12px;background:rgb(var(--seerr-surface-rgb));color:var(--seerr-on-media);' +
       'transition:height .3s ease;}' +
-      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(32vh,300px);margin-bottom:1.2em;}' +
+      // Height is really a framing decision, not a size one. TMDB backdrops
+      // are composed at 16:9, and `cover` in a box wider than that throws
+      // away the top and bottom - at the old min(32vh,300px) a 1200px-wide
+      // hero came out 4.00:1 and showed just 44% of the image height, i.e. a
+      // thin arbitrary band sliced through the middle of every still, with
+      // heads and horizons routinely cut. That is what made the artwork look
+      // bad here while the identical images look fine on a card. Raising it
+      // to 420px takes the box to 2.86:1 and shows 62%, which is enough to
+      // keep a still's actual subject intact while staying a banner rather
+      // than becoming a full-height hero. The phone breakpoints below are
+      // deliberately NOT raised to match: a ~375px-wide hero at 230px is
+      // already 1.63:1, i.e. barely cropping at all.
+      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(46vh,420px);margin-bottom:1.2em;}' +
+      // 30% rather than 25%: with the taller box there is less overscan to
+      // distribute, and film stills put their subject just above centre.
       '.seerrRequests-uhSlide{position:absolute;inset:0;background-size:cover;' +
-      'background-position:center 25%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
+      'background-position:center 30%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
       '.seerrRequests-uhSlide.is-active{opacity:1;pointer-events:auto;}' +
       '.seerrRequests-uhGradient{position:absolute;inset:0;pointer-events:none;background:' +
       'linear-gradient(to top,rgba(var(--seerr-scrim-rgb),.95) 0%,rgba(var(--seerr-scrim-rgb),.45) 40%,' +
@@ -796,14 +864,14 @@
     // on unrelated changes, silently wiping our button out from under a
     // stale flag that assumed otherwise.
     if (cfg.ShowRequestsTab) {
-      addTabButton(slider, BUTTON_MARKER, t('tabRequests'), activateSeerrTab);
+      addTabButton(slider, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
     }
     if (cfg.ShowCalendarTab) {
-      addTabButton(slider, CAL_BUTTON_MARKER, t('tabCalendar'), activateCalendarTab);
+      addTabButton(slider, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
     }
   }
 
-  function addTabButton(slider, marker, label, onClick) {
+  function addTabButton(slider, marker, label, icon, onClick) {
     if (slider.querySelector('[' + marker + ']')) {
       return;
     }
@@ -811,9 +879,32 @@
     // Built via innerHTML so the is="emby-button" customized-builtin element
     // actually upgrades (createElement+setAttribute does not - same gotcha
     // as emby-scroller elsewhere in this plugin family).
+    //
+    // The icon is a real element and a DIRECT CHILD of the button, sitting
+    // beside .emby-button-foreground rather than inside it. That placement
+    // is deliberate: skins that put icons on the native Hjem/Favoritter tabs
+    // do it with an .emby-tab-button::before pseudo-element, and a ::before
+    // is itself a flex item of the button. So a real sibling span lands in
+    // exactly the same slot and picks up whatever gap, alignment and size
+    // the active skin already gives its own tab icons - no matching by hand,
+    // and nothing to re-tune when the skin changes. (Verified live against
+    // this server's skin: its tab buttons compute to inline-flex with a
+    // ~9.4px gap, and its icons render at 1.2x the label's font-size, which
+    // is why the size below is expressed in em rather than px.)
+    //
+    // The icon name is written as Material ligature TEXT, deliberately NOT
+    // as one of jellyfin-web's own `.material-icons.<name>` classes. Those
+    // classes resolve to a hardcoded Material Icons *codepoint*, but a skin
+    // is free to repoint the `.material-icons` font-family at a different
+    // icon font - this server's does, to Material Symbols Rounded - and the
+    // two fonts do not agree on what lives at every codepoint. The class
+    // form therefore renders a plausible-but-wrong glyph under such a skin,
+    // silently. A ligature is resolved by NAME in whichever font is active,
+    // which is also exactly how the skin draws its own tab icons.
     var wrapper = document.createElement('div');
     wrapper.innerHTML =
       '<button type="button" is="emby-button" class="emby-tab-button emby-button" ' + marker + '="true">' +
+        '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' + escapeHtml(icon) + '</span>' +
         '<div class="emby-button-foreground">' + escapeHtml(label) + '</div>' +
       '</button>';
     var btn = wrapper.firstElementChild;
@@ -1037,8 +1128,8 @@
       '<span class="seerrRequests-requestBtnIcon">+</span>' + escapeHtml(t('request')) + '</button>';
   }
 
-  function buildUpcomingSlideHtml(item, index) {
-    var backdropUrl = tmdbImageUrl(item.backdropPath, 1280);
+  function buildUpcomingSlideHtml(item, index, heroWidth) {
+    var backdropUrl = tmdbBackdropUrl(item.backdropPath, heroWidth);
     var title = mediaTitle(item);
     var dateLabel = formatReleaseDate(item.releaseDate || item.firstAirDate);
     var overview = item.overview ? escapeHtml(item.overview) : '';
@@ -1101,8 +1192,26 @@
           '</div>'
         : '';
 
-      hero.innerHTML = items.map(buildUpcomingSlideHtml).join('') + dots;
+      // Measured before the ready class goes on: the collapsed hero is
+      // height:0 but already full width, so this is the real render width.
+      var heroWidth = hero.getBoundingClientRect().width || 1280;
+
+      hero.innerHTML = items.map(function (item, i) {
+        return buildUpcomingSlideHtml(item, i, heroWidth);
+      }).join('') + dots;
       hero.classList.add('seerrRequests-uhReady');
+
+      // Only the first slide is visible, so the browser has no reason to
+      // fetch the other seven until the rotation reveals them - which made
+      // each flip fade in to an empty box for as long as its backdrop took
+      // to arrive. Warming them now costs nothing visible and means every
+      // later slide is already decoded when its turn comes.
+      items.slice(1).forEach(function (item) {
+        var url = tmdbBackdropUrl(item.backdropPath, heroWidth);
+        if (url) {
+          new Image().src = url;
+        }
+      });
 
       // Shared slide index: manual jumps (dots, swipes) and the rotation
       // interval all read/write the same counter, so they can't desync.

@@ -970,6 +970,23 @@
       '.heroBar-meta{font-size:.78em;margin-bottom:.3em;}' +
       '.heroBar-overview{font-size:.8em;-webkit-line-clamp:2;}' +
       '.heroBar-buttons{gap:.5em;margin-top:.7em;}' +
+      // The dots move OFF the bottom-right corner on phones, because down
+      // here they and the button row are fighting for the same line and the
+      // dots win - they are painted later and sit at a higher z-index, so
+      // they render straight through the Info and favourite buttons.
+      //
+      // It is a width problem, which is why it only shows on a phone:
+      // the row is Play + Info + favourite (wider still in Danish, where
+      // "Fortsæt" replaces "Play") against 8 touch-sized 16px dots pinned
+      // right. Measured live at 360px with the Danish label, the two
+      // overlapped by 112px. They stop fitting at roughly 470px, which is
+      // why this correction belongs in the 500px block and not the 800px one
+      // (at 654px there is still a comfortable gap).
+      //
+      // Top-right is free space in every slide - the artwork's own subject
+      // sits centre/right and the text column is bottom-left - and it is
+      // where a carousel's position indicator conventionally goes on mobile.
+      '.heroBar-dots{top:.8em;bottom:auto;right:.9em;}' +
       '}';
     document.head.appendChild(style);
   }

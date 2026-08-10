@@ -2231,13 +2231,19 @@
       '-webkit-backdrop-filter:blur(8px);opacity:0;visibility:hidden;transition:opacity .18s ease;' +
       'padding:6vh 4vw;overflow-y:auto;color:var(--nb-fg);}' +
       '.newBadges-searchOverlay.is-open{opacity:1;visibility:visible;}' +
-      '.newBadges-searchPanel{width:100%;max-width:820px;transform:translateY(-8px);transition:transform .2s ease;}' +
+      // Was a flat 820px, which on a normal desktop window left the panel
+      // sitting in the middle two-thirds of the screen with everything in it
+      // rendered small. The vw term is what keeps it sensible at half-window
+      // widths too - it tracks the window rather than jumping between two
+      // fixed sizes at a breakpoint.
+      '.newBadges-searchPanel{width:100%;max-width:min(1180px,92vw);transform:translateY(-8px);' +
+      'transition:transform .2s ease;}' +
       '.newBadges-searchOverlay.is-open .newBadges-searchPanel{transform:translateY(0);}' +
-      '.newBadges-searchBar{display:flex;align-items:center;gap:.6em;background:rgba(var(--nb-fg-rgb),.1);' +
-      'border-radius:14px;padding:.7em 1em;box-shadow:0 8px 40px var(--nb-shadow);}' +
-      '.newBadges-searchBar .material-icons.search{opacity:.7;font-size:24px;}' +
+      '.newBadges-searchBar{display:flex;align-items:center;gap:.7em;background:rgba(var(--nb-fg-rgb),.1);' +
+      'border-radius:16px;padding:.85em 1.15em;box-shadow:0 8px 40px var(--nb-shadow);}' +
+      '.newBadges-searchBar .material-icons.search{opacity:.7;font-size:28px;}' +
       '.newBadges-searchInput{flex:1;background:transparent;border:none;outline:none;color:var(--nb-fg);' +
-      'font-size:20px;font-weight:500;min-width:0;}' +
+      'font-size:23px;font-weight:500;min-width:0;}' +
       '.newBadges-searchInput::placeholder{color:rgba(var(--nb-fg-rgb),.45);}' +
       '.newBadges-searchClose{background:transparent;border:none;color:rgba(var(--nb-fg-rgb),.6);cursor:pointer;' +
       'display:flex;padding:.2em;border-radius:8px;}' +
@@ -2245,40 +2251,60 @@
       '.newBadges-searchBody{margin-top:1em;}' +
       '.newBadges-searchHint{padding:1.2em;text-align:center;color:rgba(var(--nb-fg-rgb),.5);font-size:.95em;}' +
       '.newBadges-searchResults{display:flex;flex-direction:column;gap:2px;}' +
-      '.newBadges-searchResult{display:flex;align-items:center;gap:.9em;width:100%;text-align:left;' +
-      'background:transparent;border:none;color:inherit;cursor:pointer;padding:.5em .7em;border-radius:10px;}' +
+      // Everything below is scaled off the old values by roughly 1.5x. The
+      // clamp()s let the poster/portrait sizes ride the window width between
+      // a half-window and a maximised one instead of being one fixed size
+      // that only looks right at one of them.
+      '.newBadges-searchResult{display:flex;align-items:center;gap:1.1em;width:100%;text-align:left;' +
+      'background:transparent;border:none;color:inherit;cursor:pointer;padding:.7em .9em;border-radius:12px;}' +
       '.newBadges-searchResult:hover,.newBadges-searchResult.is-focused{background:rgba(var(--nb-fg-rgb),.11);}' +
-      '.newBadges-searchThumb{flex:0 0 46px;height:66px;border-radius:6px;background-size:cover;' +
+      '.newBadges-searchThumb{flex:0 0 clamp(56px,5vw,70px);height:clamp(82px,7.4vw,103px);' +
+      'border-radius:8px;background-size:cover;' +
       'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);}' +
       '.newBadges-searchThumbEmpty{display:flex;align-items:center;justify-content:center;}' +
       '.newBadges-searchThumbEmpty .material-icons{opacity:.4;}' +
       '.newBadges-searchResultText{display:flex;flex-direction:column;min-width:0;gap:2px;}' +
-      '.newBadges-searchResultTitle{font-size:1.05em;font-weight:600;white-space:nowrap;overflow:hidden;' +
+      '.newBadges-searchResultTitle{font-size:1.3em;font-weight:600;white-space:nowrap;overflow:hidden;' +
       'text-overflow:ellipsis;}' +
-      '.newBadges-searchResultMeta{font-size:.82em;opacity:.55;}' +
-      '.newBadges-searchEnrich{margin-top:1.4em;display:flex;flex-direction:column;gap:1.4em;}' +
-      '.newBadges-searchSectionTitle{font-size:1em;font-weight:700;margin:0 0 .6em;opacity:.9;}' +
-      '.newBadges-searchCast,.newBadges-searchDirRow{display:flex;gap:.9em;overflow-x:auto;' +
+      '.newBadges-searchResultMeta{font-size:.95em;opacity:.55;}' +
+      '.newBadges-searchEnrich{margin-top:1.6em;display:flex;flex-direction:column;gap:1.6em;}' +
+      '.newBadges-searchSectionTitle{font-size:1.25em;font-weight:700;margin:0 0 .8em;opacity:.9;}' +
+      '.newBadges-searchCast,.newBadges-searchDirRow{display:flex;gap:1.15em;overflow-x:auto;' +
       'padding-bottom:.5em;scrollbar-width:thin;}' +
-      '.newBadges-searchActor{flex:0 0 84px;display:flex;flex-direction:column;align-items:center;gap:.35em;' +
+      // min-width:0 is not cosmetic. A flex item's automatic minimum size is
+      // its min-content width, which OVERRIDES a smaller flex-basis - so any
+      // card whose (nowrap) title ran wider than the basis quietly grew past
+      // its siblings and made the row ragged. Measured live: "The Dark
+      // Knight Rises" came out 147px against 139.7px for every other card in
+      // the same row. Zeroing the minimum lets the basis actually hold and
+      // hands the overflow to the title's own ellipsis, which is what it was
+      // always there for.
+      '.newBadges-searchActor{flex:0 0 clamp(96px,9vw,122px);min-width:0;' +
+      'display:flex;flex-direction:column;align-items:center;gap:.4em;' +
       'background:transparent;border:none;color:inherit;cursor:pointer;text-align:center;}' +
-      '.newBadges-searchActorImg{width:72px;height:72px;border-radius:50%;background-size:cover;' +
+      '.newBadges-searchActorImg{width:clamp(88px,8.2vw,110px);height:clamp(88px,8.2vw,110px);' +
+      'border-radius:50%;background-size:cover;' +
       'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);transition:transform .12s;}' +
       '.newBadges-searchActor:hover .newBadges-searchActorImg{transform:scale(1.06);}' +
       '.newBadges-searchActorImgEmpty{display:flex;align-items:center;justify-content:center;}' +
-      '.newBadges-searchActorImgEmpty .material-icons{opacity:.4;font-size:34px;}' +
-      '.newBadges-searchActorName{font-size:.78em;font-weight:600;line-height:1.2;' +
+      '.newBadges-searchActorImgEmpty .material-icons{opacity:.4;font-size:44px;}' +
+      '.newBadges-searchActorName{font-size:.92em;font-weight:600;line-height:1.2;' +
       'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
-      '.newBadges-searchActorRole{font-size:.72em;opacity:.5;line-height:1.2;' +
+      '.newBadges-searchActorRole{font-size:.84em;opacity:.5;line-height:1.2;' +
       'display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;}' +
-      '.newBadges-searchDirCard{flex:0 0 110px;display:flex;flex-direction:column;gap:.35em;' +
+      // See the min-width:0 note above - this is the row it was measured on.
+      '.newBadges-searchDirCard{flex:0 0 clamp(120px,11vw,156px);min-width:0;' +
+      'display:flex;flex-direction:column;gap:.4em;' +
       'background:transparent;border:none;color:inherit;cursor:pointer;text-align:left;}' +
-      '.newBadges-searchDirPoster{width:110px;height:165px;border-radius:8px;background-size:cover;' +
+      // Sized by aspect-ratio off the card's own width rather than a fixed
+      // width/height pair, so the clamp above only has to be stated once and
+      // the poster can't end up a non-2:3 box at some in-between width.
+      '.newBadges-searchDirPoster{width:100%;aspect-ratio:2/3;border-radius:8px;background-size:cover;' +
       'background-position:center;background-color:rgba(var(--nb-fg-rgb),.09);transition:transform .12s;}' +
       '.newBadges-searchDirCard:hover .newBadges-searchDirPoster{transform:scale(1.04);}' +
-      '.newBadges-searchDirTitle{font-size:.82em;font-weight:600;white-space:nowrap;overflow:hidden;' +
+      '.newBadges-searchDirTitle{font-size:.95em;font-weight:600;white-space:nowrap;overflow:hidden;' +
       'text-overflow:ellipsis;}' +
-      '.newBadges-searchDirYear{font-size:.75em;opacity:.5;}' +
+      '.newBadges-searchDirYear{font-size:.85em;opacity:.5;}' +
       'body.newBadges-searchOpen{overflow:hidden;}' +
       '@media (max-width:600px){.newBadges-searchOverlay{padding:0;}' +
       '.newBadges-searchPanel{max-width:100%;min-height:100%;background:rgba(var(--nb-surface-rgb),.98);padding:1em;}' +
@@ -2618,11 +2644,23 @@
   // rather than following it.
   var HP_HIDE_DELAY_MS = 250;
   var HP_TARGET_RATIO = 9 / 16; // height / width for a 16:9 box
+  // Kept in sync with the flex-basis transition in injectHoverPreviewStyle -
+  // collapseCard waits on that transition before tearing the card's inline
+  // styles back off, and needs a fallback timeout in case transitionend
+  // never arrives (an interrupted/zero-length transition doesn't fire one).
+  var HP_GROW_MS = 340;
+  // How long the grow is willing to wait for artwork before starting without
+  // it. Long enough that a warm cache or a fast LAN round-trip lands inside
+  // the budget (so the card grows with its backdrop already painted), short
+  // enough that a slow request never makes hover feel unresponsive.
+  var HP_ART_BUDGET_MS = 140;
   var hpShowTimer = null;
   var hpHideTimer = null;
   var hpCard = null; // card mid-hover-timer, or currently expanded
-  var hpOriginalStyles = new WeakMap(); // card element -> {card: styleAttr, padder: styleAttr}
+  var hpOriginalStyles = new WeakMap(); // card element -> {card, padder, widthPx}
   var hpDetailsCache = {}; // itemId -> Promise<BaseItemDto>
+  var hpPreparedCache = {}; // itemId -> Promise<{details, playTarget, imgUrl}>
+  var hpReady = {};         // itemId -> that payload once resolved, readable synchronously
 
   function fetchHoverItemDetails(itemId) {
     if (hpDetailsCache[itemId]) {
@@ -2697,6 +2735,61 @@
     return null;
   }
 
+  // Resolves once the image is actually decoded and ready to paint, not
+  // merely downloaded - a decode still costs a frame or two on a large
+  // backdrop, and that frame is exactly the one the card grows in.
+  function preloadImage(url) {
+    if (!url) {
+      return Promise.resolve(false);
+    }
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        if (typeof img.decode === 'function') {
+          img.decode().then(function () { resolve(true); }, function () { resolve(true); });
+        } else {
+          resolve(true);
+        }
+      };
+      img.onerror = function () { resolve(false); };
+      img.src = url;
+    });
+  }
+
+  // Everything an expanded card needs - metadata, what its play button will
+  // do, and a decoded backdrop - gathered as one unit BEFORE the card is
+  // allowed to grow.
+  //
+  // This is what fixes the stretched-poster flash. The overlay used to be
+  // revealed only after this data arrived, which meant the card spent the
+  // whole grow showing the thing underneath it: the portrait 2:3 poster,
+  // re-cropped by `cover` into a 16:9 box getting wider every frame. The
+  // poster visibly ballooned and then got replaced the moment the real
+  // backdrop landed.
+  //
+  // Resolved payloads are also parked in hpReady so showHoverPreview can ask
+  // "is this already in hand?" synchronously - a promise gives no way to
+  // check that without waiting a microtask, and a microtask is a frame, and
+  // a frame is the flash.
+  function prepareHoverData(itemId) {
+    if (hpPreparedCache[itemId]) {
+      return hpPreparedCache[itemId];
+    }
+    var promise = fetchHoverItemDetails(itemId).then(function (details) {
+      return resolveHoverPlayTarget(details).then(function (playTarget) {
+        var imgUrl = hoverPreviewImageUrl(details);
+        return preloadImage(imgUrl).then(function (loaded) {
+          var payload = { details: details, playTarget: playTarget, imgUrl: loaded ? imgUrl : null };
+          hpReady[itemId] = payload;
+          return payload;
+        });
+      });
+    });
+    hpPreparedCache[itemId] = promise;
+    promise.catch(function () { delete hpPreparedCache[itemId]; });
+    return promise;
+  }
+
   function hoverPreviewTitle(details) {
     // An episode's own Name is just the episode title, which reads as
     // confusing floating alone in a popover - lead with the SHOW name,
@@ -2760,9 +2853,16 @@
   // first so collapseCard can restore it exactly, regardless of whether
   // Jellyfin itself had already set an inline width (it usually has - card
   // sizes are computed in its own JS, not pure CSS).
-  function expandCard(card) {
+  function expandCard(card, payload) {
     if (card.hasAttribute('data-nb-expanded')) {
       return null;
+    }
+    // A collapse animation still in flight owns this card's inline styles
+    // and is holding a mid-shrink flex-basis. Letting it finish (instantly)
+    // first means the width captured below is the card's real resting width,
+    // not whatever frame the shrink happened to be on.
+    if (card._nbFinishCollapse) {
+      card._nbFinishCollapse();
     }
     var scalable = card.querySelector('.cardScalable');
     var padder = card.querySelector('.cardPadder');
@@ -2772,7 +2872,11 @@
 
     hpOriginalStyles.set(card, {
       card: card.getAttribute('style') || '',
-      padder: padder.getAttribute('style') || ''
+      padder: padder.getAttribute('style') || '',
+      // Captured so the collapse can animate back to a real number.
+      // flex-basis is 'auto' at rest and 'auto' is not an animatable value,
+      // so shrinking to it can only ever snap.
+      widthPx: card.getBoundingClientRect().width
     });
 
     var currentHeightPx = padder.getBoundingClientRect().height;
@@ -2780,14 +2884,6 @@
 
     card.style.position = 'relative';
     card.style.zIndex = '50';
-    // flex-basis, not width - confirmed via a standalone test that a flex
-    // item with flex-basis:auto (which .card is, matching jellyfin-web's
-    // own card.scss - flex-shrink:0 with no explicit basis) simply refuses
-    // to actually resize when width is set AND transitioned in the same
-    // tick (computed width stayed at the original value indefinitely, no
-    // error, no eventual settle - the flex algorithm keeps overriding it).
-    // Setting/transitioning flex-basis directly instead works cleanly.
-    card.style.flexBasis = targetWidthPx + 'px';
     // A fixed pixel height, not a recomputed 56.25% padding-bottom - the
     // padder's percentage padding resolves against its OWN width, which is
     // ALSO changing (mid-transition) at the same time, so a percentage
@@ -2803,39 +2899,132 @@
     card.classList.add('newBadges-hpExpanded');
     card.setAttribute('data-nb-expanded', 'true');
 
-    // Left empty (no loading text, not revealed yet) - showHoverPreview
-    // populates and reveals this once real content is actually ready, so
-    // the box-grow animation never gets fought by a loading-state flash
-    // followed by an abrupt content swap partway through it.
+    // The overlay goes in opaque from its very first frame, covering the
+    // poster for the entire grow. Its own background colour is the scrim, so
+    // even with no artwork yet the card grows as a clean dark panel rather
+    // than as a ballooning portrait poster.
     var overlay = document.createElement('div');
     overlay.className = 'newBadges-hpOverlay';
     overlay.innerHTML = '<div class="newBadges-hpOverlayBody"></div>';
+    // Painted synchronously, before the flush below, whenever the data was
+    // ready in time - so the browser's first paint of the growing card
+    // already has the right backdrop and the right text on it, and the whole
+    // thing reads as a single movement.
+    if (payload) {
+      fillHoverOverlay(overlay, payload);
+    }
     scalable.appendChild(overlay);
+
+    // THE GROW DOES NOT ANIMATE WITHOUT THESE THREE LINES IN THIS ORDER.
+    // Measured live on the previous build: the card went 187px -> 464px
+    // between two consecutive frames, with no intermediate widths at all.
+    // The effect was never being eased badly; it was never animating, and no
+    // amount of easing or duration tuning could have shown up.
+    //
+    // Two separate things have to be true for a transition to run here:
+    //
+    //  1. The start value must be a LENGTH. A .card sits at flex-basis:auto
+    //     (jellyfin-web's card.scss sets flex-shrink:0 and no basis), and
+    //     `auto` cannot be interpolated towards a pixel value - the browser
+    //     has no choice but to jump. Pinning the resting width as an
+    //     explicit px first is what gives the animation something to leave
+    //     from. This was the actual bug; verified by testing the flush alone
+    //     first, which still snapped.
+    //  2. That start value must be flushed BEFORE the target is assigned.
+    //     Otherwise both assignments (plus the class carrying the transition
+    //     itself) collapse into one style recalculation, and there is no
+    //     "before" state to animate from. Reading offsetWidth forces that
+    //     recalculation to happen now.
+    //
+    // flex-basis rather than width, because a flex item with flex-basis:auto
+    // refuses to resize when width is set and transitioned in the same tick -
+    // the flex algorithm keeps overriding it (no error, no eventual settle).
+    card.style.flexBasis = hpOriginalStyles.get(card).widthPx + 'px';
+    void card.offsetWidth;
+    card.style.flexBasis = targetWidthPx + 'px';
 
     return overlay;
   }
 
+  // Puts artwork and content into an overlay and marks it ready. Split out
+  // because it is called from two places: synchronously during the grow when
+  // the data was prepared in time, and asynchronously afterwards when it
+  // wasn't.
+  function fillHoverOverlay(overlay, payload) {
+    if (payload.imgUrl) {
+      overlay.style.backgroundImage = 'url("' + payload.imgUrl + '")';
+    }
+    overlay.querySelector('.newBadges-hpOverlayBody').innerHTML =
+      buildHoverOverlayContentHtml(payload.details, payload.playTarget);
+    overlay.classList.add('is-ready');
+  }
+
+  // The shrink used to be instant while the grow was animated, which is what
+  // made the effect feel unfinished: this removed .newBadges-hpExpanded and
+  // restored the saved inline styles in the same tick, and since the
+  // flex-basis transition lives ON that class, removing it took the
+  // transition away before it could run. The card snapped back to size.
+  //
+  // Now the class (and therefore the transition) stays on while flex-basis
+  // animates back to the width captured at expand time, and the teardown
+  // happens on transitionend instead.
   function collapseCard(card) {
     if (!card.hasAttribute('data-nb-expanded')) {
       return;
     }
     card.removeAttribute('data-nb-expanded');
-    card.classList.remove('newBadges-hpExpanded');
 
     var saved = hpOriginalStyles.get(card);
     var padder = card.querySelector('.cardPadder');
-    if (saved) {
-      if (saved.card) { card.setAttribute('style', saved.card); } else { card.removeAttribute('style'); }
-      if (padder) {
-        if (saved.padder) { padder.setAttribute('style', saved.padder); } else { padder.removeAttribute('style'); }
+    var overlay = card.querySelector('.newBadges-hpOverlay');
+
+    function finish() {
+      if (!card._nbFinishCollapse) {
+        return; // already torn down
       }
-      hpOriginalStyles.delete(card);
+      card._nbFinishCollapse = null;
+      clearTimeout(card._nbCollapseTimer);
+      card.removeEventListener('transitionend', onTransitionEnd);
+      card.classList.remove('newBadges-hpExpanded');
+      if (saved) {
+        if (saved.card) { card.setAttribute('style', saved.card); } else { card.removeAttribute('style'); }
+        if (padder) {
+          if (saved.padder) { padder.setAttribute('style', saved.padder); } else { padder.removeAttribute('style'); }
+        }
+        hpOriginalStyles.delete(card);
+      }
+      if (overlay) {
+        overlay.remove();
+      }
     }
 
-    var overlay = card.querySelector('.newBadges-hpOverlay');
-    if (overlay) {
-      overlay.remove();
+    function onTransitionEnd(e) {
+      if (e.target === card && e.propertyName === 'flex-basis') {
+        finish();
+      }
     }
+
+    // Exposed so expandCard can cut a half-finished shrink short if the same
+    // card is hovered again before it lands.
+    card._nbFinishCollapse = finish;
+
+    if (!saved || !saved.widthPx) {
+      finish();
+      return;
+    }
+
+    // The overlay fades while the box shrinks, so the poster underneath is
+    // uncovered gradually rather than reappearing all at once at the end.
+    if (overlay) {
+      overlay.classList.remove('is-ready');
+      overlay.classList.add('is-collapsing');
+    }
+    card.addEventListener('transitionend', onTransitionEnd);
+    // transitionend does not fire if the transition is interrupted or gets
+    // a zero-length computed duration, and the inline styles must come off
+    // either way or the card is left stuck at a fixed width.
+    card._nbCollapseTimer = setTimeout(finish, HP_GROW_MS + 150);
+    card.style.flexBasis = saved.widthPx + 'px';
   }
 
   function hideHoverPreview() {
@@ -2855,42 +3044,55 @@
     if (!itemId) {
       return;
     }
-    var overlay = expandCard(card);
-    if (!overlay) {
+
+    // Fast path: mouseover started this fetch a full hover-delay ago, so on
+    // anything but a cold cache or a slow link it is already sitting here.
+    // The card then grows with its backdrop and text already painted.
+    if (hpReady[itemId]) {
+      expandCard(card, hpReady[itemId]);
       return;
     }
 
-    fetchHoverItemDetails(itemId)
-      .then(function (details) {
-        // The user may already have moved to a different card, or left
-        // entirely, before this resolved.
-        if (hpCard !== card || !card.hasAttribute('data-nb-expanded')) {
-          return;
-        }
-        return resolveHoverPlayTarget(details).then(function (playTarget) {
+    // Not ready yet. Rather than expanding immediately (which is what forced
+    // the old build to show *something*, and the only thing available was
+    // the poster), give the artwork a short budget to land first. Losing the
+    // race is not a failure - it just means the card grows as a plain scrim
+    // panel and the artwork fades in behind the content a moment later.
+    var settled = false;
+    function go() {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (hpCard !== card) {
+        return; // moved on during the wait
+      }
+      var overlay = expandCard(card, hpReady[itemId] || null);
+      if (!overlay || hpReady[itemId]) {
+        return;
+      }
+      prepareHoverData(itemId)
+        .then(function (payload) {
           if (hpCard !== card || !card.hasAttribute('data-nb-expanded')) {
             return;
           }
-          var imgUrl = hoverPreviewImageUrl(details);
-          if (imgUrl) {
-            overlay.style.backgroundImage = 'url("' + imgUrl + '")';
+          fillHoverOverlay(overlay, payload);
+        })
+        .catch(function () {
+          if (hpCard === card) {
+            hideHoverPreview();
           }
-          overlay.querySelector('.newBadges-hpOverlayBody').innerHTML = buildHoverOverlayContentHtml(details, playTarget);
-          // Reveal only now that real content is actually in place - with
-          // the prefetch on mouseover (see wireCardHoverPreview), this
-          // usually lands at/near the same moment the box-grow finishes,
-          // so it reads as one coordinated motion instead of a grow
-          // followed by a separate content pop.
-          requestAnimationFrame(function () {
-            overlay.classList.add('is-ready');
-          });
         });
-      })
-      .catch(function () {
-        if (hpCard === card) {
-          hideHoverPreview();
-        }
-      });
+    }
+
+    var budget = setTimeout(go, HP_ART_BUDGET_MS);
+    prepareHoverData(itemId).then(function () {
+      clearTimeout(budget);
+      go();
+    }, function () {
+      clearTimeout(budget);
+      go(); // let go()'s own error path handle the teardown
+    });
   }
 
   var HOVER_WIRED_ATTR = 'data-nb-hover-wired';
@@ -2931,11 +3133,16 @@
         // Start fetching right away, in parallel with the hover-delay wait
         // below, instead of only once the delay elapses - by the time the
         // box actually starts growing, the data has usually had the whole
-        // HP_DELAY_MS to arrive already (fetchHoverItemDetails caches by
-        // itemId, so showHoverPreview's own fetch below just reads this).
+        // HP_DELAY_MS to arrive already (everything caches by itemId, so
+        // showHoverPreview's own call below just reads this).
+        //
+        // This warms the BACKDROP as well as the metadata. Prefetching only
+        // the metadata still left the image request to start at expand time,
+        // which is the one moment it cannot afford to - the grow would begin
+        // before there was any artwork to grow into.
         var prefetchId = card.getAttribute('data-id');
         if (prefetchId) {
-          fetchHoverItemDetails(prefetchId).catch(function () { /* showHoverPreview's own fetch handles the failure path */ });
+          prepareHoverData(prefetchId).catch(function () { /* showHoverPreview handles the failure path */ });
         }
         hpShowTimer = setTimeout(function () {
           if (hpCard === card) {
@@ -2980,15 +3187,46 @@
       // genuinely reflow every frame) rather than a cheap compositor-only
       // one - a slightly longer duration + gentler ease-out reads as more
       // deliberately "animated" than a short linear-ish move.
-      '.card.newBadges-hpExpanded{transition:flex-basis .38s cubic-bezier(.25,.46,.45,.94);' +
-      'will-change:flex-basis;}' +
+      // The card itself grows (flex-basis - see expandCard) and now shrinks
+      // on the same transition, because collapseCard keeps this class on
+      // until the shrink finishes instead of pulling it off up front.
+      //
+      // cubic-bezier(.22,.61,.36,1) is an ease-out-cubic: it commits harder
+      // in the first few frames and settles more gently than the previous
+      // ease-out-quad, which is what makes a layout-driven animation read as
+      // smooth - those early frames are the ones the eye tracks, and the
+      // long tail is where per-frame reflow jitter would otherwise show.
+      // (will-change was dropped here: it only helps compositor properties,
+      // and flex-basis is a layout property, so it bought nothing while
+      // permanently promoting a layer on every card that had ever expanded.)
+      '.card.newBadges-hpExpanded{transition:flex-basis ' + (HP_GROW_MS / 1000) + 's cubic-bezier(.22,.61,.36,1);}' +
       // This overlay lies on top of a backdrop image, so it uses the media
       // scrim and white text rather than the page's own surface/foreground -
       // a light theme's pale panel over a bright still would be unreadable.
+      // Opaque from the first frame, NOT faded up from transparent. This is
+      // the other half of the stretched-poster fix: the overlay's own scrim
+      // colour is what hides the portrait poster while the box is widening.
+      // Fading the whole overlay in (the old `opacity:0` start) meant the
+      // poster showed through it for the length of the fade, so the artefact
+      // survived even once the data arrived on time.
+      //
+      // The backdrop is set as a background-image on this same opaque
+      // element, so once it is preloaded (prepareHoverData decodes it before
+      // the grow begins) swapping it in costs no fade and cannot flash.
       '.newBadges-hpOverlay{position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
       'background-color:rgb(var(--nb-scrim-rgb));background-size:cover;background-position:center 25%;' +
-      'color:var(--nb-on-media);opacity:0;transition:opacity .22s ease;z-index:3;}' +
-      '.newBadges-hpOverlay.is-ready{opacity:1;}' +
+      'color:var(--nb-on-media);opacity:1;transition:opacity .2s ease;z-index:3;}' +
+      // On the way out the overlay fades rather than being yanked: without
+      // this it stayed fully opaque for the whole shrink and then vanished
+      // in one frame at the end, popping the poster back into existence.
+      // Deliberately shorter than the shrink, so the card has visibly
+      // returned to being a poster before it finishes settling.
+      '.newBadges-hpOverlay.is-collapsing{opacity:0;}' +
+      // Only the text/buttons fade, and only when they arrive late. On the
+      // fast path is-ready is set in the same tick the overlay is created,
+      // so there is no transition to see and everything lands together.
+      '.newBadges-hpOverlayBody{opacity:0;transition:opacity .18s ease;}' +
+      '.newBadges-hpOverlay.is-ready .newBadges-hpOverlayBody{opacity:1;}' +
       // Extended further up (and a touch darker at the base) than before -
       // makes room for more overview text without it fighting the backdrop
       // image for legibility.

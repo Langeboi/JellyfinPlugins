@@ -204,6 +204,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.1.0",
+        "changelog": "Rettelse på mobil: slide-prikkerne lå oven i knapperne. Prikkerne sad nederst til højre - samme linje som Afspil/Info/Favorit-rækken - og blev tegnet ovenpå den. Målt live på en 360px skærm med dansk knaptekst (Fortsæt i stedet for Afspil) overlappede de to 112 pixels, så prikkerne løb tværs hen over Info- og favoritknappen. Det er et pladsproblem, som først opstår omkring 470px, og derfor kun ses på telefon: knapraden mod otte berøringsvenlige prikker klemt op i højre side. På skærme under 500px flytter prikkerne nu op i øverste højre hjørne - fri plads i alle slides, eftersom motivet ligger i midten/til højre og teksten nederst til venstre, og netop dér en karrusel normalt viser sin position på mobil.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.0.1.0/herobar_2.0.1.0.zip",
+        "checksum": "055f5bcc547d2e8626d8fe05d58488d6",
+        "timestamp": "2026-08-10T19:54:47Z"
+      },
+      {
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Farvetonen hen over billedet og knapperne henter nu deres farver fra det tema du kører, i stedet for at være håndmatchet til ét bestemt skin, så heroen glider ind i et hvilket som helst tema - også de lyse. Knapteksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget). Nye indstillinger: sprog, højde, om synopsis og favoritknappen skal vises, og hvor langt tilbage trending kigger.",
         "targetAbi": "10.11.0.0",
@@ -270,6 +278,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.1.0.0",
+        "changelog": "Hover-udfoldningen animerer nu - det gjorde den slet ikke før. Målt direkte i browseren sprang kortet fra 187px til 464px mellem to på hinanden følgende billeder, uden et eneste mellemtrin: effekten var altså aldrig dårligt afstemt, den kørte simpelthen ikke, og ingen justering af hastighed eller kurve ville nogensinde have kunnet ses. To ting spærrede hver for sig. Kortet står på flex-basis auto, og auto kan ikke interpoleres frem mod en pixelværdi, så browseren var nødt til at springe - derfor låses den nuværende bredde nu fast som en rigtig pixelværdi først. Og klassen der bærer selve overgangen blev sat i samme omgang som den værdi den skulle animere, så der ikke fandtes en tilstand at animere fra. Sammenklapningen animerer også nu; før blev overgangsklassen fjernet før den kunne nå at køre, så kortet knipsede tilbage i stedet for at trække sig sammen.\n\nSlut med det strakte plakat-glimt. Kortet voksede med den stående 2:3-plakat synlig indeni, som blev beskåret ud i en 16:9-boks der blev bredere for hvert billede, indtil det rigtige baggrundsbillede endelig landede - målt lå kortet i fuld bredde i 256 millisekunder med plakaten strakt, før billedet kom. Baggrundsbilledet hentes og afkodes nu FØR kortet får lov at vokse, og overlægget er uigennemsigtigt fra første billede, så plakaten aldrig kan nå at ses strakt. Er billedet ikke nået frem i tide, vokser kortet i stedet som et roligt mørkt felt, og billedet toner ind bagefter.\n\nStørre søgning. Resultater, medvirkende og mere fra instruktøren var for små: panelet var låst til 820px uanset skærm, og alt indeni var skaleret derefter. Panelet følger nu vinduets bredde, og plakater, portrætter og tekst er sat ca. 1,5x op - både i fuldt og halvt vindue. Undervejs dukkede en ældre fejl op: titler bredere end kortet skubbede kortet ud i bredden, fordi min-width auto lader indhold overtrumfe flex-basis, så rækken stod uens - målt 147px mod 139,7px for alle de øvrige kort. Nu holder bredden, og for lange titler afkortes med prikker som tiltænkt.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.1.0.0/newbadges_2.1.0.0.zip",
+        "checksum": "388c33ab85c0095149bc5ee9114525c2",
+        "timestamp": "2026-08-10T19:55:03Z"
+      },
       {
         "version": "2.0.1.0",
         "changelog": "Kritisk rettelse: Favoritter-fanen var reelt ubrugelig - den blev vist, men stod tom og hentede aldrig noget indhold (det dukkede kun op senere, hvis noget andet tilfældigt udløste en indlæsning). Årsag: Jellyfins egen kode kalder pause() på ALLE rækker inde på forsiden, når man forlader Hjem-fanen, uden først at tjekke om metoden findes (til sammenligning tjekker den tilsvarende resume() korrekt efter). Dette plugins to egne rækker - Trending og den sammenlagte Fortsæt afspilning - bruger med vilje en almindelig beholder frem for Jellyfins egen specialkomponent, og har derfor ingen pause(). Det gav en fejl midt inde i Jellyfins egen faneskift-håndtering, som afbrød den FØR den nåede at indlæse den nye fane - derfor blev Favoritter vist, men aldrig fyldt ud. Rækkerne får nu en tom pause()-metode (der er intet at sætte på pause - de indlæses én gang), plus et sikkerhedsnet så samme fejl ikke kan opstå igen. Bekræftet direkte på serveren: 0 netværkskald og 0 kort før rettelsen, 16 kald og fuldt indlæst Favoritter efter.",
@@ -489,6 +505,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.1.0.0",
+        "changelog": "Egne ikoner på de to faner. Tilføj Film/Serie og Udgivelseskalender har nu hvert sit ikon ved siden af teksten, ligesom skins giver Hjem og Favoritter. Ikonet er sat ind som et rigtigt element direkte i knappen frem for inde i tekstelementet, fordi skins tegner deres egne faneikoner med et ::before - og et ::before er selv et flex-element i knappen. Ikonet lander derfor i præcis samme position og arver automatisk den afstand, størrelse og justering det aktive skin i forvejen giver sine egne ikoner. Det tegnes som ligatur med FILL 0, så det får samme tynde streg som resten af rækken i stedet for en massiv variant, og så det ikke kan ramme et forkert glyph hvis skinnet har skiftet ikonskrifttype ud.\n\nHeroen bliver ikke længere klippet af topbjælken. Jellyfins header er position:fixed og højere end det stykke siden lægger fri under den - målt live slutter headeren i 96,7px, mens indholdet begyndte i 81,8px, så de øverste ~15px af fanen lå under bjælken. Det ramte lige præcis heroens hårde, afrundede overkant, hvilket er derfor det så ud som om banneret skar op i topbjælken. Hjem-fanen slap kun udenom fordi dens hero toner sine egne øverste 18% ud, og kalenderfanen fordi den allerede havde topafstand. Anmod-fanen har nu samme 1,6em som kalenderfanen.\n\nBedre billeder i heroen. Boksen var 4,00:1, mens TMDBs baggrundsbilleder er komponeret i 16:9, så cover smed over halvdelen af billedhøjden væk og viste en tilfældig vandret stribe - med hoveder og horisonter skåret over. Det var derfor de samme billeder så fine ud på et kort, men ikke her. Højden er hævet til 420px (2,86:1), hvilket viser 62% af billedet mod 44% før, og motivet dermed holdes helt. Billederne hentes nu i en opløsning der passer til skærmens pixelforhold i stedet for altid w1280, og de kommende slides forindlæses, så de ikke længere toner ind i en tom boks.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/SeerrRequests-v2.1.0.0/seerrrequests_2.1.0.0.zip",
+        "checksum": "65af53f50a6a92533339788ddb2538d9",
+        "timestamp": "2026-08-10T19:55:01Z"
+      },
       {
         "version": "2.0.0.0",
         "changelog": "Bygget til at kunne deles. Alle farver aflæses nu fra det tema du kører i stedet for at være hardkodede - den øverste fade var håndmatchet til ElegantFins header-farve og så derfor forkert ud på alle andre temaer. Teksterne følger Jellyfins egen sprogindstilling (dansk/engelsk, eller tvunget), inklusive datoer og \"om 3 dage\"-linjerne i kalenderen. Nye indstillinger: sprog, Seerr-indigo eller dit eget tema som accentfarve, og til/fra for hver af de to faner. Sproglisten under \"Excluded original languages\" starter nu tom i stedet for at bortfiltrere 24 sprog som standard. Overskriften over bibliotek-rækken findes nu via dine egne forside-indstillinger i stedet for teksten \"Mine medier\", så den også virker på andre sprog. Fjernet: en global CSS-regel der ommalede Media Bar-pluginets hero - det hører ikke hjemme i et plugin andre skal installere.",
