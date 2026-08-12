@@ -142,6 +142,30 @@ echo "SUBWORKER_NLLB_DEVICE=cpu" | sudo tee -a /opt/subtitle-worker/env
 sudo systemctl restart subtitle-worker
 ```
 
+## Hvilket lydspor bliver transskriberet
+
+Mange udgivelser har et **eftersynkroniseret lydspor som standard** - fransk,
+spansk, polsk, italiensk - med den engelske tale liggende længere nede i
+filen. Whisper transskriberer det spor ffmpeg giver den, altså standardsporet,
+og resultatet er en helt korrekt undertekst på et sprog du ikke bad om. Og
+værre: filen bliver registreret som færdig, så den bliver aldrig lavet om og
+får aldrig den engelske undertekst den stod i kø for.
+
+Målt på 15 tilfældige titler her: **otte** kom tilbage på fr/es/it/pl af
+præcis den grund. Workeren vælger nu selv sporet med `ffprobe` - første spor
+tagget `en`, derefter `da`, uanset hvilket der er standard - og trækker det
+ud før transskriptionen. Rækkefølgen sættes med `SUBWORKER_AUDIO_LANGS`
+(standard `en,da`). Findes ingen af dem, bruges standardsporet, så en film der
+kun har spansk tale stadig får spanske undertekster - det bedste der er.
+
+Sprogtagget fra filen bruges desuden direkte, også når der kun er ét lydspor.
+Whisper gætter ellers sproget ud fra **ét enkelt 30-sekunders vindue**, og et
+afsnit der åbner med logo, musik eller stemning giver et gæt i blinde: et
+engelsk Peaky Blinders-afsnit blev bestemt som kinesisk og et Last of
+Us-afsnit som indonesisk - og så *oversat* til de sprog, ikke bare mærket
+forkert. Filen sagde `eng` hele tiden. Er der intet tag, kigger gætteriet nu
+på 8 vinduer spredt ud over filen i stedet for ét.
+
 ## Genererede undertekster synkroniseres aldrig
 
 En Whisper-transskription er lavet ud fra lyden, og en oversættelse

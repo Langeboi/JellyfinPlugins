@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.2.0"
+WORKER_VERSION = "2.2.1"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -287,6 +287,117 @@ WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
 # the real guarantee is the no-hotwords retry in process_transcribe_job, so a
 # list that still overflows never stops a subtitle being produced.
 HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "250"))
+
+# ---- Which audio track to transcribe ----
+# Whisper transcribes whatever audio ffmpeg hands it, which is the container's
+# DEFAULT track. On a lot of releases that default is a dub, with the original
+# English sitting at a later index - and the result is a perfectly accurate
+# subtitle in a language nobody asked for.
+#
+# Measured on a 15-item sample here: eight items came back as fr/es/it/pl.
+# None of those were detection failures - the files were tagged fra*/spa*/
+# ita*/pol* as default with an eng track further down, and Whisper faithfully
+# transcribed the dub. Worse, the ledger then records the item as done, so it
+# is never revisited and never gets the English subtitle it was queued for.
+#
+# So the track is chosen deliberately: the first audio stream tagged with one
+# of these languages wins, in this order, regardless of which is default.
+# Falls back to the container default when none match (a genuinely
+# Spanish-only film still gets Spanish, which is the best available).
+PREFERRED_AUDIO_LANGS = [
+    l.strip().lower()
+    for l in os.environ.get("SUBWORKER_AUDIO_LANGS", "en,da").split(",")
+    if l.strip()
+]
+
+# Language auto-detection reads ONE 30-second window by default
+# (language_detection_segments=1), and episodes routinely open on a logo,
+# music or ambience. That is how an English-only Peaky Blinders episode was
+# detected as Chinese and an English-only Last of Us episode as Indonesian -
+# both then transcribed INTO those languages, which is unusable output rather
+# than merely mislabelled. Sampling several windows costs a second or two and
+# removes that entire failure mode.
+LANG_DETECT_SEGMENTS = int(os.environ.get("SUBWORKER_LANG_DETECT_SEGMENTS", "8"))
+LANG_DETECT_THRESHOLD = float(os.environ.get("SUBWORKER_LANG_DETECT_THRESHOLD", "0.6"))
+
+
+def _iso3_to_iso1(code: str) -> str:
+    """Container tags are usually ISO 639-2 ('eng'); Whisper wants 639-1."""
+    table = {
+        "eng": "en", "dan": "da", "swe": "sv", "nor": "no", "ger": "de", "deu": "de",
+        "fre": "fr", "fra": "fr", "spa": "es", "ita": "it", "pol": "pl", "por": "pt",
+        "dut": "nl", "nld": "nl", "rus": "ru", "jpn": "ja", "kor": "ko", "chi": "zh",
+        "zho": "zh", "fin": "fi", "ces": "cs", "cze": "cs", "hun": "hu", "tur": "tr",
+        "ara": "ar", "hin": "hi", "heb": "he", "ell": "el", "gre": "el", "ukr": "uk",
+    }
+    c = (code or "").strip().lower()
+    return table.get(c, c[:2] if len(c) >= 2 else "")
+
+
+def pick_audio_stream(media: str):
+    """Decide what to transcribe: (stream_index_or_None, language_or_None).
+
+    The two halves are independent, and conflating them was a real bug:
+
+      * stream_index is "extract THIS track first", needed only when the
+        container default is the wrong language.
+      * language is "you already know what this is, don't guess", which is
+        worth having even when there is nothing to choose between.
+
+    An earlier version returned (None, None) whenever there was a single audio
+    stream, on the reasoning that there was no choice to make. That threw away
+    the container's own language tag in exactly the case where auto-detection
+    has the least to work with - and auto-detection then read one 30-second
+    window of an English-only Peaky Blinders episode and decided it was
+    Chinese, and a Last of Us episode Indonesian, transcribing both into those
+    languages. The tag said `eng` the whole time.
+
+    Probing is best-effort: no ffprobe, a weird container, or untagged audio
+    all fall back to plain auto-detection rather than failing the job."""
+    try:
+        proc = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index:stream_tags=language",
+             "-of", "csv=p=0", media],
+            capture_output=True, text=True, timeout=120,
+        )
+        if proc.returncode != 0:
+            return None, None
+    except Exception:  # noqa: BLE001 - ffprobe missing/unusable
+        return None, None
+
+    streams = []
+    for line in (proc.stdout or "").splitlines():
+        parts = [p for p in line.strip().split(",") if p != ""]
+        if not parts:
+            continue
+        try:
+            idx = int(parts[0])
+        except ValueError:
+            continue
+        streams.append((idx, _iso3_to_iso1(parts[1]) if len(parts) > 1 else ""))
+
+    if not streams:
+        return None, None
+
+    # Single track: no extraction needed, but its tag is still the best
+    # information available about what language the audio is in.
+    if len(streams) == 1:
+        return None, (streams[0][1] or None)
+
+    # Several tracks: take the first one in preference order, extracting it
+    # so ffmpeg can't hand us the (possibly dubbed) default instead.
+    for want in PREFERRED_AUDIO_LANGS:
+        for idx, lang in streams:
+            if lang == want:
+                return idx, lang
+
+    # No preferred language present. Don't extract - the default is as good a
+    # guess as any - but if every track agrees on a language, pin it.
+    tagged = {lang for _, lang in streams if lang}
+    if len(tagged) == 1:
+        return None, tagged.pop()
+    return None, None
 
 # A short, fully-punctuated example primes Whisper's decode context toward
 # consistent sentence-ending punctuation and comma usage - condition_on_
@@ -1467,8 +1578,46 @@ def process_transcribe_job(job: dict):
         return
 
     out_path = None
+    audio_tmp = None
     try:
         model = get_whisper_model()
+
+        # Choose the audio track BEFORE transcribing (see PREFERRED_AUDIO_LANGS).
+        # When a preferred track exists it is extracted to a temporary wav and
+        # transcribed instead of the file, because faster-whisper decodes the
+        # container's default track and gives no way to ask for another.
+        # 16kHz mono is exactly what Whisper resamples to anyway, so this
+        # costs a short ffmpeg pass and no quality.
+        source = media
+        forced_lang = job.get("language") or None
+        picked_index, picked_lang = (None, None)
+        if not forced_lang:
+            picked_index, picked_lang = pick_audio_stream(media)
+            # Pin the language from the container tag even when no extraction
+            # is needed. If the extraction below runs it re-affirms this; if
+            # it fails, we still transcribe the default track in the language
+            # the file itself says it is, rather than guessing.
+            if picked_lang:
+                forced_lang = picked_lang
+        if picked_index is not None:
+            fd, audio_tmp = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            extract = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-i", media, "-map", f"0:{picked_index}",
+                 "-vn", "-ac", "1", "-ar", "16000", audio_tmp],
+                capture_output=True, text=True, timeout=1800,
+            )
+            if extract.returncode == 0 and os.path.getsize(audio_tmp) > 0:
+                source = audio_tmp
+                forced_lang = picked_lang
+                print(f"[whisper] using audio stream {picked_index} ({picked_lang}) "
+                      f"of {os.path.basename(media)}", flush=True)
+            else:
+                # Extraction failed - fall back to the default track rather
+                # than failing a job that would otherwise have produced
+                # something usable.
+                os.unlink(audio_tmp)
+                audio_tmp = None
         # language=None auto-detects the SPOKEN language; Whisper transcribes
         # in that language (it can translate to English but never to Danish -
         # translation is a future, separate step). word_timestamps=True gives
@@ -1497,22 +1646,29 @@ def process_transcribe_job(job: dict):
             # eat into the hotwords/decode budget that HOTWORDS_MAX_CHARS and
             # the no-hotwords retry below already guard.
             kw = {
-                "language": job.get("language") or None,
+                "language": forced_lang,
                 "word_timestamps": True,
                 "beam_size": WHISPER_BEAM,
                 "vad_filter": WHISPER_VAD,
                 "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
                 "initial_prompt": WHISPER_PUNCTUATION_PROMPT.get(
-                    job.get("language"), WHISPER_PUNCTUATION_PROMPT["en"]
+                    forced_lang, WHISPER_PUNCTUATION_PROMPT["en"]
                 ),
             }
+            if not forced_lang:
+                # Only meaningful when auto-detecting; sampling several windows
+                # instead of just the opening one (see LANG_DETECT_SEGMENTS).
+                kw["language_detection_segments"] = LANG_DETECT_SEGMENTS
+                kw["language_detection_threshold"] = LANG_DETECT_THRESHOLD
             if use_hotwords and hotwords:
                 import inspect
                 if "hotwords" in inspect.signature(model.transcribe).parameters:
                     kw["hotwords"] = hotwords
                 else:
                     kw["initial_prompt"] += " Names and terms used: " + hotwords + "."
-            return model.transcribe(media, **kw)
+            # `source` is the extracted preferred track when there was one,
+            # otherwise the media file itself.
+            return model.transcribe(source, **kw)
 
         segments, info = transcribe(use_hotwords=bool(hotwords))
 
@@ -1597,6 +1753,9 @@ def process_transcribe_job(job: dict):
     finally:
         if out_path and os.path.exists(out_path):
             os.unlink(out_path)
+        # The extracted audio track can be a few hundred MB for a film.
+        if audio_tmp and os.path.exists(audio_tmp):
+            os.unlink(audio_tmp)
 
 
 def worker_loop():
@@ -1706,6 +1865,52 @@ def _worker_busy():
     return active or total_queue_depth() > 0
 
 
+def keep_awake_loop():
+    """Stop Windows sleeping while there is work queued or running.
+
+    A worker on a desktop is a different proposition to one in a rack: the
+    machine sleeps on its own schedule, and the job queues live in memory
+    (see the queue.Queue definitions above), so anything still queued dies
+    with the process and is never heard of again.
+
+    That is not hypothetical - it is how a 15-item batch was lost here. The
+    jobs were accepted, the machine slept about two minutes later, and on
+    resume the queue was empty with nothing in the ledger to show any of it
+    had ever been submitted. A multi-day transcription run on a desktop would
+    hit this repeatedly.
+
+    SetThreadExecutionState is a REQUEST from this process, not a change to
+    the user's power settings: nothing is reconfigured, and the moment the
+    queues drain (or the worker exits, for any reason) the request lapses and
+    normal sleep behaviour returns immediately. ES_SYSTEM_REQUIRED without
+    ES_DISPLAY_REQUIRED deliberately lets the screen still switch off.
+    """
+    if os.name != "nt":
+        return  # systemd boxes don't sleep out from under us
+    try:
+        import ctypes
+    except Exception:  # noqa: BLE001
+        return
+
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    holding = False
+    while True:
+        try:
+            busy = _worker_busy()
+            if busy and not holding:
+                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+                holding = True
+                print("[keep-awake] work in progress - holding off sleep", flush=True)
+            elif not busy and holding:
+                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+                holding = False
+                print("[keep-awake] idle - sleep allowed again", flush=True)
+        except Exception as exc:  # noqa: BLE001 - never take the worker down for this
+            print(f"[keep-awake] {exc}", flush=True)
+        time.sleep(30)
+
+
 def _restart_process():
     """Free the resident models by restarting this process.
 
@@ -1743,6 +1948,7 @@ for _i in range(SYNC_CONCURRENCY):
     threading.Thread(target=worker_loop, name=f"worker-{_i + 1}", daemon=True).start()
 threading.Thread(target=ml_loop, name="ml-worker", daemon=True).start()
 threading.Thread(target=idle_restart_loop, name="idle-restart", daemon=True).start()
+threading.Thread(target=keep_awake_loop, name="keep-awake", daemon=True).start()
 
 
 def check_key(x_api_key):
