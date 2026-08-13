@@ -166,6 +166,35 @@ Us-afsnit som indonesisk - og så *oversat* til de sprog, ikke bare mærket
 forkert. Filen sagde `eng` hele tiden. Er der intet tag, kigger gætteriet nu
 på 8 vinduer spredt ud over filen i stedet for ét.
 
+## To personer havner ikke længere i samme undertekst
+
+Whisper ved ikke hvem der taler - den laver tekst og tidskoder, intet andet.
+Men en stor del af problemet kom herfra: workeren slog nabosegmenter sammen
+til én undertekst, og Whisper havde faktisk holdt replikkerne adskilt. To
+personers replikker endte i samme blok, brudt hvor tegnene tilfældigvis
+løb tør for plads.
+
+Nu slås to segmenter ikke sammen når det første afslutter en sætning. Målt
+ved at gengive det samme afsnit med forskellige grænser:
+
+| grænse | blokke | blokke med 2+ sætninger |
+|-------:|-------:|------------------------|
+| 0,90 (før) | 379 | 96 (25,3 %) |
+| 0,35 | 412 | 75 (18,2 %) |
+| 0,00 (nu) | 468 | 32 (6,8 %) |
+
+23 % flere blokke, men to tredjedele færre hvor to replikker deler plads -
+og det er ikke flimmer: 468 blokke over 42 minutter er én undertekst hvert
+5,4. sekund mod 6,6 før. Linjeskift lægges desuden ved sætningsafslutningen
+frem for midt i en sætning, når blokken indeholder en.
+
+Vil du hellere have færre og tættere undertekster, sæt
+`SUBWORKER_CUE_TURN_GAP` op (fx `0.35`); `0.9` giver den gamle opførsel.
+
+De sidste ~7 % er tilfælde hvor Whisper selv lagde begge sætninger i ét
+segment - der er ingen sammenlægning at undlade, og kun rigtig
+taleridentifikation (diarization) kan komme længere ned.
+
 ## Genererede undertekster synkroniseres aldrig
 
 En Whisper-transskription er lavet ud fra lyden, og en oversættelse

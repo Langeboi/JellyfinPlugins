@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.2.1"
+WORKER_VERSION = "2.2.2"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -768,6 +768,52 @@ CUE_MAX_LINES = 2            # cap at a 2-line block (subtitle convention)
 CUE_MAX_CHARS = CUE_MAX_LINE_CHARS * CUE_MAX_LINES  # merge budget
 CUE_MERGE_MAX_GAP = 0.9      # don't merge across a pause longer than this
 
+# Whisper has no idea who is speaking - it produces text and timings, nothing
+# else - so a cue can end up holding the end of one person's line and the
+# start of the reply, wrapped at whatever character position the width happens
+# to land on. Measured across 18 generated files here: 40% of cues contained
+# more than one sentence, and a readable share of those were two speakers.
+#
+# Actually identifying speakers needs diarization (pyannote/WhisperX), which
+# is a separate model, licence and a large slice of extra GPU time. But most
+# of the damage does not need speaker identity to avoid - it comes from THIS
+# file merging two segments that Whisper had correctly kept apart. So the
+# merge is simply refused where a turn is likely: the previous segment closed
+# a sentence AND there was a real pause before the next one started.
+#
+# It is a heuristic and it is deliberately conservative. Fast overlapping
+# dialogue with no pause will still merge, and a speaker who pauses mid-
+# thought after a full stop will still be split into two cues - which is
+# harmless, since that is just two subtitles instead of one. What it stops is
+# the case that actually reads badly: two people sharing one cue.
+# 0 means "never merge across a completed sentence", which is where the
+# measurements landed. Swept on a real episode's segments, re-rendering the
+# same transcription at each value:
+#
+#     gap    cues   cues holding 2+ sentences
+#     0.90    379   96 (25.3%)   <- the old behaviour
+#     0.35    412   75 (18.2%)
+#     0.20    437   60 (13.7%)
+#     0.00    468   32 ( 6.8%)
+#
+# 23% more cues buys a two-thirds cut in cues that hold more than one
+# utterance. That is not flicker - 468 cues across a 42-minute episode is one
+# subtitle every 5.4 seconds against 6.6 before - and CUE_MIN_DURATION still
+# guarantees nothing flashes past unreadably.
+#
+# The 6.8% that remain are cases where Whisper emitted both sentences as ONE
+# segment, so no merge ever happened and nothing here can separate them;
+# that floor needs real diarization to go lower.
+#
+# Raise it if you would rather have fewer, denser subtitles: any value up to
+# CUE_MERGE_MAX_GAP re-enables merging across sentences that are closer
+# together than the value given.
+CUE_TURN_GAP = float(os.environ.get("SUBWORKER_CUE_TURN_GAP", "0"))
+
+# Terminal punctuation at the very end of a string (allowing a closing quote
+# or bracket after it).
+TERMINAL_PUNCT_RE = re.compile(r'[.!?]["\'\)\]]?\s*$')
+
 # Whisper's classic hallucinations: boilerplate it learned from YouTube subs
 # (thanks-for-watching/credits lines, usually over music or silence) and
 # loops where the same line repeats for minutes. Both are detectable.
@@ -831,14 +877,23 @@ def _wrap_lines(text: str) -> str:
     if len(text) <= CUE_MAX_LINE_CHARS:
         return text
     words = text.split()
-    # Prefer a 2-line split that balances the two halves (smallest length
-    # difference) while keeping both within the per-line width.
+    # Prefer a 2-line split that ENDS THE FIRST LINE ON A SENTENCE, falling
+    # back to the most balanced split when there is no sentence boundary to
+    # use. Balance alone breaks wherever the character count happens to land,
+    # so a cue holding two sentences - which is most often two speakers -
+    # would put the tail of one line and the head of the next on the same row.
+    # Breaking at the boundary keeps each utterance on its own line, and is an
+    # improvement even when it IS one person: nobody wants a line break in the
+    # middle of a clause when a full stop was available.
     best = None
     for i in range(1, len(words)):
         top = " ".join(words[:i])
         bottom = " ".join(words[i:])
         if len(top) <= CUE_MAX_LINE_CHARS and len(bottom) <= CUE_MAX_LINE_CHARS:
-            score = abs(len(top) - len(bottom))
+            at_sentence = bool(TERMINAL_PUNCT_RE.search(top))
+            # Tuple ordering does the ranking: any sentence-boundary split
+            # beats every balanced one, and ties are settled on balance.
+            score = (0 if at_sentence else 1, abs(len(top) - len(bottom)))
             if best is None or score < best[0]:
                 best = (score, top + "\n" + bottom)
     if best is not None:
@@ -907,7 +962,12 @@ def write_srt(segments, path: str, progress=None) -> int:
             gap = cue[0] - prev[1]
             combined_chars = len(prev[2]) + 1 + len(cue[2])
             combined_dur = cue[1] - prev[0]
-            if (gap <= CUE_MERGE_MAX_GAP
+            # A finished sentence followed by a real pause reads as someone
+            # else answering - keep them as separate subtitles (see
+            # CUE_TURN_GAP).
+            likely_turn = bool(TERMINAL_PUNCT_RE.search(prev[2])) and gap >= CUE_TURN_GAP
+            if (not likely_turn
+                    and gap <= CUE_MERGE_MAX_GAP
                     and combined_chars <= CUE_MAX_CHARS
                     and combined_dur <= CUE_MAX_DURATION):
                 prev[1] = cue[1]
