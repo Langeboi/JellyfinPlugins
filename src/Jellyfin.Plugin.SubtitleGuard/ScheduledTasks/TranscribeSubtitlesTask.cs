@@ -75,6 +75,18 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
             // watching, then the rest - see SyncWorker.OrderByPriority.
             var ordered = SyncWorker.OrderByPriority(items, _userManager, _userDataManager);
 
+            // Subtitles the pool has measured as belonging to a DIFFERENT cut
+            // of the file they sit beside. Those must not count as "this item
+            // already has a subtitle" - transcribing the audio is the only
+            // repair that works for them.
+            var mismatched = await SyncWorker.GetProcessedPaths("mismatch", cancellationToken).ConfigureAwait(false);
+            if (mismatched.Count > 0)
+            {
+                _logger.LogInformation(
+                    "SubtitleGuard: {Count} subtitle(s) measured as not matching their media - eligible for replacement",
+                    mismatched.Count);
+            }
+
             var jobs = new List<JObject>();
             foreach (var item in ordered)
             {
@@ -84,7 +96,7 @@ namespace Jellyfin.Plugin.SubtitleGuard.ScheduledTasks
                     continue;
                 }
 
-                var job = SyncWorker.CollectTranscribeJob(item, targetLangs);
+                var job = SyncWorker.CollectTranscribeJob(item, targetLangs, mismatched);
                 if (job != null)
                 {
                     var cfg = Plugin.Instance!.Configuration;

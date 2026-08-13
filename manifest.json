@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.1.0.0",
+        "changelog": "Undertekster der hører til en anden version af filmen bliver nu erstattet i stedet for at blive stående for evigt.\n\nBaggrund: en rapporteret film (Superbad) havde undertekster der var så forkerte at man ikke kunne se om de kom for tidligt eller for sent. Filen er den uklippede udgave på 118,7 minutter, mens underteksten hører til biografudgaven og slutter 15 minutter før filmen gør. Indskudte scener fordeler sig ujævnt gennem filmen, så afvigelsen er ikke konstant - derfor kan man ikke pege på en retning.\n\nSynkroniseringen var uskyldig. ffsubsync måler sammenhængen til -50.569 - altså negativ, modsat korreleret - og nægtede helt korrekt at røre filen. Til sammenligning gav seks afsnit med rigtige undertekster +40.205 til +177.137 og under 0,2 sekunds forskydning. Problemet var at intet i kæden så kunne redde filen: den ene reparation der virker - at transskribere lyden - var blokeret af netop den undertekst der var forkert. Filen kunne aldrig blive rigtig.\n\nWorkeren registrerer nu den slags som `subtitle-mismatch`, og en sådan undertekst tæller ikke længere som at elementet 'allerede har undertekster'. Den bliver transskriberet i stedet. Originalen gemmes som .bak inden den erstattes, hvis navnene støder sammen, så det altid kan fortrydes.\n\nBemærk: Whisper navngiver efter det sprog den finder (fx .en.srt), så en forkert undertekst der hedder .eng.srt bliver ikke overskrevet - den nye lægger sig ved siden af, og begge er synlige i afspilleren. Den forkerte kan slettes i hånden.\n\nKræver worker 2.3.0 eller nyere.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/subtitleguard-v2.1.0.0/subtitleguard_2.1.0.0.zip",
+        "checksum": "7c05fddd9e8399d247c87d6d350d33e5",
+        "timestamp": "2026-08-13T20:05:26Z"
+      },
+      {
         "version": "2.0.6.0",
         "changelog": "Manuelle klik (Fix undertekst-sync / Generér undertekster / Prøv igen) springer nu foran den natlige kø i stedet for at vente bag den - en natlig batch-kørsel kunne lægge hundredvis af filer foran et enkelt klik, så \"Tilføjet til kø\" reelt kunne betyde en lang ventetid. Bemærk: kræver genstart af Jellyfin for at tage effekt (denne del af rettelsen ligger i selve plugin'et, ikke i sync-workeren).",
         "targetAbi": "10.11.0.0",

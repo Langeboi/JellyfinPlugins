@@ -377,12 +377,15 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
         /// untagged text subtitle, which is assumed to satisfy the need -
         /// better to skip than to generate duplicates).
         /// </summary>
-        public static JObject? CollectTranscribeJob(BaseItem item, ISet<string> targetLangs)
+        public static JObject? CollectTranscribeJob(
+            BaseItem item, ISet<string> targetLangs, ISet<string>? mismatched = null)
         {
             if (string.IsNullOrEmpty(item.Path))
             {
                 return null;
             }
+
+            var overridesMismatch = false;
 
             foreach (var stream in item.GetMediaStreams())
             {
@@ -393,15 +396,43 @@ namespace Jellyfin.Plugin.SubtitleGuard.Services
 
                 if (string.IsNullOrEmpty(stream.Language) || targetLangs.Contains(NormalizeLang(stream.Language)))
                 {
+                    // A subtitle the pool has measured as ANTI-CORRELATED with
+                    // this file does not satisfy the need - it is the wrong
+                    // subtitle for this media (a different cut, most often),
+                    // and no amount of shifting repairs that. Treating it as
+                    // "already has one" is what left such files permanently
+                    // broken: the bad subtitle blocked its own replacement,
+                    // and sync quite correctly refused to touch it.
+                    if (mismatched != null
+                        && stream.IsExternal
+                        && !string.IsNullOrEmpty(stream.Path)
+                        && mismatched.Contains(MapPath(stream.Path)))
+                    {
+                        overridesMismatch = true;
+                        continue;
+                    }
+
                     return null;
                 }
             }
 
-            return new JObject
+            var job = new JObject
             {
                 ["type"] = "transcribe",
                 ["media_path"] = MapPath(item.Path)
             };
+
+            if (overridesMismatch)
+            {
+                // The worker skips when a subtitle already sits at the target
+                // path, so replacing the mismatched one has to be explicit.
+                // It keeps a .bak of anything it did not generate itself, so
+                // this stays reversible.
+                job["force"] = true;
+                job["replaces_mismatch"] = true;
+            }
+
+            return job;
         }
 
         /// <summary>

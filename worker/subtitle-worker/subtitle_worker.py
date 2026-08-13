@@ -1929,6 +1929,21 @@ def process_transcribe_job(job: dict):
                 state["skipped"] += 1
             return
 
+        # About to overwrite a subtitle that is NOT ours - which now happens
+        # deliberately, when the plugin has been told this file's subtitle is
+        # the wrong one for it. Keep the original first, using the same .bak
+        # convention sync uses, so a machine transcription replacing somebody's
+        # real subtitle is always reversible. Ours don't need this: they are
+        # reproducible by definition.
+        if os.path.exists(target) and not is_machine_generated(target):
+            backup = target + ".bak"
+            if not os.path.exists(backup):
+                try:
+                    shutil.copy2(target, backup)
+                    print(f"[whisper] kept original as {os.path.basename(backup)}", flush=True)
+                except OSError as exc:
+                    print(f"[whisper] could not back up {target}: {exc}", flush=True)
+
         out_fd, out_path = tempfile.mkstemp(suffix=".srt")
         os.close(out_fd)
 
@@ -2486,6 +2501,18 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
             if not (s.startswith("transcribed:") or s == "already-has-sub"):
                 continue
             real = sub_path[len("transcribe:"):]
+        elif kind == "mismatch":
+            # Subtitles ffsubsync found ANTI-CORRELATED with their media, i.e.
+            # the wrong subtitle for this file (see SCORE_RE). The plugin uses
+            # this to stop treating such a subtitle as "this item already has
+            # one" - it is the strongest case for transcribing the media
+            # instead, and without it the file stays broken forever because
+            # the broken subtitle blocks its own repair.
+            if sub_path.startswith("transcribe:") or sub_path.startswith("translate:"):
+                continue
+            if s != "subtitle-mismatch":
+                continue
+            real = sub_path
         elif kind == "translate":
             if not sub_path.startswith("translate:"):
                 continue
