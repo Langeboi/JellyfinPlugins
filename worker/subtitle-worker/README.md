@@ -193,6 +193,22 @@ kom noget før:
 | `or run after` + `him.` | eller løbe efter + **Det er ham.** | eller løbe efter + **ham.** |
 | `to` + `help him get there.` | til + **Hjælp ham** (bydeform) | for + **at hjælpe ham** |
 
+**Og den modsatte fejl, som slettede replikker:** NLLB svarer med **én**
+sætning. Giver man den to, oversætter den den ene og smider resten væk - uden
+fejl, uden afkortning, teksten er bare væk:
+
+| engelsk | før | nu |
+|---|---|---|
+| We're here. Yeah, but where the hell is here, man? | *- Ja, men hvor fanden er det her?* | - Vi er her. Ja, men hvor fanden er det her? |
+| I intend to be an upgrade. You're insane. | *Jeg har til hensigt at blive en opgradering.* | Jeg har til hensigt at blive en opgradering. **Du er sindssyg.** |
+
+Det ramte hver eneste blok med mere end én sætning - 25 % af dem før
+`CUE_TURN_GAP`, og stadig ~7 % nu, fordi Whisper indimellem lægger to
+sætninger i ét segment. Hver blok deles derfor op i sætninger inden
+oversættelsen og sættes sammen igen bagefter. De to ting trækker med vilje i
+hver sin retning: grupperingen samler sætninger som en blokgrænse har revet
+over, og opdelingen adskiller sætninger som deler én blok.
+
 Grænserne styres med `SUBWORKER_TRANSLATE_UNIT_MAX_CUES` (6) og
 `SUBWORKER_TRANSLATE_UNIT_MAX_CHARS` (400) - en sætningsmodel bliver lige så
 dårlig af et helt afsnit som af ét enkelt ord.

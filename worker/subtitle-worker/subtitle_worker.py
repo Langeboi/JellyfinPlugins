@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.2.3"
+WORKER_VERSION = "2.2.4"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -645,6 +645,46 @@ def split_translation(text, weights):
     return out
 
 
+# Sentence boundary: terminal punctuation, whitespace, then something that
+# starts a new sentence (allowing an opening quote or bracket).
+SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?…])\s+(?=["\'(\[]?[A-ZÆØÅ0-9])')
+
+
+def translate_units(unit_texts):
+    """Translate each unit ONE SENTENCE AT A TIME, then rejoin.
+
+    NLLB returns a single sentence. Hand it two and it translates one and
+    silently discards the rest - it does not truncate visibly or error, the
+    text is simply gone. Measured directly:
+
+        EN  We're here. Yeah, but where the hell is here, man?
+        DA  - Ja, men hvor fanden er det her?          <- first sentence lost
+
+        EN  I intend to be an upgrade. You're insane.
+        DA  Jeg har til hensigt at blive en opgradering.   <- reply lost
+
+    This predates sentence-grouping and applied to every cue that held more
+    than one sentence, which was 25% of them before CUE_TURN_GAP and is still
+    ~7% now (Whisper sometimes emits two sentences as one segment). It was
+    quietly deleting dialogue from every translated file.
+
+    Splitting here rather than in group_cues_into_sentences is deliberate: the
+    grouping exists to REASSEMBLE sentences that a cue boundary tore apart,
+    and this exists to SEPARATE sentences that share one. Both are needed, and
+    they pull in opposite directions on the same text.
+
+    Everything is still translated in one batched pass, so this costs nothing
+    beyond a slightly longer list.
+    """
+    flat, spans = [], []
+    for t in unit_texts:
+        parts = [p for p in SENTENCE_SPLIT_RE.split(t) if p.strip()] or [t]
+        spans.append((len(flat), len(parts)))
+        flat.extend(parts)
+    done = translate_texts_en_to_da(flat)
+    return [" ".join(done[i:i + n]).strip() for i, n in spans]
+
+
 def translate_texts_en_to_da(texts):
     """Batch-translate English lines to Danish, preserving list order."""
     translator, tok = get_translator()
@@ -768,7 +808,7 @@ def process_translate_job(job: dict):
         src = [" ".join(c[1].split()) for c in cues]
         units = group_cues_into_sentences(src)
         unit_texts = [" ".join(src[j] for j in unit) for unit in units]
-        translated_units = translate_texts_en_to_da(unit_texts)
+        translated_units = translate_units(unit_texts)
 
         translated = [""] * len(src)
         for unit, whole in zip(units, translated_units):
