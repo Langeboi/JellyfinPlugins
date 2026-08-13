@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.2.4"
+WORKER_VERSION = "2.3.0"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -359,7 +359,7 @@ def pick_audio_stream(media: str):
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=index:stream_tags=language",
              "-of", "csv=p=0", media],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120,
         )
         if proc.returncode != 0:
             return None, None
@@ -1353,6 +1353,7 @@ SUCCESS_STATUSES = (
     "suspect-offset",
     "low-quality-skip",
     "generated-skip",
+    "subtitle-mismatch",
 )
 
 
@@ -1459,13 +1460,30 @@ def already_processed(sub_path: str, mtime: float) -> bool:
         ).fetchone()
         if row is None:
             return False
-        # transcribed:<lang> counts as success too
+        # transcribed:<lang> and fixed-framerate:<factor> carry a value in the
+        # status, so they can't be matched by membership alone.
         ok = (
-        row[1] in SUCCESS_STATUSES
-        or str(row[1]).startswith("transcribed:")
-        or str(row[1]).startswith("fixed-framerate:")
-    )
+            row[1] in SUCCESS_STATUSES
+            or str(row[1]).startswith("transcribed:")
+            or str(row[1]).startswith("fixed-framerate:")
+        )
         return ok and abs(row[0] - mtime) < 1e-6
+    finally:
+        conn.close()
+
+
+def _previous_offset(sub_path: str):
+    """The offset currently recorded for this path, if any.
+
+    Used when a status changes but the measurement behind it is still worth
+    keeping - notably a rollback, where the applied shift is the whole reason
+    anyone would investigate later."""
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT offset_seconds FROM processed WHERE sub_path = ?", (sub_path,)
+        ).fetchone()
+        return row[0] if row else None
     finally:
         conn.close()
 
@@ -1549,6 +1567,24 @@ SCALE_RE = re.compile(r"framerate scale factor:\s*(-?[\d.]+)", re.IGNORECASE)
 # still logs "offset seconds: X" BEFORE the quality check runs - so OFFSET_RE
 # alone can't tell a real fix from a no-op. This distinguishes them.
 LOW_QUALITY_RE = re.compile(r"low-quality alignment", re.IGNORECASE)
+# ffsubsync logs its alignment score. The MAGNITUDE is unnormalised and varies
+# hugely with subtitle length - measured across six episodes of one show:
+# +40,205 to +177,137 - so it is useless as an absolute threshold. The SIGN is
+# not: negative means the best alignment found is anti-correlated, i.e. the
+# subtitle does not belong to this file.
+#
+# That distinction matters because the two cases need opposite responses.
+# A subtitle that is merely shifted can be repaired. A subtitle for a
+# different cut of the film cannot - inserted scenes are non-linear, and
+# ffsubsync's model is one offset plus at most a linear scale. Measured on
+# Superbad, whose file is the 118.7-minute unrated cut while its subtitle is
+# the theatrical one: score -50,569, offset 55.1s, and quite rightly refused.
+#
+# Recording those separately turns a dead end into a worklist: a subtitle that
+# does not match its media is the strongest possible case for transcribing the
+# file, which is the one repair that always works because it is made from the
+# audio itself.
+SCORE_RE = re.compile(r"score:\s*(-?[\d.]+)", re.IGNORECASE)
 
 
 def place_subtitle(out_path: str, sub: str):
@@ -1638,6 +1674,14 @@ def process_job(job: dict):
             cmd,
             capture_output=True,
             text=True,
+            # Decode as UTF-8 explicitly. text=True otherwise decodes using the
+            # LOCALE encoding, which on a Windows worker is cp1252 - and
+            # ffsubsync's progress output contains bytes cp1252 cannot decode.
+            # The reader thread then dies with UnicodeDecodeError and the log
+            # arrives EMPTY, so no offset is ever parsed and every sync job on
+            # that box records unparseable-offset. Seen exactly that way here.
+            encoding="utf-8",
+            errors="replace",
             timeout=1800,
         )
         log = (proc.stdout or "") + (proc.stderr or "")
@@ -1645,6 +1689,8 @@ def process_job(job: dict):
         offset = float(m.group(1)) if m else None
         sm = SCALE_RE.search(log)
         scale = float(sm.group(1)) if sm else None
+        sc = SCORE_RE.search(log)
+        score = float(sc.group(1)) if sc else None
         low_quality = bool(LOW_QUALITY_RE.search(log))
 
         if proc.returncode != 0 or not os.path.getsize(out_path):
@@ -1658,7 +1704,13 @@ def process_job(job: dict):
             # content back unchanged - nothing to apply, and doing so anyway
             # would be a no-op that misleadingly logs as "fixed" and churns
             # a fresh .bak for no reason.
-            record(sub, mtime, offset, "low-quality-skip")
+            #
+            # A NEGATIVE score separates "couldn't align this confidently"
+            # from "this subtitle isn't for this file" (see SCORE_RE). The
+            # latter is unfixable by shifting and is recorded distinctly, so
+            # it can be acted on - transcribing the media is the repair.
+            status = "subtitle-mismatch" if (score is not None and score < 0) else "low-quality-skip"
+            record(sub, mtime, offset, status)
             with state_lock:
                 state["done"] += 1
             return
@@ -2272,7 +2324,14 @@ def rollback(body: RollbackBody, x_api_key: str = Header(default="")):
     # Recorded as its own success status so the nightly task does NOT
     # immediately re-fix what the user deliberately reverted. The .bak is
     # kept, so the decision remains reversible by hand.
-    record(sub, os.path.getmtime(sub), None, "rolled-back")
+    #
+    # The offset that WAS applied is carried across rather than nulled. A
+    # rollback is the strongest signal available that a correction was wrong,
+    # and the shift that caused it is the single most useful number for
+    # working out why - so overwriting it with NULL destroyed exactly the
+    # evidence needed. Learned the hard way: this pool has 1,233 rolled-back
+    # files and not one of them can now say what was done to it.
+    record(sub, os.path.getmtime(sub), _previous_offset(sub), "rolled-back")
     return {"restored": body.subtitle_path}
 
 
@@ -2323,7 +2382,8 @@ def restore_all(x_api_key: str = Header(default="")):
             continue
         try:
             shutil.copy2(bak, sub)
-            record(sub, os.path.getmtime(sub), None, "rolled-back")
+            # Keep the applied offset - see the note in /rollback.
+            record(sub, os.path.getmtime(sub), _previous_offset(sub), "rolled-back")
             restored += 1
         except Exception:  # noqa: BLE001 - one bad file must not stop the batch
             failed += 1
@@ -2448,6 +2508,7 @@ def processed(kind: str = "sync", verify: int = 1, x_api_key: str = Header(defau
                 "suspect-offset",
                 "low-quality-skip",
                 "generated-skip",
+                "subtitle-mismatch",
             ) and not s.startswith("fixed-framerate:"):
                 continue
             real = sub_path
@@ -2480,6 +2541,7 @@ def _stat_category(status: str) -> str:
         "suspect-offset",
         "low-quality-skip",
         "generated-skip",
+        "subtitle-mismatch",
     ):
         return "skipped"
     return "failed"
