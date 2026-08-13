@@ -1371,7 +1371,18 @@ SUCCESS_STATUSES = (
 # machine-generated subtitles - clearing those would hand every transcription
 # and translation straight back to ffsubsync, i.e. cause the exact bug this
 # release exists to fix.
-SYNC_POLICY = f"framerate={int(ALLOW_FRAMERATE_FIX)};maxoffset={MAX_OFFSET_SECONDS}"
+# The trailing component is a plain revision counter for how a verdict is
+# CLASSIFIED, as opposed to the thresholds above which govern what is applied.
+# Bumping it reopens the stored verdicts once.
+#
+# It is at 2 because 2.3.0 started separating subtitle-mismatch (the subtitle
+# is not for this file) from low-quality-skip (couldn't align confidently).
+# Without the bump nothing would change on an existing library: every such
+# file is already recorded as low-quality-skip, and low-quality-skip is now a
+# resolved status, so it would never be looked at again and could never be
+# reclassified. The whole point of the new status is to produce a worklist of
+# files worth transcribing, and that list would have stayed empty.
+SYNC_POLICY = f"framerate={int(ALLOW_FRAMERATE_FIX)};maxoffset={MAX_OFFSET_SECONDS};classify=2"
 
 
 def reset_stale_verdicts():
