@@ -166,6 +166,41 @@ Us-afsnit som indonesisk - og så *oversat* til de sprog, ikke bare mærket
 forkert. Filen sagde `eng` hele tiden. Er der intet tag, kigger gætteriet nu
 på 8 vinduer spredt ud over filen i stedet for ét.
 
+## Oversættelsen ser hele sætninger nu
+
+Oversættelsen virkede meget ordret, og det var der en grund til: hver
+undertekstblok blev oversat for sig. NLLB oversætter **en sætning** og har
+ingen viden om hvad der kom før eller efter - så det den fik udleveret var
+hele dens verden.
+
+Blokgrænser er et *visnings*-krav, ikke et sprogligt: en sætning der er for
+lang til to linjer skal deles op for at kunne læses. Derfor fandtes der blokke
+der bare indeholdt `to`, `find` eller `or run after` - og de blev oversat
+hver for sig. Målt: 14,1 % af blokkene sluttede ikke en sætning, og 200 af
+dem var på to ord eller mindre.
+
+Nu samles blokke tilbage til hele sætninger, sætningen oversættes én gang, og
+resultatet fordeles ud over de oprindelige blokkes tidskoder. Underteksterne
+brydes stadig hvor de skal - det er kun oversætteren der ser hele tanker.
+
+Forskellen er ikke kosmetisk. Dansk kræver omvendt ordstilling efter et
+indledende led, og det kan en model ikke ramme hvis den ikke kan se at der
+kom noget før:
+
+| engelsk | før | nu |
+|---|---|---|
+| ...after this affront, **I'll be forced**... | ...**jeg bliver** tvunget... | ...**bliver jeg** tvunget... |
+| `or run after` + `him.` | eller løbe efter + **Det er ham.** | eller løbe efter + **ham.** |
+| `to` + `help him get there.` | til + **Hjælp ham** (bydeform) | for + **at hjælpe ham** |
+
+Grænserne styres med `SUBWORKER_TRANSLATE_UNIT_MAX_CUES` (6) og
+`SUBWORKER_TRANSLATE_UNIT_MAX_CHARS` (400) - en sætningsmodel bliver lige så
+dårlig af et helt afsnit som af ét enkelt ord.
+
+Bemærk: fordelingen tilbage på blokke er proportional efter længde, så
+linjedelingen følger ikke nødvendigvis den engelske. Selve oversættelsen er
+lavet ud fra hele sætningen, og det er den der afgør om dansken duer.
+
 ## To personer havner ikke længere i samme undertekst
 
 Whisper ved ikke hvem der taler - den laver tekst og tidskoder, intet andet.

@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.2.2"
+WORKER_VERSION = "2.2.3"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -573,6 +573,78 @@ def get_translator():
         return _translator, _nllb_tokenizer
 
 
+# ---- Translating whole sentences instead of whole cues ----
+# NLLB translates a SENTENCE. It has no document context, so whatever it is
+# handed is the entire world as far as it is concerned - and it used to be
+# handed one subtitle cue at a time.
+#
+# Cue boundaries are a DISPLAY constraint, not a linguistic one: a sentence
+# too long for two lines has to be split across cues to be readable, which is
+# why real fragments like "to", "find" and "or run after" existed as separate
+# cues. Each was translated in isolation, and no model can translate "to"
+# into a language that inflects. Measured: 14.1% of cues did not end a
+# sentence, 200 of them two words or fewer.
+#
+# So cues are grouped back into sentences, the sentence is translated once,
+# and the result is redistributed across the original cues' timings. The
+# subtitles still break where they must; only the translator sees whole
+# thoughts. Sentence-aware cues (CUE_TURN_GAP) already cut the fragment rate
+# to ~11%; this removes the rest of the problem rather than the symptom.
+TRANSLATE_UNIT_MAX_CUES = int(os.environ.get("SUBWORKER_TRANSLATE_UNIT_MAX_CUES", "6"))
+TRANSLATE_UNIT_MAX_CHARS = int(os.environ.get("SUBWORKER_TRANSLATE_UNIT_MAX_CHARS", "400"))
+
+# Both caps matter: a sentence-level model degrades on a whole paragraph just
+# as it does on a single word, and a subtitle file missing its final full stop
+# would otherwise swallow the entire remainder into one unit.
+SENTENCE_END_RE = re.compile(r'[.!?…]["\')\]]?$')
+
+
+def group_cues_into_sentences(texts):
+    """Consecutive cue indices grouped into units that end on a sentence."""
+    units, cur, cur_chars = [], [], 0
+    for i, t in enumerate(texts):
+        cur.append(i)
+        cur_chars += len(t) + 1
+        if (SENTENCE_END_RE.search(t.strip())
+                or len(cur) >= TRANSLATE_UNIT_MAX_CUES
+                or cur_chars >= TRANSLATE_UNIT_MAX_CHARS):
+            units.append(cur)
+            cur, cur_chars = [], 0
+    if cur:
+        units.append(cur)
+    return units
+
+
+def split_translation(text, weights):
+    """Spread one translated sentence back over N cues, proportionally to how
+    much of the source each cue held, splitting only at word boundaries.
+
+    Word order differs between languages, so this is an approximation - but it
+    is an approximation of the LAYOUT only. The translation itself was made
+    from the complete sentence, which is the part that determines whether the
+    Danish is any good."""
+    n = len(weights)
+    if n == 1:
+        return [text]
+    words = text.split()
+    if len(words) < n:
+        # Too few words to give each cue one; the caller folds the empties
+        # into the preceding cue's time window rather than showing blanks.
+        return [text] + [""] * (n - 1)
+    total = sum(weights) or 1
+    out, start = [], 0
+    for k in range(n):
+        if k == n - 1:
+            out.append(" ".join(words[start:]))
+            break
+        want = max(1, round(len(words) * weights[k] / total))
+        # Always leave at least one word for each remaining cue.
+        end = min(len(words) - (n - k - 1), start + want)
+        out.append(" ".join(words[start:end]))
+        start = end
+    return out
+
+
 def translate_texts_en_to_da(texts):
     """Batch-translate English lines to Danish, preserving list order."""
     translator, tok = get_translator()
@@ -690,15 +762,36 @@ def process_translate_job(job: dict):
                 state["failed"] += 1
             return
 
-        # Translate cue texts (newlines flattened - NLLB translates whole
-        # sentences better than fragments), then re-wrap for readability.
-        translated = translate_texts_en_to_da([" ".join(c[1].split()) for c in cues])
+        # Translate SENTENCES, not cues (see group_cues_into_sentences).
+        # Newlines are flattened first: a cue's internal line break is
+        # typography, and feeding it to the model as-is just adds noise.
+        src = [" ".join(c[1].split()) for c in cues]
+        units = group_cues_into_sentences(src)
+        unit_texts = [" ".join(src[j] for j in unit) for unit in units]
+        translated_units = translate_texts_en_to_da(unit_texts)
+
+        translated = [""] * len(src)
+        for unit, whole in zip(units, translated_units):
+            parts = split_translation(whole, [max(1, len(src[j])) for j in unit])
+            for j, part in zip(unit, parts):
+                translated[j] = part
+
+        out_cues = []
+        for (timing, _), text in zip(cues, translated):
+            start, _, end = [p.strip() for p in timing.partition("-->")]
+            if text.strip():
+                out_cues.append([start, end, text])
+            elif out_cues:
+                # A unit too short to give every cue a word put everything in
+                # the first one. Hold that line across this window rather than
+                # writing an empty subtitle or leaving a gap.
+                out_cues[-1][1] = end
 
         fd, tmp_out = tempfile.mkstemp(suffix=".srt")
         os.close(fd)
         with open(tmp_out, "w", encoding="utf-8") as fh:
-            for i, ((timing, _), text) in enumerate(zip(cues, translated), start=1):
-                fh.write(f"{i}\n{timing}\n{wrap_cue(text)}\n\n")
+            for i, (start, end, text) in enumerate(out_cues, start=1):
+                fh.write(f"{i}\n{start} --> {end}\n{wrap_cue(text)}\n\n")
         place_subtitle(tmp_out, target)  # overwrite, or re-own if refused
 
         record(key, mtime, None, "translated")
