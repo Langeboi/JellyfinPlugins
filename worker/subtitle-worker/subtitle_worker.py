@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.3.0"
+WORKER_VERSION = "2.3.1"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -321,8 +321,21 @@ LANG_DETECT_SEGMENTS = int(os.environ.get("SUBWORKER_LANG_DETECT_SEGMENTS", "8")
 LANG_DETECT_THRESHOLD = float(os.environ.get("SUBWORKER_LANG_DETECT_THRESHOLD", "0.6"))
 
 
+# Tags that exist precisely to say "no language here". Truncating them to two
+# letters produced 'un' from 'und', which Whisper rejects outright - the job
+# died with "'un' is not a valid language code" instead of simply falling back
+# to detection. 'und' is the standard undetermined tag and is extremely
+# common, so this failed real files: 5 of the first 92 in a full-library run.
+NON_LANGUAGE_TAGS = {"und", "unk", "unknown", "zxx", "mis", "mul", "qaa", "none", ""}
+
+
 def _iso3_to_iso1(code: str) -> str:
-    """Container tags are usually ISO 639-2 ('eng'); Whisper wants 639-1."""
+    """Container tags are usually ISO 639-2 ('eng'); Whisper wants 639-1.
+
+    Returns '' for anything that is not a language we can name - an explicit
+    "don't know", which the caller turns into auto-detection. Blindly
+    truncating an unrecognised tag to two characters invents codes that no
+    decoder accepts."""
     table = {
         "eng": "en", "dan": "da", "swe": "sv", "nor": "no", "ger": "de", "deu": "de",
         "fre": "fr", "fra": "fr", "spa": "es", "ita": "it", "pol": "pl", "por": "pt",
@@ -331,7 +344,13 @@ def _iso3_to_iso1(code: str) -> str:
         "ara": "ar", "hin": "hi", "heb": "he", "ell": "el", "gre": "el", "ukr": "uk",
     }
     c = (code or "").strip().lower()
-    return table.get(c, c[:2] if len(c) >= 2 else "")
+    if c in NON_LANGUAGE_TAGS:
+        return ""
+    if c in table:
+        return table[c]
+    # A bare two-letter tag is already ISO 639-1; anything else is a code we
+    # do not recognise, and guessing at it is how 'und' became 'un'.
+    return c if len(c) == 2 and c.isalpha() else ""
 
 
 def pick_audio_stream(media: str):
@@ -1184,12 +1203,115 @@ ml_queue: "queue.Queue[dict]" = queue.Queue()
 priority_ml_queue: "queue.Queue[dict]" = queue.Queue()
 
 
-def enqueue_job(job: dict):
+# ---- Queue durability ----
+# The four queues above live in memory, and everything in them dies with the
+# process. That is not a theoretical concern: a 15-item batch was lost when
+# the machine slept two minutes after submission, and a full-library run lost
+# 1,817 queued jobs when the worker took a native access violation six hours
+# in. Neither left a trace - the jobs were accepted, and then simply gone.
+#
+# Restarting is NORMAL here, not exceptional: idle-restart deliberately exits
+# to free VRAM, the daily self-update restarts, and a crash is relaunched by
+# the wrapper within seconds. A queue that cannot survive that is a queue that
+# cannot be trusted with a multi-day batch.
+#
+# So the queue is mirrored into the same SQLite file as the ledger: a row per
+# queued job, removed when the job finishes (or is stolen), replayed at
+# startup. Deliberately not a full transactional job store - a job that was
+# mid-flight when the process died is replayed, which is safe because every
+# processor is idempotent (already_processed and the marker check both make a
+# repeat a cheap no-op).
+QUEUE_PERSIST = os.environ.get("SUBWORKER_PERSIST_QUEUE", "1") != "0"
+
+
+def _queue_db():
+    conn = db()
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS queued (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job TEXT NOT NULL,
+            created TEXT NOT NULL
+        )"""
+    )
+    return conn
+
+
+def _persist_job(job: dict):
+    """Record a queued job and stamp it with its row id so it can be removed
+    again once finished."""
+    if not QUEUE_PERSIST or job.get("_qid"):
+        return
+    try:
+        import json as _j
+        conn = _queue_db()
+        try:
+            cur = conn.execute(
+                "INSERT INTO queued (job, created) VALUES (?,?)",
+                (_j.dumps(job), datetime.now(timezone.utc).isoformat()),
+            )
+            job["_qid"] = cur.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 - never fail a submission over this
+        print(f"[queue] could not persist job: {exc}", flush=True)
+
+
+def forget_job(job: dict):
+    """Drop a job's persisted row - it is finished, or has moved to a peer."""
+    qid = job.get("_qid") if isinstance(job, dict) else None
+    if not QUEUE_PERSIST or not qid:
+        return
+    try:
+        conn = _queue_db()
+        try:
+            conn.execute("DELETE FROM queued WHERE id = ?", (qid,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[queue] could not forget job {qid}: {exc}", flush=True)
+
+
+def restore_queue():
+    """Replay jobs that were still queued when this process last stopped."""
+    if not QUEUE_PERSIST:
+        return
+    try:
+        import json as _j
+        conn = _queue_db()
+        try:
+            rows = conn.execute("SELECT id, job FROM queued ORDER BY id").fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[queue] could not read persisted queue: {exc}", flush=True)
+        return
+
+    restored = 0
+    for qid, blob in rows:
+        try:
+            job = _j.loads(blob)
+        except Exception:  # noqa: BLE001 - skip a corrupt row rather than die
+            continue
+        job["_qid"] = qid
+        _enqueue_in_memory(job)
+        restored += 1
+    if restored:
+        print(f"[queue] restored {restored} job(s) left over from the previous run", flush=True)
+
+
+def _enqueue_in_memory(job: dict):
     priority = bool(job.get("priority"))
     if job.get("type") in ("transcribe", "translate"):
         (priority_ml_queue if priority else ml_queue).put(job)
     else:
         (priority_job_queue if priority else job_queue).put(job)
+
+
+def enqueue_job(job: dict):
+    _persist_job(job)
+    _enqueue_in_memory(job)
 
 
 def total_queue_depth() -> int:
@@ -2070,6 +2192,9 @@ def worker_loop():
         try:
             process_job(job)
         finally:
+            # Done (or failed with a recorded verdict) - drop the persisted
+            # copy so a restart does not replay it.
+            forget_job(job)
             with state_lock:
                 state["processing"].pop(name, None)
             src_queue.task_done()
@@ -2120,6 +2245,7 @@ def ml_loop():
             # with nothing processing them, silently, with no crash to notice.
             print(f"[ml-worker] unexpected error, thread stays alive: {exc}", flush=True)
         finally:
+            forget_job(job)
             with state_lock:
                 state["processing"].pop(name, None)
                 state["ml_progress"] = None
@@ -2298,6 +2424,12 @@ def steal(body: StealBody, x_api_key: str = Header(default="")):
             continue
     for q, job in kept:
         q.put(job)
+    # A stolen job becomes the peer's responsibility, so drop our persisted
+    # copy - otherwise a restart here would replay work already handed away.
+    # The _qid is local to this worker and must not travel with the job.
+    for job in taken:
+        forget_job(job)
+        job.pop("_qid", None)
     return {"jobs": taken, "queue_depth": job_queue.qsize() + priority_job_queue.qsize()}
 
 
@@ -2478,8 +2610,12 @@ def clear_queue(x_api_key: str = Header(default="")):
         for q in (job_queue, priority_job_queue, ml_queue, priority_ml_queue):
             try:
                 while True:
-                    q.get_nowait()
+                    job = q.get_nowait()
                     q.task_done()
+                    # Clearing means clearing - drop the persisted copy too,
+                    # or a restart would faithfully bring back everything the
+                    # operator just asked to be rid of.
+                    forget_job(job)
                     removed += 1
             except queue.Empty:
                 pass
@@ -2730,7 +2866,9 @@ if __name__ == "__main__":
     import uvicorn
 
     # Before serving: protect anything generated before markers existed, then
-    # reopen any verdict reached under a different sync policy.
+    # reopen any verdict reached under a different sync policy, then put back
+    # whatever was still queued when this process last stopped.
     backfill_markers()
     reset_stale_verdicts()
+    restore_queue()
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("SUBWORKER_PORT", "8099")))
