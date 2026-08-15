@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.3.1"
+WORKER_VERSION = "2.3.2"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -1224,6 +1224,19 @@ priority_ml_queue: "queue.Queue[dict]" = queue.Queue()
 QUEUE_PERSIST = os.environ.get("SUBWORKER_PERSIST_QUEUE", "1") != "0"
 
 
+# How many times a persisted job may be handed to a processor before it is
+# treated as the thing that is killing this worker.
+#
+# THIS IS NOT OPTIONAL - without it, persistence turns a crash into an
+# infinite loop. A job that segfaults the process leaves no verdict behind
+# (the ledger is only written by code that ran to completion), so the job is
+# still queued on restart, gets picked first, and kills the worker again.
+# Observed exactly that: 1,344 consecutive 0xC0000005 crashes, one every ~40
+# seconds for twelve hours, all on the same file, with zero work done. Making
+# the queue durable made the poison permanent.
+QUEUE_MAX_ATTEMPTS = int(os.environ.get("SUBWORKER_QUEUE_MAX_ATTEMPTS", "3"))
+
+
 def _queue_db():
     conn = db()
     conn.execute(
@@ -1233,6 +1246,11 @@ def _queue_db():
             created TEXT NOT NULL
         )"""
     )
+    # Added after the fact; existing rows default to zero attempts.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(queued)")}
+    if "attempts" not in cols:
+        conn.execute("ALTER TABLE queued ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
+        conn.commit()
     return conn
 
 
@@ -1257,6 +1275,27 @@ def _persist_job(job: dict):
         print(f"[queue] could not persist job: {exc}", flush=True)
 
 
+def _mark_attempt(job: dict):
+    """Count one delivery of this job, and commit it BEFORE the job runs.
+
+    Committing first is the whole point: if the job takes the process down,
+    the incremented count is already on disk, so the next start knows this one
+    has been tried. A counter written after success could never rise for a job
+    that never succeeds."""
+    qid = job.get("_qid") if isinstance(job, dict) else None
+    if not QUEUE_PERSIST or not qid:
+        return
+    try:
+        conn = _queue_db()
+        try:
+            conn.execute("UPDATE queued SET attempts = attempts + 1 WHERE id = ?", (qid,))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[queue] could not count attempt for {qid}: {exc}", flush=True)
+
+
 def forget_job(job: dict):
     """Drop a job's persisted row - it is finished, or has moved to a peer."""
     qid = job.get("_qid") if isinstance(job, dict) else None
@@ -1274,14 +1313,20 @@ def forget_job(job: dict):
 
 
 def restore_queue():
-    """Replay jobs that were still queued when this process last stopped."""
+    """Replay jobs that were still queued when this process last stopped, and
+    quarantine any that have already had their chances.
+
+    The counter is bumped when a job is DEQUEUED for processing (see
+    _mark_attempt), never here: incrementing everything on every restart would
+    mean three ordinary idle-restarts abandoned the entire queue, and only the
+    job actually being attempted deserves the blame."""
     if not QUEUE_PERSIST:
         return
     try:
         import json as _j
         conn = _queue_db()
         try:
-            rows = conn.execute("SELECT id, job FROM queued ORDER BY id").fetchall()
+            rows = conn.execute("SELECT id, job, attempts FROM queued ORDER BY id").fetchall()
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001
@@ -1289,16 +1334,40 @@ def restore_queue():
         return
 
     restored = 0
-    for qid, blob in rows:
+    poisoned = []
+    for qid, blob, attempts in rows:
         try:
             job = _j.loads(blob)
         except Exception:  # noqa: BLE001 - skip a corrupt row rather than die
             continue
+        if attempts >= QUEUE_MAX_ATTEMPTS:
+            poisoned.append((qid, job))
+            continue
         job["_qid"] = qid
         _enqueue_in_memory(job)
         restored += 1
-    if restored:
-        print(f"[queue] restored {restored} job(s) left over from the previous run", flush=True)
+
+    # Record why each quarantined job was abandoned, so it shows up in the
+    # plugin's failure triage instead of vanishing, then drop it from the
+    # queue so the worker can get on with the rest.
+    for qid, job in poisoned:
+        target = job.get("media_path") or job.get("subtitle_path") or ""
+        key = ("transcribe:" if job.get("type") == "transcribe"
+               else "translate:" if job.get("type") == "translate" else "") + lp(target)
+        try:
+            mtime = os.path.getmtime(lp(target)) if os.path.exists(lp(target)) else 0
+        except OSError:
+            mtime = 0
+        record(key, mtime, None,
+               f"error: crashed the worker {QUEUE_MAX_ATTEMPTS} times, abandoned")
+        forget_job({"_qid": qid})
+        print(f"[queue] ABANDONED after {QUEUE_MAX_ATTEMPTS} attempts: {os.path.basename(target)}",
+              flush=True)
+
+    if restored or poisoned:
+        print(f"[queue] restored {restored} job(s) left over from the previous run"
+              + (f", abandoned {len(poisoned)} that keep crashing" if poisoned else ""),
+              flush=True)
 
 
 def _enqueue_in_memory(job: dict):
@@ -2189,6 +2258,7 @@ def worker_loop():
         label = job.get("subtitle_path") or job.get("media_path")
         with state_lock:
             state["processing"][name] = label
+        _mark_attempt(job)
         try:
             process_job(job)
         finally:
@@ -2229,6 +2299,7 @@ def ml_loop():
         label = prefix + os.path.basename(job.get("media_path") or "")
         with state_lock:
             state["processing"][name] = label
+        _mark_attempt(job)
         try:
             with transcribe_job_lock:
                 if job.get("type") == "transcribe":
