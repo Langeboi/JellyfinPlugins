@@ -15,6 +15,30 @@ namespace Jellyfin.Plugin.HeroBar.Configuration
 
         public int RotationSeconds { get; set; } = 8;
 
+        /// <summary>
+        /// Fill the hero with a random selection from the whole library
+        /// instead of "trending + recently added". The selection is derived
+        /// from the clock rather than from a random number generator, so
+        /// every user on the server sees the SAME items, and they only
+        /// change when the window below rolls over.
+        /// </summary>
+        public bool RandomRotation { get; set; } = true;
+
+        /// <summary>
+        /// How long one random selection stays put, in hours. The window is
+        /// aligned to the Unix epoch in UTC, so it rolls over at the same
+        /// moment for everybody regardless of timezone.
+        /// </summary>
+        public int RandomRotationHours { get; set; } = 48;
+
+        /// <summary>
+        /// How many items the random selection is drawn from. Every user
+        /// must draw from the same candidate list for the result to match,
+        /// so this is a fixed library-wide cap rather than anything
+        /// per-user. Only items with a backdrop can be used.
+        /// </summary>
+        public int RandomPoolSize { get; set; } = 400;
+
         public bool IncludeTrending { get; set; } = true;
 
         /// <summary>

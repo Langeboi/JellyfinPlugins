@@ -61,6 +61,36 @@
 
         <div class="checkboxContainer checkboxContainer-withDescription">
           <label>
+            <input id="RandomRotation" name="RandomRotation" type="checkbox" is="emby-checkbox" />
+            <span>Random selection, shared by everyone</span>
+          </label>
+          <div class="fieldDescription">
+            Fills the hero with a random pick from the whole library instead of trending and recently
+            added. The pick is derived from the clock, not from chance, so <b>every user on this
+            server sees the same items</b> &mdash; and they stay put until the window below rolls
+            over. Turn this off to go back to trending + recently added.
+          </div>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="RandomRotationHours">Change the selection every (hours)</label>
+          <input id="RandomRotationHours" name="RandomRotationHours" type="number" is="emby-input" min="1" max="720" />
+          <div class="fieldDescription">
+            Aligned to UTC, so it rolls over at the same moment for everyone. Default 48.
+          </div>
+        </div>
+
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="RandomPoolSize">Draw from the first (items)</label>
+          <input id="RandomPoolSize" name="RandomPoolSize" type="number" is="emby-input" min="10" max="2000" />
+          <div class="fieldDescription">
+            How much of the library the random pick considers, sorted by title. Only items that have
+            a backdrop image can appear in the hero. Default 400.
+          </div>
+        </div>
+
+        <div class="checkboxContainer checkboxContainer-withDescription">
+          <label>
             <input id="IncludeTrending" name="IncludeTrending" type="checkbox" is="emby-checkbox" />
             <span>Include trending items</span>
           </label>

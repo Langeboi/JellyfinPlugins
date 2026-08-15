@@ -212,6 +212,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.2.0",
+        "changelog": "Hero-baren kan nu vise et tilfældigt udvalg fra hele biblioteket i stedet for \"trending + senest tilføjet\" - og udvalget er det SAMME for alle brugere på serveren. Det skiftes automatisk ud hver 48. time (kan ændres i indstillingerne). Udvalget trækkes ikke tilfældigt pr. bruger eller pr. sideindlæsning - det udledes af uret, så alle lander på præcis de samme titler uden at serveren skal gemme noget, og det skifter helt af sig selv når vinduet ruller over (justeret efter UTC, så det sker samtidigt for alle). Kan slås fra igen i indstillingerne.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.0.2.0/herobar_2.0.2.0.zip",
+        "checksum": "b0c45f61dc9afd07e50705b22778a7ad",
+        "timestamp": "2026-08-15T19:27:00Z"
+      },
+      {
         "version": "2.0.1.0",
         "changelog": "Rettelse på mobil: slide-prikkerne lå oven i knapperne. Prikkerne sad nederst til højre - samme linje som Afspil/Info/Favorit-rækken - og blev tegnet ovenpå den. Målt live på en 360px skærm med dansk knaptekst (Fortsæt i stedet for Afspil) overlappede de to 112 pixels, så prikkerne løb tværs hen over Info- og favoritknappen. Det er et pladsproblem, som først opstår omkring 470px, og derfor kun ses på telefon: knapraden mod otte berøringsvenlige prikker klemt op i højre side. På skærme under 500px flytter prikkerne nu op i øverste højre hjørne - fri plads i alle slides, eftersom motivet ligger i midten/til højre og teksten nederst til venstre, og netop dér en karrusel normalt viser sin position på mobil.",
         "targetAbi": "10.11.0.0",
@@ -286,6 +294,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.1.1.0",
+        "changelog": "Tre rettelser til hover-visningen på forsiden. 1) Man kan nu klikke HVOR SOM HELST på det udvidede kort for at komme ind på titlens side - ikke kun på \"Læs mere\". Det meste af panelets flade var reelt dødt før, fordi panelet ligger oven på kortets eget link. 2) Afspil-knappen på det udvidede kort virker igen - den blev tegnet, men havde slet ingen klik-håndtering og gjorde derfor ingenting (tabt i en tidligere omskrivning). 3) Biblioteks-felterne under \"Mine medier\" (Comedy Specials, Movies, Shows, Western) udvider sig ikke længere. De er mapper, ikke film, så de havde hverken beskrivelse eller noget at afspille, og viste blot \"Ingen beskrivelse tilgængelig\". De lades nu fuldstændig i fred.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.1.1.0/newbadges_2.1.1.0.zip",
+        "checksum": "8107e653757893424e38850ba3c6a248",
+        "timestamp": "2026-08-15T19:27:00Z"
+      },
       {
         "version": "2.1.0.0",
         "changelog": "Hover-udfoldningen animerer nu - det gjorde den slet ikke før. Målt direkte i browseren sprang kortet fra 187px til 464px mellem to på hinanden følgende billeder, uden et eneste mellemtrin: effekten var altså aldrig dårligt afstemt, den kørte simpelthen ikke, og ingen justering af hastighed eller kurve ville nogensinde have kunnet ses. To ting spærrede hver for sig. Kortet står på flex-basis auto, og auto kan ikke interpoleres frem mod en pixelværdi, så browseren var nødt til at springe - derfor låses den nuværende bredde nu fast som en rigtig pixelværdi først. Og klassen der bærer selve overgangen blev sat i samme omgang som den værdi den skulle animere, så der ikke fandtes en tilstand at animere fra. Sammenklapningen animerer også nu; før blev overgangsklassen fjernet før den kunne nå at køre, så kortet knipsede tilbage i stedet for at trække sig sammen.\n\nSlut med det strakte plakat-glimt. Kortet voksede med den stående 2:3-plakat synlig indeni, som blev beskåret ud i en 16:9-boks der blev bredere for hvert billede, indtil det rigtige baggrundsbillede endelig landede - målt lå kortet i fuld bredde i 256 millisekunder med plakaten strakt, før billedet kom. Baggrundsbilledet hentes og afkodes nu FØR kortet får lov at vokse, og overlægget er uigennemsigtigt fra første billede, så plakaten aldrig kan nå at ses strakt. Er billedet ikke nået frem i tide, vokser kortet i stedet som et roligt mørkt felt, og billedet toner ind bagefter.\n\nStørre søgning. Resultater, medvirkende og mere fra instruktøren var for små: panelet var låst til 820px uanset skærm, og alt indeni var skaleret derefter. Panelet følger nu vinduets bredde, og plakater, portrætter og tekst er sat ca. 1,5x op - både i fuldt og halvt vindue. Undervejs dukkede en ældre fejl op: titler bredere end kortet skubbede kortet ud i bredden, fordi min-width auto lader indhold overtrumfe flex-basis, så rækken stod uens - målt 147px mod 139,7px for alle de øvrige kort. Nu holder bredden, og for lange titler afkortes med prikker som tiltænkt.",

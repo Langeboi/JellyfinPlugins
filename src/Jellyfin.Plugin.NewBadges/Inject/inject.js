@@ -2824,6 +2824,17 @@
     return parts.map(escapeHtml).join(' &nbsp;•&nbsp; ');
   }
 
+  // Card types that are containers rather than playable media. These have
+  // no synopsis and no meaningful "details" view, so the hover preview skips
+  // them completely rather than expanding into an empty panel.
+  var HOVER_SKIP_TYPES = {
+    CollectionFolder: 1, UserView: 1, Folder: 1, Playlist: 1, Channel: 1, ManualPlaylistsFolder: 1
+  };
+
+  function isNonPreviewableCard(card) {
+    return !!HOVER_SKIP_TYPES[card.getAttribute('data-type') || ''];
+  }
+
   function buildHoverOverlayContentHtml(details, playTarget) {
     var overview = details.Overview ? escapeHtml(details.Overview) : escapeHtml(t('noOverview'));
     var playHtml = playTarget
@@ -3118,6 +3129,15 @@
         if (!card || card.classList.contains('newBadges-cwCard')) {
           return;
         }
+        // Library tiles ("Mine medier": Comedy Specials, Movies, Shows,
+        // Western) are .card[data-id] like everything else, but they are
+        // folders rather than media - no overview, no play target, no
+        // details page worth previewing. Expanding them produced a panel
+        // whose only content was "no description available". Left entirely
+        // alone now: no expand, no hover state of our own, nothing.
+        if (isNonPreviewableCard(card)) {
+          return;
+        }
         if (card === hpCard) {
           clearTimeout(hpHideTimer);
           return;
@@ -3167,6 +3187,50 @@
         clearTimeout(hpShowTimer);
         scheduleHideHoverPreview();
       });
+
+      // Clicking anywhere on an expanded card opens that item - the whole
+      // panel is the target, not just the "Læs mere" button. The expanded
+      // overlay sits ON TOP of the card's own <a href="#/details?id=...">
+      // (z-index 3), so without this the majority of the panel's surface
+      // was simply dead: the anchor underneath never received the click.
+      //
+      // Two things keep their own behaviour and are allowed through:
+      //   - the play button, which starts playback instead of navigating
+      //     (it had NO handler at all before this - it rendered and did
+      //     nothing when clicked, apparently lost in an earlier refactor)
+      //   - the "Læs mere" anchor, which already navigates via its href
+      homePage.addEventListener('click', function (e) {
+        if (!e.target.closest) {
+          return;
+        }
+        var overlay = e.target.closest('.newBadges-hpOverlay');
+        if (!overlay) {
+          return;
+        }
+
+        var playBtn = e.target.closest('.newBadges-hpPlay');
+        if (playBtn) {
+          e.preventDefault();
+          e.stopPropagation();
+          drawerPlayItem(
+            playBtn.getAttribute('data-item-id'),
+            parseInt(playBtn.getAttribute('data-ticks'), 10) || 0
+          );
+          return;
+        }
+
+        if (e.target.closest('.newBadges-hpMore')) {
+          return; // its href does the navigating
+        }
+
+        var card = overlay.closest('.card[data-id]');
+        if (!card) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        location.hash = '#/details?id=' + card.getAttribute('data-id');
+      });
     });
   }
 
@@ -3213,7 +3277,9 @@
       // The backdrop is set as a background-image on this same opaque
       // element, so once it is preloaded (prepareHoverData decodes it before
       // the grow begins) swapping it in costs no fade and cannot flash.
-      '.newBadges-hpOverlay{position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
+      // cursor:pointer because the whole panel is now clickable, not just
+      // the two buttons on it.
+      '.newBadges-hpOverlay{cursor:pointer;position:absolute;inset:0;border-radius:.2em;overflow:hidden;' +
       'background-color:rgb(var(--nb-scrim-rgb));background-size:cover;background-position:center 25%;' +
       'color:var(--nb-on-media);opacity:1;transition:opacity .2s ease;z-index:3;}' +
       // On the way out the overlay fades rather than being yanked: without

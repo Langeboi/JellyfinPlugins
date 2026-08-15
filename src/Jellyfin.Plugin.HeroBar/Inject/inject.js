@@ -8,6 +8,9 @@
     UiLanguage: 'auto',
     SlideCount: 8,
     RotationSeconds: 8,
+    RandomRotation: true,
+    RandomRotationHours: 48,
+    RandomPoolSize: 400,
     IncludeTrending: true,
     TrendingWindowDays: 30,
     HeightPercent: 100,
@@ -247,6 +250,9 @@
           UiLanguage: data.UiLanguage || DEFAULTS.UiLanguage,
           SlideCount: clampInt(data.SlideCount, 1, 20, DEFAULTS.SlideCount),
           RotationSeconds: clampInt(data.RotationSeconds, 3, 60, DEFAULTS.RotationSeconds),
+          RandomRotation: data.RandomRotation !== false,
+          RandomRotationHours: clampInt(data.RandomRotationHours, 1, 720, DEFAULTS.RandomRotationHours),
+          RandomPoolSize: clampInt(data.RandomPoolSize, 10, 2000, DEFAULTS.RandomPoolSize),
           IncludeTrending: data.IncludeTrending !== false,
           TrendingWindowDays: clampInt(data.TrendingWindowDays, 1, 365, DEFAULTS.TrendingWindowDays),
           HeightPercent: clampInt(data.HeightPercent, 50, 150, DEFAULTS.HeightPercent),
@@ -476,7 +482,113 @@
     };
   }
 
+  // ==================================================================
+  //  Shared random rotation
+  //  "A random set that changes every 48 hours, the same for everybody."
+  //
+  //  Nothing here actually rolls a die. A real random pick would differ per
+  //  user and per page load, which is the opposite of what's wanted. Instead
+  //  the current time is quantised into a window number (how many 48h blocks
+  //  since the epoch), and that number seeds a deterministic shuffle of a
+  //  deterministic candidate list. Same window + same list = same items, on
+  //  every device and every account, with no server-side state to keep. It
+  //  changes by itself the moment the window rolls over.
+  // ==================================================================
+
+  function rotationWindowIndex(hours) {
+    var ms = Math.max(1, hours) * 3600 * 1000;
+    return Math.floor(Date.now() / ms);
+  }
+
+  // mulberry32: small, fast, well-distributed seeded PRNG. Any deterministic
+  // generator works here; this one is short enough to read.
+  function seededRandom(seed) {
+    var a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) >>> 0;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function seededShuffle(items, seed) {
+    var out = items.slice();
+    var rand = seededRandom(seed);
+    for (var i = out.length - 1; i > 0; i--) {
+      var j = Math.floor(rand() * (i + 1));
+      var tmp = out[i];
+      out[i] = out[j];
+      out[j] = tmp;
+    }
+    return out;
+  }
+
+  // The candidate list must be identical for every user or the shuffle can't
+  // agree with itself across accounts. SortName ascending is a library-wide
+  // ordering (not per-user like DateCreated-with-userdata can be), and the
+  // same fixed cap is applied for everyone.
+  function fetchRandomCandidates(cfg) {
+    var apiClient = window.ApiClient;
+    var userId = apiClient.getCurrentUserId();
+    return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items', {
+      Recursive: true,
+      IncludeItemTypes: 'Movie,Series',
+      SortBy: 'SortName',
+      SortOrder: 'Ascending',
+      Limit: Math.max(cfg.SlideCount, cfg.RandomPoolSize),
+      Fields: ITEM_FIELDS,
+      ImageTypes: 'Backdrop'
+    })).then(function (result) {
+      return (result.Items || []).filter(hasBackdrop);
+    });
+  }
+
+  function fetchRandomPool(cfg) {
+    var windowIndex = rotationWindowIndex(cfg.RandomRotationHours);
+    // The window index is part of the cache key, so the selection expires
+    // exactly when it rolls over rather than on a timer of its own.
+    var cacheKey = 'herobar-random-' + window.ApiClient.getCurrentUserId() +
+      '-' + cfg.SlideCount + '-' + cfg.RandomPoolSize + '-' + windowIndex;
+    try {
+      var raw = sessionStorage.getItem(cacheKey);
+      if (raw) {
+        var cached = JSON.parse(raw);
+        if (cached.items && cached.items.length) {
+          return Promise.resolve(cached.items);
+        }
+      }
+    } catch (e) { /* corrupt/unavailable storage - just fetch */ }
+
+    return fetchRandomCandidates(cfg).then(function (candidates) {
+      if (!candidates.length) {
+        return [];
+      }
+      var pool = seededShuffle(candidates, windowIndex)
+        .slice(0, cfg.SlideCount)
+        .map(slimItem);
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ items: pool }));
+      } catch (e) { /* quota - fine, just uncached */ }
+      return pool;
+    });
+  }
+
   function fetchPoolItems(cfg) {
+    if (cfg.RandomRotation) {
+      return fetchRandomPool(cfg).then(function (pool) {
+        // An empty library-wide result (or a failed request) should not
+        // leave the hero blank - fall through to the original behaviour.
+        return pool.length ? pool : fetchTrendingAndRecentPool(cfg);
+      }).catch(function () {
+        return fetchTrendingAndRecentPool(cfg);
+      });
+    }
+    return fetchTrendingAndRecentPool(cfg);
+  }
+
+  function fetchTrendingAndRecentPool(cfg) {
     // Every setting that changes what ends up in the pool is part of the key,
     // so adjusting one in the dashboard does not keep serving the old pool.
     var cacheKey = 'herobar-pool-' + window.ApiClient.getCurrentUserId() +
@@ -1005,6 +1117,9 @@
     ['HeightPercent', 'HeightPercent', 'int'],
     ['ShowOverview', 'ShowOverview', 'bool'],
     ['ShowFavoriteButton', 'ShowFavoriteButton', 'bool'],
+    ['RandomRotation', 'RandomRotation', 'bool'],
+    ['RandomRotationHours', 'RandomRotationHours', 'int'],
+    ['RandomPoolSize', 'RandomPoolSize', 'int'],
     ['IncludeTrending', 'IncludeTrending', 'bool'],
     ['TrendingWindowDays', 'TrendingWindowDays', 'int']
   ];
