@@ -215,7 +215,7 @@
         "version": "2.0.2.0",
         "changelog": "Hero-baren kan nu vise et tilfældigt udvalg fra hele biblioteket i stedet for \"trending + senest tilføjet\" - og udvalget er det SAMME for alle brugere på serveren. Det skiftes automatisk ud hver 48. time (kan ændres i indstillingerne). Udvalget trækkes ikke tilfældigt pr. bruger eller pr. sideindlæsning - det udledes af uret, så alle lander på præcis de samme titler uden at serveren skal gemme noget, og det skifter helt af sig selv når vinduet ruller over (justeret efter UTC, så det sker samtidigt for alle). Kan slås fra igen i indstillingerne.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.0.2.0/herobar_2.0.2.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.2.0.1/herobar_2.0.2.0.zip",
         "checksum": "b0c45f61dc9afd07e50705b22778a7ad",
         "timestamp": "2026-08-15T19:27:00Z"
       },
@@ -533,7 +533,7 @@
         "version": "2.2.0.0",
         "changelog": "Fuld redesign af \"Tilføj Film/Serie\"-siden. Før: en roterende banner øverst, et tyndt søgefelt og fire vandrette rækker (Seneste anmodninger, Trending, Film, Serier) der hver viste omkring fire titler ad gangen. Nu: søgningen er det første og største på siden, og de fire rækker er erstattet af ÉT gitter, der viser alt på én gang. Alle/Film/Serier og genre-knapperne filtrerer nu det samme gitter i stedet for at være delt op i to næsten ens sektioner, og der er en \"Vis flere\"-knap. Statusmarkeringerne er lavet om til tre tydelige niveauer: den eneste du kan handle på (Tilføj) er en fremhævet knap, \"Anmodet\" er en dæmpet mat boble med en langsom puls, og noget der allerede er på serveren viser kun et lille flueben - og selve plakaten tones ned, så øjet springer den over. Titler du allerede har, er som udgangspunkt helt skjult (kan slås til med \"Vis dem vi har\"), og det du faktisk kan anmode om ligger øverst. Dine egne anmodninger er flyttet fra en stor plakat-række til en kompakt statusliste. Rettet undervejs: Seerr kan returnere flere forskellige titler med samme navn (fx tre udgaver af \"Paradise Hotel\"), som nu slås sammen til én; og den hårde kant øverst på siden, hvor Jellyfins faste header møder indholdet, er blødt op.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/SeerrRequests-v2.2.0.0/seerrrequests_2.2.0.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.2.0.0/seerrrequests_2.2.0.0.zip",
         "checksum": "610fe043d7ee22731853a1b2d588b4d2",
         "timestamp": "2026-08-15T20:08:00Z"
       },
