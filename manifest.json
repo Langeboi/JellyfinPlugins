@@ -298,7 +298,7 @@
         "version": "2.1.1.0",
         "changelog": "Tre rettelser til hover-visningen på forsiden. 1) Man kan nu klikke HVOR SOM HELST på det udvidede kort for at komme ind på titlens side - ikke kun på \"Læs mere\". Det meste af panelets flade var reelt dødt før, fordi panelet ligger oven på kortets eget link. 2) Afspil-knappen på det udvidede kort virker igen - den blev tegnet, men havde slet ingen klik-håndtering og gjorde derfor ingenting (tabt i en tidligere omskrivning). 3) Biblioteks-felterne under \"Mine medier\" (Comedy Specials, Movies, Shows, Western) udvider sig ikke længere. De er mapper, ikke film, så de havde hverken beskrivelse eller noget at afspille, og viste blot \"Ingen beskrivelse tilgængelig\". De lades nu fuldstændig i fred.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.1.1.0/newbadges_2.1.1.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.1.1.0/newbadges_2.1.1.0.zip",
         "checksum": "8107e653757893424e38850ba3c6a248",
         "timestamp": "2026-08-15T19:27:00Z"
       },
