@@ -46,7 +46,16 @@
   var EN = {
     tabRequests: 'Request media',
     tabCalendar: 'Release calendar',
-    searchPlaceholder: 'Search for a film or series...',
+    searchPlaceholder: 'Search for a title...',
+    askHeading: 'What are we missing?',
+    askSub: 'Search for a film or series and we will fetch it to the server.',
+    filterAll: 'All',
+    showOwned: 'Show what we have',
+    onServerTitle: 'Already on the server',
+    noMatches: 'No titles match.',
+    loadFailed: 'Could not load anything.',
+    showMore: 'Show more',
+    inProgress: '{n} in progress',
     recentRequests: 'Recent requests',
     trending: 'Trending',
     movies: 'Films',
@@ -103,7 +112,16 @@
   var DA = {
     tabRequests: 'Tilføj Film/Serie',
     tabCalendar: 'Udgivelseskalender',
-    searchPlaceholder: 'Søg efter film eller serie...',
+    searchPlaceholder: 'Søg efter titel...',
+    askHeading: 'Hvad mangler vi?',
+    askSub: 'Søg efter en film eller serie – så henter vi den til serveren.',
+    filterAll: 'Alle',
+    showOwned: 'Vis dem vi har',
+    onServerTitle: 'Allerede på serveren',
+    noMatches: 'Ingen titler matcher.',
+    loadFailed: 'Kunne ikke hente indhold.',
+    showMore: 'Vis flere',
+    inProgress: '{n} i gang',
     recentRequests: 'Seneste anmodninger',
     trending: 'Trending',
     movies: 'Film',
@@ -338,6 +356,18 @@
     Object.keys(vars).forEach(function (name) {
       root.style.setProperty(name, vars[name]);
     });
+
+    // The board's top fade has to start exactly where Jellyfin's fixed
+    // header ends, and that height differs per skin (and per width - the
+    // tab row wraps below the logo on narrow windows), so it is measured
+    // rather than assumed. Falls back to the CSS default if absent.
+    var header = document.querySelector('.skinHeader');
+    if (header) {
+      var h = Math.round(header.getBoundingClientRect().height);
+      if (h > 0) {
+        root.style.setProperty('--seerr-header-h', (h - 18) + 'px');
+      }
+    }
   }
 
   // Themes can be switched without a reload, and a theme stylesheet can land
@@ -362,9 +392,6 @@
     return !!btn && (btn.hasAttribute(BUTTON_MARKER) || btn.hasAttribute(CAL_BUTTON_MARKER));
   }
   var searchDebounceTimer = null;
-  var genreCache = {}; // mediaType -> [{id,name}]
-  var filmGenreId = null;
-  var tvGenreId = null;
 
   function isHomeRoute() {
     return location.hash.indexOf('#/home') === 0;
@@ -566,13 +593,118 @@
       '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards{position:relative;padding-left:.75em;}' +
       '#' + TAB_CONTENT_ID + ' h2.sectionTitle-cards::before{content:"";position:absolute;left:0;' +
       'top:.1em;bottom:.1em;width:3px;border-radius:2px;background:var(--seerr-accent);}' +
-      '.seerrRequests-searchRow{margin:1em 0;}' +
-      '.seerrRequests-searchInput{width:100%;max-width:480px;}' +
-      '.seerrRequests-searchInput:focus{box-shadow:0 0 0 2px var(--seerr-accent-soft);}' +
-      '.seerrRequests-searchResults{display:flex;flex-wrap:wrap;gap:1em;margin-bottom:1.6em;}' +
+      // ---------- the board ----------
+      // Softens the seam under Jellyfin's fixed header: the area above the
+      // header's bottom edge renders lighter (its own blur layer) than the
+      // page below it, leaving a hard horizontal line. This continues the
+      // header's tone a little way down instead of cutting.
+      '#' + TAB_CONTENT_ID + '::before{content:"";position:fixed;left:0;right:0;height:120px;' +
+      'pointer-events:none;z-index:1;top:var(--seerr-header-h,150px);' +
+      'background:linear-gradient(180deg,rgba(var(--seerr-surface-rgb),.55) 0%,' +
+      'rgba(var(--seerr-surface-rgb),.26) 42%,rgba(var(--seerr-surface-rgb),0) 100%);}' +
+      '.seerrBoard{max-width:1400px;margin:0 auto;padding:0 1.2em 3em;position:relative;z-index:2;}' +
+      '.seerrBoard-ask{padding:2em 0 1.5em;text-align:center;}' +
+      '.seerrBoard-askH{font-size:2.1em;font-weight:800;letter-spacing:-.03em;margin:0 0 .25em;}' +
+      '.seerrBoard-askSub{opacity:.55;font-size:.95em;margin:0 0 1.3em;}' +
+      '.seerrBoard-searchWrap{position:relative;max-width:660px;margin:0 auto;}' +
+      '.seerrBoard-search{width:100%;box-sizing:border-box;height:58px;border-radius:16px;' +
+      'padding:0 1.2em 0 3.4em;font-size:1.02rem;font-weight:500;font-family:inherit;' +
+      'color:rgb(var(--seerr-fg-rgb));background:rgba(var(--seerr-fg-rgb),.06);' +
+      'border:1px solid rgba(var(--seerr-fg-rgb),.14);transition:background .18s,border-color .18s,box-shadow .18s;}' +
+      '.seerrBoard-search::placeholder{color:rgba(var(--seerr-fg-rgb),.38);}' +
+      '.seerrBoard-search:focus{outline:none;background:rgba(var(--seerr-fg-rgb),.1);' +
+      'border-color:var(--seerr-accent);box-shadow:0 0 0 4px var(--seerr-accent-soft);}' +
+      '.seerrBoard-searchIcon{position:absolute;left:1.1em;top:50%;transform:translateY(-50%);' +
+      'font-size:1.45em;color:rgba(var(--seerr-fg-rgb),.4);pointer-events:none;}' +
+      '.seerrBoard-bar{display:grid;grid-template-columns:auto 1fr;' +
+      'grid-template-areas:"seg toggle" "chips chips";gap:.9em 1em;align-items:center;' +
+      'padding:.3em 0 1.1em;border-bottom:1px solid rgba(var(--seerr-fg-rgb),.08);margin-bottom:1.4em;}' +
+      '.seerrBoard-seg{grid-area:seg;display:inline-flex;padding:4px;border-radius:12px;' +
+      'background:rgba(var(--seerr-fg-rgb),.06);border:1px solid rgba(var(--seerr-fg-rgb),.1);}' +
+      '.seerrBoard-segBtn{border:none;background:none;font-family:inherit;cursor:pointer;' +
+      'color:rgba(var(--seerr-fg-rgb),.65);font-weight:700;font-size:.88em;padding:.55em 1.15em;' +
+      'border-radius:9px;transition:background .15s,color .15s;}' +
+      '.seerrBoard-segBtn:hover{color:rgb(var(--seerr-fg-rgb));}' +
+      '.seerrBoard-segBtn.is-on{background:var(--seerr-accent);color:var(--seerr-accent-fg);}' +
+      '.seerrBoard-toggle{grid-area:toggle;justify-self:end;display:inline-flex;align-items:center;' +
+      'gap:.5em;font-size:.8em;font-weight:600;color:rgba(var(--seerr-fg-rgb),.6);cursor:pointer;' +
+      'user-select:none;white-space:nowrap;}' +
+      '.seerrBoard-toggle input{appearance:none;-webkit-appearance:none;width:34px;height:19px;' +
+      'border-radius:999px;position:relative;margin:0;cursor:pointer;' +
+      'background:rgba(var(--seerr-fg-rgb),.16);transition:background .18s;}' +
+      '.seerrBoard-toggle input:checked{background:var(--seerr-accent);}' +
+      '.seerrBoard-toggle input::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;' +
+      'border-radius:50%;background:#fff;transition:transform .18s;}' +
+      '.seerrBoard-toggle input:checked::after{transform:translateX(15px);}' +
+      '.seerrBoard-chips{grid-area:chips;display:flex;gap:.45em;overflow-x:auto;padding-bottom:2px;' +
+      'scrollbar-width:none;-webkit-mask-image:linear-gradient(90deg,#000 94%,transparent);}' +
+      '.seerrBoard-chips::-webkit-scrollbar{display:none;}' +
+      '.seerrBoard-chip{flex:0 0 auto;border-radius:999px;padding:.45em .95em;font-size:.8em;' +
+      'font-weight:600;white-space:nowrap;font-family:inherit;cursor:pointer;' +
+      'color:rgba(var(--seerr-fg-rgb),.75);background:rgba(var(--seerr-fg-rgb),.05);' +
+      'border:1px solid rgba(var(--seerr-fg-rgb),.09);transition:background .15s,color .15s,border-color .15s;}' +
+      '.seerrBoard-chip:hover{background:rgba(var(--seerr-fg-rgb),.12);color:rgb(var(--seerr-fg-rgb));}' +
+      '.seerrBoard-chip.is-on{background:rgb(var(--seerr-fg-rgb));color:rgb(var(--seerr-surface-rgb));' +
+      'border-color:rgb(var(--seerr-fg-rgb));}' +
+      '.seerrBoard-grid{display:grid;gap:1.1em;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}' +
+      '.seerrBoard-card{position:relative;border-radius:14px;overflow:hidden;cursor:pointer;aspect-ratio:2/3;' +
+      'background:rgba(var(--seerr-panel-rgb),1);box-shadow:0 4px 14px var(--seerr-shadow);' +
+      'transition:transform .22s cubic-bezier(.2,.7,.3,1),box-shadow .22s,filter .22s,opacity .22s;}' +
+      '.seerrBoard-card:hover{transform:translateY(-6px);box-shadow:0 18px 36px var(--seerr-shadow);}' +
+      // Already on the server: dimmed and desaturated so the eye skips it.
+      '.seerrBoard-card.is-owned{filter:saturate(.55) brightness(.72);opacity:.78;}' +
+      '.seerrBoard-card.is-owned:hover{filter:none;opacity:1;}' +
+      '.seerrBoard-poster{position:absolute;inset:0;background-size:cover;background-position:center;}' +
+      '.seerrBoard-card::after{content:"";position:absolute;inset:0;pointer-events:none;' +
+      'background:linear-gradient(to top,rgba(var(--seerr-scrim-rgb),.96) 0%,' +
+      'rgba(var(--seerr-scrim-rgb),.5) 38%,rgba(var(--seerr-scrim-rgb),0) 68%);}' +
+      '.seerrBoard-meta{position:absolute;left:0;right:0;bottom:0;padding:.8em .8em .75em;z-index:2;}' +
+      '.seerrBoard-title{font-size:.87em;font-weight:700;line-height:1.25;color:var(--seerr-on-media);' +
+      'text-shadow:0 1px 4px rgba(0,0,0,.9);display:-webkit-box;-webkit-line-clamp:2;' +
+      '-webkit-box-orient:vertical;overflow:hidden;}' +
+      '.seerrBoard-corner{position:absolute;top:.55em;left:.55em;z-index:3;}' +
+      // Three tiers: the one you can act on shouts, the one in flight murmurs,
+      // the one already handled says nothing at all.
+      '.seerrBoard-state.is-pending{display:inline-flex;align-items:center;gap:.4em;' +
+      'background:rgba(var(--seerr-scrim-rgb),.72);backdrop-filter:blur(10px);' +
+      '-webkit-backdrop-filter:blur(10px);border:1px solid rgba(230,170,60,.45);color:#e6aa3c;' +
+      'font-size:.66em;font-weight:700;padding:.32em .66em;border-radius:999px;}' +
+      '.seerrBoard-pulse{width:6px;height:6px;border-radius:50%;background:currentColor;' +
+      'animation:seerrPulse 1.9s ease-in-out infinite;}' +
+      '@keyframes seerrPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.35;transform:scale(.8);}}' +
+      '.seerrBoard-state.is-owned{display:inline-flex;align-items:center;justify-content:center;' +
+      'width:23px;height:23px;border-radius:50%;background:rgba(var(--seerr-scrim-rgb),.75);' +
+      'backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);' +
+      'border:1px solid rgba(63,185,80,.55);color:#3fb950;font-size:.82em;font-weight:900;}' +
+      '.seerrBoard-empty{grid-column:1/-1;opacity:.45;text-align:center;padding:3.5em 0;font-size:.95em;}' +
+      '.seerrBoard-more{display:flex;justify-content:center;margin-top:1.6em;}' +
+      '.seerrBoard-moreBtn{font-family:inherit;font-weight:700;font-size:.85em;cursor:pointer;' +
+      'padding:.7em 1.8em;border-radius:999px;color:rgb(var(--seerr-fg-rgb));' +
+      'background:rgba(var(--seerr-fg-rgb),.07);border:1px solid rgba(var(--seerr-fg-rgb),.14);' +
+      'transition:background .15s;}' +
+      '.seerrBoard-moreBtn:hover{background:rgba(var(--seerr-fg-rgb),.14);}' +
+      '.seerrBoard-reqHead{display:flex;align-items:baseline;gap:.7em;margin:2.6em 0 .9em;}' +
+      '.seerrBoard-reqH{font-size:1.05em;font-weight:800;letter-spacing:-.01em;}' +
+      '.seerrBoard-reqCount{font-size:.8em;opacity:.45;}' +
+      '.seerrBoard-reqList{display:grid;gap:.5em;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));}' +
+      '.seerrBoard-req{display:flex;align-items:center;gap:.8em;padding:.55em .8em .55em .55em;' +
+      'border-radius:12px;text-decoration:none;color:inherit;' +
+      'background:rgba(var(--seerr-fg-rgb),.04);border:1px solid rgba(var(--seerr-fg-rgb),.07);' +
+      'transition:background .15s;}' +
+      '.seerrBoard-req:hover{background:rgba(var(--seerr-fg-rgb),.09);}' +
+      '.seerrBoard-reqThumb{width:38px;height:56px;border-radius:7px;flex:0 0 auto;' +
+      'background-size:cover;background-position:center;background-color:rgba(var(--seerr-panel-rgb),1);}' +
+      '.seerrBoard-reqBody{min-width:0;flex:1;}' +
+      '.seerrBoard-reqTitle{font-size:.85em;font-weight:700;white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis;}' +
+      '.seerrBoard-reqState{font-size:.72em;opacity:.65;margin-top:.15em;display:flex;align-items:center;}' +
+      '.seerrBoard-reqDot{display:inline-block;width:7px;height:7px;border-radius:50%;' +
+      'margin-right:.45em;background:currentColor;flex:0 0 auto;}' +
+      '.seerrBoard-req.seerrRequests-statusAvailable .seerrBoard-reqState{color:#3fb950;opacity:1;}' +
+      '.seerrBoard-req.seerrRequests-statusPending .seerrBoard-reqState{color:#e6aa3c;opacity:1;}' +
+      '@media (max-width:600px){.seerrBoard-askH{font-size:1.55em;}' +
+      '.seerrBoard-grid{grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:.7em;}}' +
       '.seerrRequests-recentSection{margin-top:.8em;}' +
-      '.seerrRequests-searchResults:empty{display:none;}' +
-      '.seerrRequests-searchResults .card{width:150px;}' +
       '.seerrRequests-loading,.seerrRequests-empty{opacity:.6;padding:.5em 0;}' +
       // Recent-requests/Trending/Film/Serier rows are a plain horizontally
       // scrolling flex row (overflow-x:auto) instead of the native
@@ -590,11 +722,7 @@
       // hover glow right where it pokes past the row's edge. Gap brought
       // down twice now (1em -> .6em -> .3em) - still felt too spaced out
       // even at .6em per feedback.
-      '.seerrRequests-scrollRow{display:flex;gap:.3em;overflow-x:auto;overflow-y:visible;' +
       'scroll-behavior:smooth;padding:14px 10px;scrollbar-width:none;}' +
-      '.seerrRequests-scrollRow::-webkit-scrollbar{display:none;}' +
-      '.seerrRequests-scrollRow > .card{flex:none;}' +
-      '.seerrRequests-scrollRow:empty{display:none;}' +
       // Subtle bottom scrim on every poster in this tab (Seerr does the
       // same under its own request buttons/badges) so the action pill and
       // status badges stay legible against bright poster art. Deliberately
@@ -615,7 +743,6 @@
       // Seerr's own request-button placement - moved here from an earlier
       // top-left corner-pill layout so the slot doesn't visually jump around
       // depending on which state a card is currently in.
-      '.seerrRequests-cardAction{position:absolute;left:50%;bottom:8px;transform:translateX(-50%);z-index:6;}' +
       '.seerrRequests-requestBtn{background:var(--seerr-accent);color:var(--seerr-accent-fg);' +
       'border:none;border-radius:999px;' +
       'padding:.4em 1.1em;font-weight:600;font-size:.8em;letter-spacing:.02em;cursor:pointer;' +
@@ -657,19 +784,13 @@
       'a.card{text-decoration:none;color:inherit;display:block;}' +
       // Genre filter pills, scoped per section now (Film / Serier each get
       // their own row instead of one global type toggle).
-      '.seerrRequests-genreRow{display:flex;gap:.5em;flex-wrap:wrap;margin:.3em 0 .8em;}' +
-      '.seerrRequests-genreRow:empty{display:none;}' +
-      '.seerrRequests-genrePill{background:rgba(var(--seerr-fg-rgb),.06);color:rgb(var(--seerr-fg-rgb));' +
       'border:1px solid rgba(var(--seerr-fg-rgb),.18);border-radius:16px;padding:.35em .9em;' +
       'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
-      '.seerrRequests-genrePill:hover{border-color:var(--seerr-accent);}' +
-      '.seerrRequests-genrePill.seerrRequests-filterActive{background:var(--seerr-accent);' +
       'border-color:var(--seerr-accent);color:var(--seerr-accent-fg);}' +
       // Upcoming-releases hero: same visual family as the Hero Bar home
       // hero (same verified rgba(30,40,54,...) gradient family), but
       // thinner and rounded since it sits inside the width-constrained
       // .sections column rather than full-bleed.
-      '.seerrRequests-upcomingHero{position:relative;width:100%;height:0;overflow:hidden;' +
       'border-radius:12px;background:rgb(var(--seerr-surface-rgb));color:var(--seerr-on-media);' +
       'transition:height .3s ease;}' +
       // Height is really a framing decision, not a size one. TMDB backdrops
@@ -684,46 +805,25 @@
       // than becoming a full-height hero. The phone breakpoints below are
       // deliberately NOT raised to match: a ~375px-wide hero at 230px is
       // already 1.63:1, i.e. barely cropping at all.
-      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(46vh,420px);margin-bottom:1.2em;}' +
       // 30% rather than 25%: with the taller box there is less overscan to
       // distribute, and film stills put their subject just above centre.
-      '.seerrRequests-uhSlide{position:absolute;inset:0;background-size:cover;' +
       'background-position:center 30%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
-      '.seerrRequests-uhSlide.is-active{opacity:1;pointer-events:auto;}' +
-      '.seerrRequests-uhGradient{position:absolute;inset:0;pointer-events:none;background:' +
       'linear-gradient(to top,rgba(var(--seerr-scrim-rgb),.95) 0%,rgba(var(--seerr-scrim-rgb),.45) 40%,' +
       'rgba(var(--seerr-scrim-rgb),0) 70%),' +
       'linear-gradient(to right,rgba(var(--seerr-scrim-rgb),.65) 0%,rgba(var(--seerr-scrim-rgb),0) 55%);}' +
-      '.seerrRequests-uhContent{position:absolute;left:0;bottom:0;right:0;padding:1.2em 1.6em;' +
       'max-width:min(640px,92%);z-index:1;}' +
-      '.seerrRequests-uhDate{display:inline-block;background:var(--seerr-accent);' +
       'color:var(--seerr-accent-fg);' +
       'border-radius:999px;padding:.25em .9em;font-size:.75em;font-weight:700;letter-spacing:.04em;' +
       'margin-bottom:.6em;box-shadow:0 2px 8px rgba(0,0,0,.4);}' +
-      '.seerrRequests-uhTitle{font-size:1.5em;font-weight:800;margin:0 0 .3em;' +
       'text-shadow:0 2px 6px rgba(0,0,0,.6);}' +
-      '.seerrRequests-uhOverview{opacity:.85;font-size:.85em;line-height:1.4;' +
       'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
-      '.seerrRequests-uhAction{margin-top:.8em;}' +
-      '.seerrRequests-uhAction .seerrRequests-statusBadge{font-size:12px;padding:5px 12px;}' +
-      '.seerrRequests-uhDots{position:absolute;bottom:1em;right:1.2em;display:flex;gap:.4em;z-index:2;}' +
-      '.seerrRequests-uhDot{width:7px;height:7px;padding:0;border-radius:50%;border:none;' +
       'background:rgba(255,255,255,.4);cursor:pointer;transition:background .15s,transform .15s;}' +
-      '.seerrRequests-uhDot.is-active{background:var(--seerr-on-media);transform:scale(1.2);}' +
       '@media (max-width:800px){' +
-      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(38vh,280px);}' +
-      '.seerrRequests-uhTitle{font-size:1.2em;}' +
       // Genre pills: one horizontally swipeable row instead of wrapping into
       // several rows that eat half the screen on a phone.
-      '.seerrRequests-genreRow{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;' +
       'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
-      '.seerrRequests-genreRow::-webkit-scrollbar{display:none;}' +
-      '.seerrRequests-genrePill{flex:0 0 auto;padding:.45em 1em;}' +
       // 16px minimum stops iOS Safari from auto-zooming the page when the
       // search field gets focus.
-      '.seerrRequests-searchInput{font-size:16px;}' +
-      '.seerrRequests-uhDots{gap:.55em;}' +
-      '.seerrRequests-uhDot{width:15px;height:15px;padding:4px;background-clip:content-box;}' +
       '}' +
       // Hover-expand preview popover (desktop only - shown via matchMedia
       // hover check, so these styles never apply on touch devices).
@@ -754,12 +854,6 @@
       '.seerrRequests-hoverPopAction .seerrRequests-statusBadge{font-size:12px;padding:5px 12px;}' +
       // Phone-sized refinements for the upcoming hero.
       '@media (max-width:500px){' +
-      '.seerrRequests-upcomingHero.seerrRequests-uhReady{height:min(32vh,230px);}' +
-      '.seerrRequests-uhContent{padding:.8em 1em;max-width:96%;}' +
-      '.seerrRequests-uhDate{font-size:.7em;margin-bottom:.4em;}' +
-      '.seerrRequests-uhTitle{font-size:1.05em;margin-bottom:.2em;}' +
-      '.seerrRequests-uhOverview{font-size:.78em;-webkit-line-clamp:2;}' +
-      '.seerrRequests-uhAction{margin-top:.6em;}' +
       '}' +
       // ---- "Kommer Snart" calendar (Seerr's card language - backdrop art
       // under a heavy scrim, pill badges, rounded cards - rendered in
@@ -963,41 +1057,48 @@
       return tab;
     }
 
+    // One board, not four rows. The old layout was a rotating hero plus
+    // Trending / Film / Serier / Seneste anmodninger as separate horizontal
+    // rows - which showed about four titles at a time and buried the search
+    // field, on a page whose entire purpose is "find something we don't
+    // have and ask for it". Now: search leads, one grid shows everything at
+    // once, and the segment/genre/owned controls filter that one grid.
     var wrapper = document.createElement('div');
     wrapper.innerHTML =
       '<div id="' + TAB_CONTENT_ID + '" class="tabContent pageTabContent">' +
-        '<div class="sections">' +
-          '<div class="seerrRequests-upcomingHero"></div>' +
-          '<div class="seerrRequests-searchRow">' +
-            '<input type="text" is="emby-input" class="seerrRequests-searchInput" placeholder="' +
-              escapeHtml(t('searchPlaceholder')) + '" />' +
-          '</div>' +
-          '<div class="seerrRequests-searchResults"></div>' +
-          '<div class="verticalSection seerrRequests-recentSection">' +
-            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-              '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('recentRequests')) + '</h2>' +
+        '<div class="sections seerrBoard">' +
+          '<div class="seerrBoard-ask">' +
+            '<h1 class="seerrBoard-askH">' + escapeHtml(t('askHeading')) + '</h1>' +
+            '<p class="seerrBoard-askSub">' + escapeHtml(t('askSub')) + '</p>' +
+            '<div class="seerrBoard-searchWrap">' +
+              '<span class="material-icons search seerrBoard-searchIcon" aria-hidden="true"></span>' +
+              '<input type="text" class="seerrBoard-search" placeholder="' +
+                escapeHtml(t('searchPlaceholder')) + '" />' +
             '</div>' +
-            '<div class="seerrRequests-scrollRow seerrRequests-recentRow"></div>' +
           '</div>' +
-          '<div class="verticalSection">' +
-            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-              '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('trending')) + '</h2>' +
+          '<div class="seerrBoard-bar">' +
+            '<div class="seerrBoard-seg">' +
+              '<button type="button" class="seerrBoard-segBtn is-on" data-filter="all">' +
+                escapeHtml(t('filterAll')) + '</button>' +
+              '<button type="button" class="seerrBoard-segBtn" data-filter="movie">' +
+                escapeHtml(t('movies')) + '</button>' +
+              '<button type="button" class="seerrBoard-segBtn" data-filter="tv">' +
+                escapeHtml(t('series')) + '</button>' +
             '</div>' +
-            '<div class="seerrRequests-scrollRow seerrRequests-trendingRow"></div>' +
+            '<label class="seerrBoard-toggle">' +
+              '<input type="checkbox" class="seerrBoard-ownedToggle" />' +
+              '<span>' + escapeHtml(t('showOwned')) + '</span>' +
+            '</label>' +
+            '<div class="seerrBoard-chips"></div>' +
           '</div>' +
-          '<div class="verticalSection">' +
-            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-              '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('movies')) + '</h2>' +
+          '<div class="seerrBoard-grid"></div>' +
+          '<div class="seerrBoard-more"></div>' +
+          '<div class="verticalSection seerrRequests-recentSection" style="display:none">' +
+            '<div class="seerrBoard-reqHead">' +
+              '<span class="seerrBoard-reqH">' + escapeHtml(t('recentRequests')) + '</span>' +
+              '<span class="seerrBoard-reqCount"></span>' +
             '</div>' +
-            '<div class="seerrRequests-genreRow seerrRequests-movieGenreRow"></div>' +
-            '<div class="seerrRequests-scrollRow seerrRequests-movieRow"></div>' +
-          '</div>' +
-          '<div class="verticalSection">' +
-            '<div class="sectionTitleContainer sectionTitleContainer-cards padded-left">' +
-              '<h2 class="sectionTitle sectionTitle-cards">' + escapeHtml(t('series')) + '</h2>' +
-            '</div>' +
-            '<div class="seerrRequests-genreRow seerrRequests-tvGenreRow"></div>' +
-            '<div class="seerrRequests-scrollRow seerrRequests-tvRow"></div>' +
+            '<div class="seerrRequests-recentRow seerrBoard-reqList"></div>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -1007,50 +1108,265 @@
     wireRequestButtons(tab);
     wireHoverPreview(tab);
 
-    var searchInput = tab.querySelector('.seerrRequests-searchInput');
-    searchInput.addEventListener('input', function () {
-      var query = searchInput.value.trim();
-      clearTimeout(searchDebounceTimer);
-      var resultsEl = tab.querySelector('.seerrRequests-searchResults');
-      if (!query) {
-        resultsEl.innerHTML = '';
-        return;
-      }
-      searchDebounceTimer = setTimeout(function () {
-        performSearch(tab, query);
-      }, 400);
-    });
-
-    tab.querySelector('.seerrRequests-movieGenreRow').addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.seerrRequests-genrePill') : null;
-      if (!btn) {
-        return;
-      }
-      var genreId = parseInt(btn.getAttribute('data-genre-id'), 10);
-      filmGenreId = filmGenreId === genreId ? null : genreId;
-      tab.querySelectorAll('.seerrRequests-movieGenreRow .seerrRequests-genrePill').forEach(function (el) {
-        el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === filmGenreId);
-      });
-      loadRow(tab, '.seerrRequests-movieRow', 'movie', filmGenreId);
-    });
-
-    tab.querySelector('.seerrRequests-tvGenreRow').addEventListener('click', function (e) {
-      var btn = e.target.closest ? e.target.closest('.seerrRequests-genrePill') : null;
-      if (!btn) {
-        return;
-      }
-      var genreId = parseInt(btn.getAttribute('data-genre-id'), 10);
-      tvGenreId = tvGenreId === genreId ? null : genreId;
-      tab.querySelectorAll('.seerrRequests-tvGenreRow .seerrRequests-genrePill').forEach(function (el) {
-        el.classList.toggle('seerrRequests-filterActive', parseInt(el.getAttribute('data-genre-id'), 10) === tvGenreId);
-      });
-      loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
-    });
-
-    renderGenreRow(tab.querySelector('.seerrRequests-movieGenreRow'), 'movie', filmGenreId);
-    renderGenreRow(tab.querySelector('.seerrRequests-tvGenreRow'), 'tv', tvGenreId);
-
+    wireBoard(tab);
     return tab;
+  }
+
+  // ==================================================================
+  //  The board
+  //  All of the tab's browsing state lives on the tab element itself
+  //  (_seerrBoard) rather than in module-level variables, so a second home
+  //  page instance - Jellyfin keeps previously-visited pages mounted - can
+  //  never share or clobber another one's filters.
+  // ==================================================================
+
+  var BOARD_PAGE_SIZE_HINT = 20; // Seerr returns ~20 per page; only used to decide whether to offer "show more"
+
+  function boardState(tab) {
+    if (!tab._seerrBoard) {
+      tab._seerrBoard = { type: 'all', genre: null, query: '', showOwned: false, page: 1, items: [], loading: false };
+    }
+    return tab._seerrBoard;
+  }
+
+  // Genre names are the unit the chips work in, because a genre that exists
+  // for both media types has a DIFFERENT id per type in TMDB. Keeping both
+  // ids under one name is what lets "Alle + Comedy" query movies and series
+  // in one go, and what lets a genre survive switching between Film/Serier.
+  var genresByName = null;
+
+  function loadGenreIndex() {
+    if (genresByName) {
+      return Promise.resolve(genresByName);
+    }
+    return Promise.all([
+      apiGet('genres/movie').catch(function () { return []; }),
+      apiGet('genres/tv').catch(function () { return []; })
+    ]).then(function (res) {
+      var index = {};
+      (res[0] || []).forEach(function (g) { (index[g.name] = index[g.name] || {}).movie = g.id; });
+      (res[1] || []).forEach(function (g) { (index[g.name] = index[g.name] || {}).tv = g.id; });
+      genresByName = index;
+      return index;
+    });
+  }
+
+  function renderChips(tab) {
+    var st = boardState(tab);
+    var el = tab.querySelector('.seerrBoard-chips');
+    if (!el || !genresByName) {
+      return;
+    }
+    el.innerHTML = Object.keys(genresByName).filter(function (name) {
+      return st.type === 'all' ? (genresByName[name].movie || genresByName[name].tv) : genresByName[name][st.type];
+    }).map(function (name) {
+      return '<button type="button" class="seerrBoard-chip' + (st.genre === name ? ' is-on' : '') +
+        '" data-genre-name="' + escapeHtml(name) + '">' + escapeHtml(name) + '</button>';
+    }).join('');
+  }
+
+  function boardItemFrom(r) {
+    var info = r.mediaInfo || {};
+    var status = info.status || null;
+    return {
+      title: mediaTitle(r),
+      mediaType: r.mediaType,
+      mediaId: r.id,
+      posterPath: r.posterPath,
+      state: status === 5 ? 'owned' : ((status === 2 || status === 3 || status === 4) ? 'pending' : 'new'),
+      jellyfinMediaId: info.jellyfinMediaId || null
+    };
+  }
+
+  // Seerr can return several distinct entries sharing one title - the
+  // national editions of a format, for instance ("Paradise Hotel" came back
+  // as three different tmdbIds). On a discover wall that reads as a bug, so
+  // same-title entries of the same media type collapse to the first, which
+  // is the most popular because discover is popularity-ordered.
+  function dedupeAndRank(items) {
+    var seen = {};
+    var out = [];
+    items.forEach(function (i) {
+      var key = i.mediaType + ':' + (i.title || '').toLowerCase();
+      if (!i.title || seen[key]) {
+        return;
+      }
+      seen[key] = true;
+      out.push(i);
+    });
+    var rank = { new: 0, pending: 1, owned: 2 };
+    // Things you can actually act on first; things already on the server last.
+    return out.sort(function (a, b) { return rank[a.state] - rank[b.state]; });
+  }
+
+  function boardRequests(tab) {
+    return tab.querySelectorAll('.seerrBoard-grid .card').length;
+  }
+
+  function buildBoardCardHtml(i) {
+    var posterUrl = tmdbImageUrl(i.posterPath, 300);
+    var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
+    var corner;
+    if (i.state === 'new') {
+      corner = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + i.mediaType +
+        '" data-media-id="' + i.mediaId + '">' +
+        '<span class="seerrRequests-requestBtnIcon">+</span>' + escapeHtml(t('request')) + '</button>';
+    } else if (i.state === 'pending') {
+      corner = '<span class="seerrBoard-state is-pending"><span class="seerrBoard-pulse"></span>' +
+        escapeHtml(t('requested')) + '</span>';
+    } else {
+      corner = '<span class="seerrBoard-state is-owned" title="' + escapeHtml(t('onServerTitle')) + '">&#10003;</span>';
+    }
+    var href = i.state === 'owned' && i.jellyfinMediaId ? '#/details?id=' + escapeHtml(i.jellyfinMediaId) : null;
+    return '<div class="card seerrBoard-card' + (i.state === 'owned' ? ' is-owned' : '') + '"' +
+        ' data-media-type="' + i.mediaType + '" data-media-id="' + i.mediaId + '"' +
+        (href ? ' data-href="' + href + '"' : '') + '>' +
+        '<div class="seerrBoard-poster"' + bgStyle + '></div>' +
+        '<div class="seerrBoard-corner">' + corner + '</div>' +
+        '<div class="seerrBoard-meta"><div class="seerrBoard-title">' + escapeHtml(i.title) + '</div></div>' +
+      '</div>';
+  }
+
+  function renderBoard(tab) {
+    var st = boardState(tab);
+    var grid = tab.querySelector('.seerrBoard-grid');
+    var more = tab.querySelector('.seerrBoard-more');
+    if (!grid) {
+      return;
+    }
+    var list = st.items.filter(function (i) {
+      return st.showOwned || i.state !== 'owned';
+    });
+    grid.innerHTML = list.length
+      ? list.map(buildBoardCardHtml).join('')
+      : '<div class="seerrBoard-empty">' + escapeHtml(t('noMatches')) + '</div>';
+    // Paging is offered off the RAW page size, not the filtered count -
+    // hiding owned titles must not look like "there is nothing more".
+    var canPage = !st.query && st.items.length >= BOARD_PAGE_SIZE_HINT;
+    more.innerHTML = canPage
+      ? '<button type="button" class="seerrBoard-moreBtn">' + escapeHtml(t('showMore')) + '</button>'
+      : '';
+  }
+
+  function loadBoard(tab, append) {
+    var st = boardState(tab);
+    var grid = tab.querySelector('.seerrBoard-grid');
+    if (!grid || st.loading) {
+      return;
+    }
+    st.loading = true;
+    if (!append) {
+      st.page = 1;
+      grid.innerHTML = '<div class="seerrBoard-empty">' + escapeHtml(t('loading')) + '</div>';
+    }
+
+    var calls;
+    if (st.query) {
+      calls = [apiGet('search?query=' + encodeURIComponent(st.query) + '&page=' + st.page)];
+    } else {
+      var types = st.type === 'all' ? ['movie', 'tv'] : [st.type];
+      calls = [];
+      types.forEach(function (type) {
+        var genreId = st.genre && genresByName && genresByName[st.genre] ? genresByName[st.genre][type] : null;
+        // A genre the other media type doesn't have (e.g. "Action &
+        // Adventure" is TV-only) simply contributes nothing rather than
+        // silently returning that type's unfiltered list.
+        if (st.genre && !genreId) {
+          return;
+        }
+        calls.push(apiGet('discover?mediaType=' + encodeURIComponent(type) + '&page=' + st.page +
+          (genreId ? '&genreId=' + genreId : '')));
+      });
+    }
+
+    if (!calls.length) {
+      st.items = [];
+      st.loading = false;
+      renderBoard(tab);
+      return;
+    }
+
+    Promise.all(calls).then(function (results) {
+      var fresh = [];
+      results.forEach(function (data) {
+        (data.results || []).forEach(function (r) {
+          if (r.mediaType === 'movie' || r.mediaType === 'tv') {
+            fresh.push(boardItemFrom(r));
+          }
+        });
+      });
+      st.items = dedupeAndRank(append ? st.items.concat(fresh) : fresh);
+      st.loading = false;
+      renderBoard(tab);
+    }).catch(function () {
+      st.loading = false;
+      grid.innerHTML = '<div class="seerrBoard-empty">' + escapeHtml(t('loadFailed')) + '</div>';
+    });
+  }
+
+  function wireBoard(tab) {
+    var st = boardState(tab);
+    var searchInput = tab.querySelector('.seerrBoard-search');
+
+    searchInput.addEventListener('input', function () {
+      st.query = searchInput.value.trim();
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(function () { loadBoard(tab, false); }, 350);
+    });
+
+    tab.querySelector('.seerrBoard-seg').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.seerrBoard-segBtn') : null;
+      if (!btn) {
+        return;
+      }
+      tab.querySelectorAll('.seerrBoard-segBtn').forEach(function (b) { b.classList.remove('is-on'); });
+      btn.classList.add('is-on');
+      st.type = btn.getAttribute('data-filter');
+      if (st.genre && st.type !== 'all' && genresByName && !genresByName[st.genre][st.type]) {
+        st.genre = null; // that genre doesn't exist for the type just picked
+      }
+      renderChips(tab);
+      loadBoard(tab, false);
+    });
+
+    tab.querySelector('.seerrBoard-chips').addEventListener('click', function (e) {
+      var chip = e.target.closest ? e.target.closest('.seerrBoard-chip') : null;
+      if (!chip) {
+        return;
+      }
+      var name = chip.getAttribute('data-genre-name');
+      st.genre = st.genre === name ? null : name; // clicking the active chip clears it
+      renderChips(tab);
+      loadBoard(tab, false);
+    });
+
+    tab.querySelector('.seerrBoard-ownedToggle').addEventListener('change', function (e) {
+      st.showOwned = e.target.checked;
+      renderBoard(tab); // purely a display filter - no refetch needed
+    });
+
+    tab.querySelector('.seerrBoard-more').addEventListener('click', function (e) {
+      if (!e.target.closest || !e.target.closest('.seerrBoard-moreBtn')) {
+        return;
+      }
+      st.page += 1;
+      loadBoard(tab, true);
+    });
+
+    // Whole card opens the item, except the request button which has its
+    // own delegated handler (wireRequestButtons, attached to the tab).
+    tab.querySelector('.seerrBoard-grid').addEventListener('click', function (e) {
+      if (!e.target.closest || e.target.closest('.seerrRequests-requestBtn')) {
+        return;
+      }
+      var card = e.target.closest('.seerrBoard-card');
+      var href = card && card.getAttribute('data-href');
+      if (href) {
+        location.hash = href;
+      }
+    });
+
+    loadGenreIndex().then(function () { renderChips(tab); });
   }
 
   // Shared by both injected tabs: clear whatever is active (native tabs AND
@@ -1082,20 +1398,9 @@
     var tab = getOrCreateSeerrTab(homePage);
     activateInjectedTab(homePage, tab, BUTTON_MARKER);
 
-    loadUpcomingHero(tab);
     loadMyRequests(tab);
-    loadRow(tab, '.seerrRequests-trendingRow', 'all', null);
-    loadRow(tab, '.seerrRequests-movieRow', 'movie', filmGenreId);
-    loadRow(tab, '.seerrRequests-tvRow', 'tv', tvGenreId);
+    loadBoard(tab, false);
   }
-
-  // ---- Upcoming-releases hero (thin rotating banner above the search
-  // field, same visual family as the Hero Bar plugin's home hero but
-  // sourced from Seerr's discover/{movies,tv}/upcoming) ----
-
-  var UPCOMING_MAX_SLIDES = 8;
-  var UPCOMING_ROTATE_SECONDS = 8;
-  var UPCOMING_LOADED_ATTR = 'data-seerr-upcoming-loaded';
 
   function formatReleaseDate(dateStr) {
     var date = new Date(dateStr);
@@ -1126,172 +1431,6 @@
     return '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
       '" data-media-id="' + item.id + '">' +
       '<span class="seerrRequests-requestBtnIcon">+</span>' + escapeHtml(t('request')) + '</button>';
-  }
-
-  function buildUpcomingSlideHtml(item, index, heroWidth) {
-    var backdropUrl = tmdbBackdropUrl(item.backdropPath, heroWidth);
-    var title = mediaTitle(item);
-    var dateLabel = formatReleaseDate(item.releaseDate || item.firstAirDate);
-    var overview = item.overview ? escapeHtml(item.overview) : '';
-
-    return (
-      '<div class="seerrRequests-uhSlide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '" ' +
-        'style="background-image:url(&quot;' + backdropUrl + '&quot;)">' +
-        '<div class="seerrRequests-uhGradient"></div>' +
-        '<div class="seerrRequests-uhContent">' +
-          '<div class="seerrRequests-uhDate">' +
-            escapeHtml(dateLabel ? t('outOn') + dateLabel : t('comingSoon')) + '</div>' +
-          '<h2 class="seerrRequests-uhTitle">' + escapeHtml(title) + '</h2>' +
-          '<div class="seerrRequests-uhOverview">' + overview + '</div>' +
-          '<div class="seerrRequests-uhAction">' + upcomingActionHtml(item) + '</div>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-
-  function loadUpcomingHero(tab) {
-    var hero = tab.querySelector('.seerrRequests-upcomingHero');
-    if (!hero || tab.hasAttribute(UPCOMING_LOADED_ATTR)) {
-      return;
-    }
-    // Set synchronously, before any async work - the exact race that
-    // stacked duplicate heroes in Hero Bar v1.0.0.0 (activateSeerrTab can
-    // run again while these fetches are still in flight).
-    tab.setAttribute(UPCOMING_LOADED_ATTR, 'true');
-
-    Promise.all([
-      apiGet('upcoming?mediaType=movie&page=1').catch(function () { return {}; }),
-      apiGet('upcoming?mediaType=tv&page=1').catch(function () { return {}; })
-    ]).then(function (results) {
-      var items = (results[0].results || []).concat(results[1].results || [])
-        .filter(function (r) {
-          return r.backdropPath && (r.mediaType === 'movie' || r.mediaType === 'tv');
-        });
-
-      // Soonest release first; items without a parseable date go last.
-      items.sort(function (a, b) {
-        var da = Date.parse(a.releaseDate || a.firstAirDate || '') || Infinity;
-        var db = Date.parse(b.releaseDate || b.firstAirDate || '') || Infinity;
-        return da - db;
-      });
-      items = items.slice(0, UPCOMING_MAX_SLIDES);
-
-      if (!items.length) {
-        // Leave the container empty (zero height) - and allow a retry on
-        // the next activation, since this was likely a transient failure.
-        tab.removeAttribute(UPCOMING_LOADED_ATTR);
-        return;
-      }
-
-      var dots = items.length > 1
-        ? '<div class="seerrRequests-uhDots">' +
-          items.map(function (item, i) {
-            return '<button type="button" class="seerrRequests-uhDot' + (i === 0 ? ' is-active' : '') +
-              '" data-index="' + i + '" aria-label="Slide ' + (i + 1) + '"></button>';
-          }).join('') +
-          '</div>'
-        : '';
-
-      // Measured before the ready class goes on: the collapsed hero is
-      // height:0 but already full width, so this is the real render width.
-      var heroWidth = hero.getBoundingClientRect().width || 1280;
-
-      hero.innerHTML = items.map(function (item, i) {
-        return buildUpcomingSlideHtml(item, i, heroWidth);
-      }).join('') + dots;
-      hero.classList.add('seerrRequests-uhReady');
-
-      // Only the first slide is visible, so the browser has no reason to
-      // fetch the other seven until the rotation reveals them - which made
-      // each flip fade in to an empty box for as long as its backdrop took
-      // to arrive. Warming them now costs nothing visible and means every
-      // later slide is already decoded when its turn comes.
-      items.slice(1).forEach(function (item) {
-        var url = tmdbBackdropUrl(item.backdropPath, heroWidth);
-        if (url) {
-          new Image().src = url;
-        }
-      });
-
-      // Shared slide index: manual jumps (dots, swipes) and the rotation
-      // interval all read/write the same counter, so they can't desync.
-      var current = 0;
-
-      function goTo(index) {
-        current = index;
-        hero.querySelectorAll('.seerrRequests-uhSlide').forEach(function (el, i) {
-          el.classList.toggle('is-active', i === index);
-        });
-        hero.querySelectorAll('.seerrRequests-uhDot').forEach(function (el, i) {
-          el.classList.toggle('is-active', i === index);
-        });
-      }
-
-      // (Re)starts rotation - also called after any manual slide change so
-      // the next auto-flip is a full period away.
-      function startTimer() {
-        if (hero._uhTimer) {
-          clearInterval(hero._uhTimer);
-          hero._uhTimer = null;
-        }
-        if (items.length <= 1) {
-          return;
-        }
-        hero._uhTimer = setInterval(function () {
-          if (!hero.isConnected) {
-            clearInterval(hero._uhTimer);
-            hero._uhTimer = null;
-            return;
-          }
-          goTo((current + 1) % items.length);
-        }, UPCOMING_ROTATE_SECONDS * 1000);
-      }
-
-      hero.addEventListener('click', function (e) {
-        var dot = e.target.closest ? e.target.closest('.seerrRequests-uhDot') : null;
-        if (dot) {
-          goTo(parseInt(dot.getAttribute('data-index'), 10));
-          startTimer();
-        }
-      });
-
-      // Touch swipe changes slides; every touch event is stopped from
-      // bubbling so Jellyfin's tab strip doesn't interpret the swipe as a
-      // tab switch (it hijacked hero swipes into a Hjem/Favoritter jump on
-      // mobile). Passive listeners - vertical scrolling stays native.
-      var touchStartX = 0;
-      var touchStartY = 0;
-      var touchTracking = false;
-      hero.addEventListener('touchstart', function (e) {
-        e.stopPropagation();
-        if (e.touches.length !== 1) {
-          touchTracking = false;
-          return;
-        }
-        touchTracking = true;
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-      }, { passive: true });
-      hero.addEventListener('touchmove', function (e) {
-        e.stopPropagation();
-      }, { passive: true });
-      hero.addEventListener('touchend', function (e) {
-        e.stopPropagation();
-        if (!touchTracking) {
-          return;
-        }
-        touchTracking = false;
-        var touch = e.changedTouches[0];
-        var dx = touch.clientX - touchStartX;
-        var dy = touch.clientY - touchStartY;
-        if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          goTo((current + (dx < 0 ? 1 : items.length - 1)) % items.length);
-          startTimer();
-        }
-      }, { passive: true });
-
-      startTimer();
-    });
   }
 
   // Jellyfin's content-div ids for its own tabs (#homeTab, #favoritesTab,
@@ -1591,55 +1730,10 @@
   // ---- Genre filters (scoped per section now - Film and Serier each have
   // their own row instead of one global media-type toggle) ----
 
-  function renderGenreRow(row, mediaType, activeGenreId) {
-    if (genreCache[mediaType]) {
-      row.innerHTML = genreCache[mediaType].map(function (g) {
-        var active = g.id === activeGenreId ? ' seerrRequests-filterActive' : '';
-        return '<button type="button" class="seerrRequests-genrePill' + active + '" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
-      }).join('');
-      return;
-    }
-    apiGet('genres/' + mediaType)
-      .then(function (genres) {
-        genreCache[mediaType] = genres;
-        row.innerHTML = genres.map(function (g) {
-          return '<button type="button" class="seerrRequests-genrePill" data-genre-id="' + g.id + '">' + escapeHtml(g.name) + '</button>';
-        }).join('');
-      })
-      .catch(function () {
-        row.innerHTML = '';
-      });
-  }
-
   // ---- Cards ----
 
   function mediaTitle(item) {
     return item.mediaType === 'tv' ? item.name : item.title;
-  }
-
-  function buildMediaCardHtml(item) {
-    var title = mediaTitle(item);
-    var posterUrl = tmdbImageUrl(item.posterPath, 300);
-    var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
-    var mediaInfo = item.mediaInfo || {};
-    var mediaStatus = mediaInfo.status || null;
-    var jellyfinMediaId = mediaInfo.jellyfinMediaId || null;
-
-    var actionHtml;
-    if (mediaStatus === 5) {
-      actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusAvailable">' +
-        escapeHtml(t('added')) + '</div>';
-    } else if (mediaStatus === 2 || mediaStatus === 3 || mediaStatus === 4) {
-      actionHtml = '<div class="seerrRequests-statusBadge seerrRequests-statusPending">' +
-        escapeHtml(t('requested')) + '</div>';
-    } else {
-      actionHtml = '<button type="button" class="seerrRequests-requestBtn" data-media-type="' + item.mediaType +
-        '" data-media-id="' + item.id + '">' +
-        '<span class="seerrRequests-requestBtnIcon">+</span>' + escapeHtml(t('request')) + '</button>';
-    }
-
-    return buildCardHtml(title, bgStyle, actionHtml, 'seerrRequests-cardAction', mediaStatus === 5 ? jellyfinMediaId : null,
-      ' data-media-type="' + item.mediaType + '" data-media-id="' + item.id + '"');
   }
 
   function statusLabelForRequest(req) {
@@ -1675,6 +1769,9 @@
   // a loading-style cue instead of a static label sitting there unchanged.
   var LOADING_DOTS_HTML = '<span class="seerrRequests-dots"><span></span><span></span><span></span></span>';
 
+  // Your own requests are reference information ("did it go through?"),
+  // not something to browse - so they are a compact status strip rather
+  // than another wall of posters competing with the board above.
   function buildRecentRequestCardHtml(req) {
     var posterUrl = tmdbImageUrl(req.posterPath, 300);
     var bgStyle = posterUrl ? ' style="background-image:url(&quot;' + posterUrl + '&quot;)"' : '';
@@ -1682,9 +1779,17 @@
     if (req.mediaStatus === 3) {
       label += LOADING_DOTS_HTML;
     }
-    var actionHtml = '<div class="seerrRequests-statusBadge ' + statusClassForRequest(req) + '">' + label + '</div>';
-    return buildCardHtml(req.title, bgStyle, actionHtml, 'seerrRequests-cardAction', req.mediaStatus === 5 ? req.jellyfinMediaId : null,
-      ' data-media-type="' + req.mediaType + '" data-media-id="' + req.mediaId + '"');
+    var tag = req.mediaStatus === 5 && req.jellyfinMediaId ? 'a' : 'div';
+    var href = req.mediaStatus === 5 && req.jellyfinMediaId
+      ? ' href="#/details?id=' + escapeHtml(req.jellyfinMediaId) + '"' : '';
+    return '<' + tag + ' class="card seerrBoard-req ' + statusClassForRequest(req) + '"' + href +
+        ' data-media-type="' + req.mediaType + '" data-media-id="' + req.mediaId + '">' +
+        '<div class="seerrBoard-reqThumb"' + bgStyle + '></div>' +
+        '<div class="seerrBoard-reqBody">' +
+          '<div class="seerrBoard-reqTitle">' + escapeHtml(req.title) + '</div>' +
+          '<div class="seerrBoard-reqState"><span class="seerrBoard-reqDot"></span>' + label + '</div>' +
+        '</div>' +
+      '</' + tag + '>';
   }
 
   // Shared by both card types - available items (mediaStatus 5, with a
@@ -1997,49 +2102,13 @@
         var results = data.results || [];
         section.style.display = results.length ? '' : 'none';
         row.innerHTML = results.map(buildRecentRequestCardHtml).join('');
+        var count = container.querySelector('.seerrBoard-reqCount');
+        if (count) {
+          count.textContent = results.length ? t('inProgress', { n: results.length }) : '';
+        }
       })
       .catch(function () {
         section.style.display = 'none';
-      });
-  }
-
-  function loadRow(container, rowSelector, mediaType, genreId) {
-    var row = container.querySelector(rowSelector);
-    row.innerHTML = '<div class="seerrRequests-loading">' + escapeHtml(t('loading')) + '</div>';
-
-    var params = 'mediaType=' + encodeURIComponent(mediaType) + '&page=1';
-    if (genreId) {
-      params += '&genreId=' + genreId;
-    }
-
-    apiGet('discover?' + params)
-      .then(function (data) {
-        var results = (data.results || []).filter(function (r) {
-          return r.mediaType === 'movie' || r.mediaType === 'tv';
-        });
-        row.innerHTML = results.length
-          ? results.map(buildMediaCardHtml).join('')
-          : '<div class="seerrRequests-empty">Intet at vise.</div>';
-      })
-      .catch(function () {
-        row.innerHTML = '<div class="seerrRequests-empty">Kunne ikke hente indhold.</div>';
-      });
-  }
-
-  function performSearch(container, query) {
-    var resultsEl = container.querySelector('.seerrRequests-searchResults');
-    resultsEl.innerHTML = '<div class="seerrRequests-loading">' + escapeHtml(t('searching')) + '</div>';
-    apiGet('search?query=' + encodeURIComponent(query))
-      .then(function (data) {
-        var results = (data.results || []).filter(function (r) {
-          return r.mediaType === 'movie' || r.mediaType === 'tv';
-        });
-        resultsEl.innerHTML = results.length
-          ? results.map(buildMediaCardHtml).join('')
-          : '<div class="seerrRequests-empty">Ingen resultater.</div>';
-      })
-      .catch(function () {
-        resultsEl.innerHTML = '<div class="seerrRequests-empty">' + escapeHtml(t('searchFailed')) + '</div>';
       });
   }
 
