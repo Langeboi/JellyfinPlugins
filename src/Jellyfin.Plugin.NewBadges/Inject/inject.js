@@ -2181,6 +2181,185 @@
   }
 
   // ==================================================================
+  //  Forgiving title matching
+  //  Jellyfin's own searchTerm is a substring match on the name, so it
+  //  only finds what you can already spell: "World War II with Tom Hanks"
+  //  is invisible to "ww2" and to "world war 2", because neither string
+  //  occurs in the title. This scores a query against a title the way a
+  //  person would read it - roman numerals are numbers, initials are a
+  //  name, "&" is "and", accents are optional, and a typo is still a
+  //  match. Used to top up the server's results, never to replace them.
+  // ==================================================================
+  var ROMAN_VALUES = {
+    i: 1, ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10,
+    xi: 11, xii: 12, xiii: 13, xiv: 14, xv: 15
+  };
+  // Skipped when building the "significant initials" form, so that
+  // "lotr" can reach The Lord of the Rings.
+  var TITLE_STOPWORDS = {
+    the: 1, a: 1, an: 1, of: 1, and: 1, or: 1, in: 1, on: 1, at: 1,
+    to: 1, for: 1, with: 1, from: 1, part: 1
+  };
+
+  function foldText(s) {
+    s = s || '';
+    // Strip accents so "amelie" finds "Amélie".
+    if (s.normalize) { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+    return s.toLowerCase()
+      .replace(/&/g, ' and ')
+      .replace(/['\u2019`]/g, '')     // keep possessives as one word
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  function tokenizeTitle(s) {
+    var folded = foldText(s);
+    return folded ? folded.split(' ') : [];
+  }
+
+  function isNumericToken(tok) {
+    return /^[0-9]+$/.test(tok) || Object.prototype.hasOwnProperty.call(ROMAN_VALUES, tok);
+  }
+
+  // A numeric token contributes its whole self, not just its first letter -
+  // the initials of "World War II" are "ww2", not "wwi".
+  function initialsOf(tokens, arabic) {
+    var out = '';
+    for (var i = 0; i < tokens.length; i++) {
+      var tok = tokens[i];
+      if (isNumericToken(tok)) {
+        out += arabic ? String(ROMAN_VALUES[tok] || tok) : tok;
+      } else {
+        out += tok.charAt(0);
+      }
+    }
+    return out;
+  }
+
+  function joinTokens(tokens, arabic) {
+    if (!arabic) { return tokens.join(' '); }
+    return tokens.map(function (tok) {
+      return ROMAN_VALUES[tok] ? String(ROMAN_VALUES[tok]) : tok;
+    }).join(' ');
+  }
+
+  // Everything we might match a query against, precomputed once per title.
+  function buildTitleForms(name) {
+    var tokens = tokenizeTitle(name);
+    var noLeadingArticle = (tokens.length > 1 && TITLE_STOPWORDS[tokens[0]]) ? tokens.slice(1) : tokens;
+    var significant = tokens.filter(function (tok) { return !TITLE_STOPWORDS[tok]; });
+    if (!significant.length) { significant = tokens; }
+    var arabic = joinTokens(tokens, true);
+    return {
+      tokens: tokens,
+      arabic: arabic,
+      roman: joinTokens(tokens, false),
+      // Spaceless, because a hyphen is not a word break to the person
+      // typing: "spiderman" has to reach "Spider-Man", "xmen" X-Men,
+      // "walle" WALL·E.
+      tight: arabic.replace(/ /g, ''),
+      // Both numeral spellings, so "wwii" and "ww2" both land.
+      initials: [
+        initialsOf(tokens, true), initialsOf(tokens, false),
+        initialsOf(noLeadingArticle, true), initialsOf(noLeadingArticle, false),
+        initialsOf(significant, true), initialsOf(significant, false)
+      ]
+    };
+  }
+
+  // Bounded edit distance - returns max+1 as soon as it knows it is over,
+  // so a long query against a long title stays cheap.
+  function editDistanceWithin(a, b, max) {
+    if (a === b) { return 0; }
+    if (Math.abs(a.length - b.length) > max) { return max + 1; }
+    var prev = [], cur = [], i, j;
+    for (j = 0; j <= b.length; j++) { prev[j] = j; }
+    for (i = 1; i <= a.length; i++) {
+      cur[0] = i;
+      var best = cur[0];
+      for (j = 1; j <= b.length; j++) {
+        var cost = a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        if (cur[j] < best) { best = cur[j]; }
+      }
+      if (best > max) { return max + 1; }
+      for (j = 0; j <= b.length; j++) { prev[j] = cur[j]; }
+    }
+    return prev[b.length];
+  }
+
+  // Deliberately mean with short words: at four letters a single edit
+  // reaches so many unrelated titles ("xmen" -> "Mad Men") that the tier
+  // stops being a typo allowance and starts being noise.
+  function typoBudget(len) { return len >= 8 ? 2 : (len >= 5 ? 1 : 0); }
+
+  // Every query token must find a home in the title, in order, each title
+  // token used at most once - so "war world" does not match "World War".
+  function tokensMatchInOrder(queryTokens, titleTokens, allowTypos) {
+    var ti = 0;
+    for (var qi = 0; qi < queryTokens.length; qi++) {
+      var q = queryTokens[qi];
+      var found = false;
+      while (ti < titleTokens.length) {
+        var t = titleTokens[ti];
+        ti++;
+        if (t.indexOf(q) === 0) { found = true; break; }
+        if (allowTypos && typoBudget(q.length) > 0 &&
+            editDistanceWithin(q, t, typoBudget(q.length)) <= typoBudget(q.length)) {
+          found = true; break;
+        }
+      }
+      if (!found) { return false; }
+    }
+    return true;
+  }
+
+  // 0 means "not a match". Higher is a better match; the tiers are wide
+  // enough apart that a weaker kind of match never outranks a stronger one.
+  function scoreTitleMatch(queryForms, forms) {
+    var q = queryForms.arabic;
+    if (!q || !forms.tokens.length) { return 0; }
+    var title = forms.arabic;
+    var score = 0;
+
+    if (title === q || forms.roman === queryForms.roman) {
+      score = 1000;
+    } else if (title.indexOf(q) === 0) {
+      score = 900;
+    } else if (title.indexOf(' ' + q) !== -1) {
+      score = 800;
+    } else if (queryForms.tight.length >= 3 && forms.tight.indexOf(queryForms.tight) === 0) {
+      score = 780;
+    } else if (queryForms.tight.length >= 2 && forms.initials.some(function (ini) {
+      return ini.indexOf(queryForms.tight) === 0;
+    })) {
+      score = 700;
+    } else if (queryForms.tight.length >= 4 && forms.tight.indexOf(queryForms.tight) !== -1) {
+      score = 650;
+    } else if (tokensMatchInOrder(queryForms.tokens, forms.tokens, false)) {
+      score = 600;
+    } else if (tokensMatchInOrder(queryForms.tokens, forms.tokens, true)) {
+      score = 500;
+    } else {
+      return 0;
+    }
+
+    // Among equally-good matches prefer the tighter title, so "Alien"
+    // outranks "Aliens vs Predator Requiem" for the query "alien".
+    return score * 1000 - Math.min(999, title.length);
+  }
+
+  function buildQueryForms(q) {
+    var tokens = tokenizeTitle(q);
+    return {
+      tokens: tokens,
+      arabic: joinTokens(tokens, true),
+      roman: joinTokens(tokens, false),
+      tight: joinTokens(tokens, true).replace(/ /g, '')
+    };
+  }
+
+  // ==================================================================
   //  Instant search overlay
   //  Full-screen, as-you-type. Media results on top; the focused result
   //  auto-enriches with its cast + "more from the director". Built for
@@ -2191,6 +2370,7 @@
   // ==================================================================
   var SEARCH_DEBOUNCE_MS = 160;
   var SEARCH_LIMIT = 8;
+  var TITLE_INDEX_MAX = 20000;
   var SEARCH_CAST_LIMIT = 20;
   var SEARCH_DIR_LIMIT = 12;
 
@@ -2364,6 +2544,7 @@
     buildSearchOverlay();
     searchOverlay.classList.add('is-open');
     document.body.classList.add('newBadges-searchOpen');
+    ensureTitleIndex();   // warm it while they are still typing
     var input = searchOverlay.querySelector('.newBadges-searchInput');
     input.value = seed || '';
     setTimeout(function () { input.focus(); if (seed) { input.select(); } }, 30);
@@ -2398,6 +2579,68 @@
     searchState.debounceTimer = setTimeout(function () { runSearch(q); }, SEARCH_DEBOUNCE_MS);
   }
 
+  // The whole library as match-ready title forms. Fetched once per page
+  // load; ~930 items is 60KB and a few ms to index, so this is cheap enough
+  // to keep in memory rather than storage (which would need invalidating
+  // whenever the library changes).
+  var titleIndex = null;
+  var titleIndexPromise = null;
+
+  function ensureTitleIndex() {
+    if (titleIndex) { return Promise.resolve(titleIndex); }
+    if (titleIndexPromise) { return titleIndexPromise; }
+    var apiClient = window.ApiClient;
+    if (!apiClient) { return Promise.resolve(null); }
+    var url = apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', {
+      IncludeItemTypes: 'Movie,Series',
+      Recursive: true,
+      Limit: TITLE_INDEX_MAX,
+      Fields: 'ProductionYear,OriginalTitle',
+      EnableImages: true,
+      ImageTypeLimit: 1,
+      EnableImageTypes: 'Primary',
+      EnableTotalRecordCount: false
+    });
+    titleIndexPromise = fetch(url, { headers: { 'X-Emby-Token': apiClient.accessToken() } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var items = (data && data.Items) || [];
+        titleIndex = items.map(function (item) {
+          var forms = [buildTitleForms(item.Name)];
+          // Foreign titles are searched by either name.
+          if (item.OriginalTitle && item.OriginalTitle !== item.Name) {
+            forms.push(buildTitleForms(item.OriginalTitle));
+          }
+          return { item: item, forms: forms };
+        });
+        return titleIndex;
+      })
+      .catch(function () {
+        titleIndexPromise = null;   // let a later keystroke retry
+        return null;
+      });
+    return titleIndexPromise;
+  }
+
+  function localTitleMatches(q, exclude, limit) {
+    if (!titleIndex) { return []; }
+    var queryForms = buildQueryForms(q);
+    if (!queryForms.tokens.length) { return []; }
+    var scored = [];
+    for (var i = 0; i < titleIndex.length; i++) {
+      var entry = titleIndex[i];
+      if (exclude[entry.item.Id]) { continue; }
+      var best = 0;
+      for (var f = 0; f < entry.forms.length; f++) {
+        var s = scoreTitleMatch(queryForms, entry.forms[f]);
+        if (s > best) { best = s; }
+      }
+      if (best > 0) { scored.push({ score: best, item: entry.item }); }
+    }
+    scored.sort(function (a, b) { return b.score - a.score; });
+    return scored.slice(0, limit).map(function (x) { return x.item; });
+  }
+
   function runSearch(q) {
     var apiClient = window.ApiClient;
     if (!apiClient) { return; }
@@ -2422,8 +2665,23 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var items = (data && data.Items) || [];
-        searchState.resultCache.set(q.toLowerCase(), items);
-        if (searchState.query === q) { renderSearchResults(items); }  // ignore stale
+        if (searchState.query !== q) { return; }   // stale keystroke
+        renderSearchResults(items);                // show the server's answer now
+        // ...then top it up with anything the server's literal matching
+        // could not see. Never reorders what the server found.
+        if (items.length >= SEARCH_LIMIT) {
+          searchState.resultCache.set(q.toLowerCase(), items);
+          return;
+        }
+        ensureTitleIndex().then(function () {
+          if (searchState.query !== q) { return; }
+          var seen = {};
+          items.forEach(function (it) { seen[it.Id] = true; });
+          var extra = localTitleMatches(q, seen, SEARCH_LIMIT - items.length);
+          var merged = extra.length ? items.concat(extra) : items;
+          searchState.resultCache.set(q.toLowerCase(), merged);
+          if (extra.length) { renderSearchResults(merged); }
+        });
       })
       .catch(function () { /* aborted or network error - ignore */ });
   }
