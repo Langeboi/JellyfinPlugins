@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.3.2"
+WORKER_VERSION = "2.3.3"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -1237,6 +1237,16 @@ QUEUE_PERSIST = os.environ.get("SUBWORKER_PERSIST_QUEUE", "1") != "0"
 QUEUE_MAX_ATTEMPTS = int(os.environ.get("SUBWORKER_QUEUE_MAX_ATTEMPTS", "3"))
 
 
+def _dedupe_key(job: dict) -> str:
+    """Identity of a unit of work, for suppressing repeat submissions.
+
+    force is part of the identity on purpose: a forced re-run is a different
+    request from an ordinary one, and must not be swallowed because a plain
+    job for the same file happens to be waiting."""
+    return "|".join(str(job.get(k) or "") for k in
+                    ("type", "media_path", "subtitle_path", "language", "force"))
+
+
 def _queue_db():
     conn = db()
     conn.execute(
@@ -1246,33 +1256,59 @@ def _queue_db():
             created TEXT NOT NULL
         )"""
     )
-    # Added after the fact; existing rows default to zero attempts.
+    # Both columns were added after the fact; existing rows are migrated here.
     cols = {r[1] for r in conn.execute("PRAGMA table_info(queued)")}
     if "attempts" not in cols:
         conn.execute("ALTER TABLE queued ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0")
         conn.commit()
+    if "dedupe_key" not in cols:
+        import json as _j
+        conn.execute("ALTER TABLE queued ADD COLUMN dedupe_key TEXT")
+        for qid, blob in conn.execute("SELECT id, job FROM queued").fetchall():
+            try:
+                conn.execute("UPDATE queued SET dedupe_key = ? WHERE id = ?",
+                             (_dedupe_key(_j.loads(blob)), qid))
+            except Exception:  # noqa: BLE001 - a corrupt row keeps a null key
+                continue
+        # Collapse duplicates already sitting in the queue, oldest row wins.
+        dropped = conn.execute(
+            """DELETE FROM queued WHERE dedupe_key IS NOT NULL AND id NOT IN
+               (SELECT MIN(id) FROM queued WHERE dedupe_key IS NOT NULL GROUP BY dedupe_key)"""
+        ).rowcount
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS queued_dedupe ON queued(dedupe_key)")
+        conn.commit()
+        if dropped:
+            print(f"[queue] dropped {dropped} duplicate job(s) already queued", flush=True)
     return conn
 
 
-def _persist_job(job: dict):
+def _persist_job(job: dict) -> bool:
     """Record a queued job and stamp it with its row id so it can be removed
-    again once finished."""
+    again once finished.
+
+    Returns False if this exact job is already waiting, in which case it should
+    not be queued a second time. The nightly scan dedupes against work the
+    ledger says is FINISHED, which cannot see work that is merely pending, so
+    a long backlog would otherwise collect a fresh copy of itself every night."""
     if not QUEUE_PERSIST or job.get("_qid"):
-        return
+        return True
     try:
         import json as _j
         conn = _queue_db()
         try:
             cur = conn.execute(
-                "INSERT INTO queued (job, created) VALUES (?,?)",
-                (_j.dumps(job), datetime.now(timezone.utc).isoformat()),
+                "INSERT OR IGNORE INTO queued (job, created, dedupe_key) VALUES (?,?,?)",
+                (_j.dumps(job), datetime.now(timezone.utc).isoformat(), _dedupe_key(job)),
             )
+            if not cur.rowcount:
+                return False
             job["_qid"] = cur.lastrowid
             conn.commit()
         finally:
             conn.close()
     except Exception as exc:  # noqa: BLE001 - never fail a submission over this
         print(f"[queue] could not persist job: {exc}", flush=True)
+    return True
 
 
 def _mark_attempt(job: dict):
@@ -1378,9 +1414,12 @@ def _enqueue_in_memory(job: dict):
         (priority_job_queue if priority else job_queue).put(job)
 
 
-def enqueue_job(job: dict):
-    _persist_job(job)
+def enqueue_job(job: dict) -> bool:
+    """Queue a job unless an identical one is already waiting."""
+    if not _persist_job(job):
+        return False
     _enqueue_in_memory(job)
+    return True
 
 
 def total_queue_depth() -> int:
@@ -2624,16 +2663,18 @@ def restore_all(x_api_key: str = Header(default="")):
 @app.post("/jobs")
 def submit_job(job: Job, x_api_key: str = Header(default="")):
     check_key(x_api_key)
-    enqueue_job(job.model_dump())
-    return {"queued": 1, "queue_depth": total_queue_depth()}
+    queued = 1 if enqueue_job(job.model_dump()) else 0
+    return {"queued": queued, "duplicate": 1 - queued, "queue_depth": total_queue_depth()}
 
 
 @app.post("/jobs/batch")
 def submit_batch(batch: Batch, x_api_key: str = Header(default="")):
     check_key(x_api_key)
-    for job in batch.jobs:
-        enqueue_job(job.model_dump())
-    return {"queued": len(batch.jobs), "queue_depth": total_queue_depth()}
+    queued = sum(1 for job in batch.jobs if enqueue_job(job.model_dump()))
+    dupes = len(batch.jobs) - queued
+    if dupes:
+        print(f"[queue] batch: accepted {queued}, ignored {dupes} already queued", flush=True)
+    return {"queued": queued, "duplicate": dupes, "queue_depth": total_queue_depth()}
 
 
 @app.post("/pause")
