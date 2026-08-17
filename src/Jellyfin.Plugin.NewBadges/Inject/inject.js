@@ -25,6 +25,7 @@
     NewBadgeMaxAgeDays: 7,
     NewBadgeColor: '#e50914',
     EnableEpisodeLabel: true,
+    EnableEpisodeDirectLink: true,
     EnableTrendingRow: true,
     TrendingWindowDays: 30,
     EnableMergedContinueWatching: true,
@@ -63,6 +64,7 @@
       NewBadgeMaxAgeDays: clampInt(data.NewBadgeMaxAgeDays, 1, 90, DEFAULTS.NewBadgeMaxAgeDays),
       NewBadgeColor: data.NewBadgeColor || DEFAULTS.NewBadgeColor,
       EnableEpisodeLabel: flag('EnableEpisodeLabel'),
+      EnableEpisodeDirectLink: flag('EnableEpisodeDirectLink'),
       EnableTrendingRow: flag('EnableTrendingRow'),
       TrendingWindowDays: clampInt(data.TrendingWindowDays, 1, 365, DEFAULTS.TrendingWindowDays),
       EnableMergedContinueWatching: flag('EnableMergedContinueWatching'),
@@ -362,6 +364,7 @@
 
   var dateCache = {}; // itemId -> DateCreated string (or null if unknown)
   var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
+  var latestEpisodeIdCache = {}; // seriesId -> itemId of that same latest episode
   var ongoingCache = {}; // seriesId -> true if the show's Status is "Continuing"
   var pendingIds = new Set();
   var pendingBackdropIds = new Set();
@@ -546,9 +549,75 @@
     }
   }
 
+  // A series card in a Recently Added row is there because a new EPISODE
+  // arrived, and the badge already names it - so the card should open that
+  // episode, not the series page you then have to search through. The
+  // episode id is just tagged onto the card here; the click itself is
+  // intercepted in wireEpisodeDirectLinks, because Jellyfin drives card
+  // navigation from data-id via its own delegated handler and would ignore
+  // a rewritten href.
+  var EPISODE_LINK_ATTR = 'data-nb-episode-id';
+
+  function applyEpisodeLinkIfKnown(card, id) {
+    if (!cfg.EnableEpisodeDirectLink) {
+      return;
+    }
+    var episodeId = latestEpisodeIdCache[id];
+    if (!episodeId || card.getAttribute(EPISODE_LINK_ATTR) === episodeId) {
+      return;
+    }
+    card.setAttribute(EPISODE_LINK_ATTR, episodeId);
+    // Keep the real anchor in step too, so hover/middle-click/"open in new
+    // tab" show and use the same destination as a plain click.
+    var anchor = card.tagName === 'A' ? card : card.querySelector('a[href*="#/details"]');
+    if (anchor) {
+      anchor.setAttribute('href', '#/details?id=' + episodeId);
+    }
+  }
+
   function applyCard(card, id) {
     applyNewRibbonIfRecent(card, id);
     applyEpisodeLabelIfOngoing(card, id);
+    applyEpisodeLinkIfKnown(card, id);
+  }
+
+  // Capture phase, so this runs before Jellyfin's own delegated card handler
+  // (which reads data-id off the card and would navigate to the series).
+  var EPISODE_LINK_WIRED_ATTR = 'data-nb-eplink-wired';
+
+  function wireEpisodeDirectLinks() {
+    if (document.body.hasAttribute(EPISODE_LINK_WIRED_ATTR)) {
+      return;
+    }
+    document.body.setAttribute(EPISODE_LINK_WIRED_ATTR, 'true');
+    document.body.addEventListener('click', function (e) {
+      if (!cfg.EnableEpisodeDirectLink || !e.target.closest) {
+        return;
+      }
+      var card = e.target.closest('.card[' + EPISODE_LINK_ATTR + ']');
+      if (!card) {
+        return;
+      }
+      // Anything that has its own job on the card keeps it - the hover
+      // preview's play button, and any real button/menu Jellyfin renders.
+      if (e.target.closest('button, .cardOverlayButton, [is="paper-icon-button-light"]')) {
+        return;
+      }
+      // The expanded hover panel is left alone deliberately: it is showing
+      // the SERIES' synopsis and its own "Læs mere", so sending that click
+      // to an episode would contradict what the panel is displaying. Only
+      // the plain card redirects.
+      if (e.target.closest('.newBadges-hpOverlay')) {
+        return;
+      }
+      var episodeId = card.getAttribute(EPISODE_LINK_ATTR);
+      if (!episodeId) {
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      location.hash = '#/details?id=' + episodeId;
+    }, true);
   }
 
   function fetchLatestEpisodeInfo(seriesId) {
@@ -577,7 +646,10 @@
       if (episode.ParentIndexNumber != null && episode.IndexNumber != null) {
         label = 'S' + episode.ParentIndexNumber + 'E' + episode.IndexNumber;
       }
-      return { date: episode.DateCreated, label: label };
+      // The episode's own id comes along for free here, and it is what lets
+      // the card open the episode that the badge is actually advertising
+      // rather than dumping you on the series page to go find it yourself.
+      return { date: episode.DateCreated, label: label, id: episode.Id };
     });
   }
 
@@ -643,6 +715,9 @@
             map[seriesId] = info.date;
             if (info.label) {
               episodeLabelCache[seriesId] = info.label;
+            }
+            if (info.id) {
+              latestEpisodeIdCache[seriesId] = info.id;
             }
           })
           .catch(function () { map[seriesId] = null; })
@@ -2169,6 +2244,7 @@
       renderDrawerPlus();
       hookHeaderSearch();
       wireCardHoverPreview();
+      wireEpisodeDirectLinks();
       wireContinueWatchingPreview();
       // Safety net for the homesections.pause() TypeError described on
       // protectItemsContainers: the individual call sites above already
@@ -3766,6 +3842,7 @@
     ['NbNewBadgeMaxAgeDays', 'NewBadgeMaxAgeDays', 'int'],
     ['NbNewBadgeColor', 'NewBadgeColor', 'text'],
     ['NbEnableEpisodeLabel', 'EnableEpisodeLabel', 'bool'],
+    ['NbEnableEpisodeDirectLink', 'EnableEpisodeDirectLink', 'bool'],
     ['NbEnableTrendingRow', 'EnableTrendingRow', 'bool'],
     ['NbTrendingWindowDays', 'TrendingWindowDays', 'int'],
     ['NbEnableMergedContinueWatching', 'EnableMergedContinueWatching', 'bool'],

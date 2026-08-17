@@ -40,6 +40,14 @@ namespace Jellyfin.Plugin.NewBadges.Configuration
         /// </summary>
         public bool EnableEpisodeLabel { get; set; } = true;
 
+        /// <summary>
+        /// On Recently Added rows, make a series card open the newly added
+        /// episode itself rather than the series page. The card is there
+        /// because that episode arrived, and its badge already names it, so
+        /// landing on the series and having to hunt for it is a detour.
+        /// </summary>
+        public bool EnableEpisodeDirectLink { get; set; } = true;
+
         // ---- Home page ----
 
         /// <summary>

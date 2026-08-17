@@ -295,6 +295,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.2.1.0",
+        "changelog": "Når et nyt afsnit er tilføjet, viser kortet i \"Nyligt tilføjet\" allerede hvilket afsnit det drejer sig om (fx S3E7) sammen med NEW-mærket – men et klik på kortet førte til seriens side, hvor man så selv skulle finde afsnittet. Nu åbner kortet direkte det nye afsnit. Gælder kun rækkerne under \"Nyligt tilføjet\"; alle andre rækker opfører sig som før. Afspil-knappen og den udvidede hover-rude er urørt – ruden viser seriens beskrivelse, så dens \"Læs mere\" fører stadig til serien. Kan slås fra i indstillingerne.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.2.1.0/newbadges_2.2.1.0.zip",
+        "checksum": "0d94a49fe38378661ddd475e19a48d96",
+        "timestamp": "2026-08-17T07:27:00Z"
+      },
+      {
         "version": "2.2.0.0",
         "changelog": "Søgningen finder nu titler du ikke kan stave præcist. Jellyfins egen søgning leder efter din tekst som en ren tekststump i titlen, så den kunne kun finde det du allerede kunne stave - \"World War II with Tom Hanks\" var usynlig for både \"ww2\" og \"world war 2\", fordi ingen af delene optræder i titlen. Søgefeltet forstår nu romertal som tal (\"world war 2\" finder \"World War II\"), forbogstaver (\"ww2\", \"wwii\", \"lotr\", \"got\"), bindestreger (\"spiderman\" finder \"Spider-Man\"), accenter (\"amelie\" finder \"Amélie\") og slåfejl (\"intersteller\" finder \"Interstellar\"). Serverens egne resultater vises altid først og i uændret rækkefølge; de nye match lægges kun til under dem, når serveren fandt for få.",
         "targetAbi": "10.11.0.0",

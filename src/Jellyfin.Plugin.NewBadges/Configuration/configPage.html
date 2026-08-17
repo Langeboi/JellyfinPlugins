@@ -69,6 +69,18 @@
               On Recently Added rows only, and only for series whose status is still "Continuing".
             </div>
           </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableEpisodeDirectLink" name="NbEnableEpisodeDirectLink" type="checkbox" is="emby-checkbox" />
+              <span>Open the new episode directly from a Recently Added series card</span>
+            </label>
+            <div class="fieldDescription">
+              The card is in that row because a new episode arrived, and the badge already says which one
+              &mdash; so clicking it goes straight to that episode instead of the series page.
+              Recently Added rows only; every other row keeps Jellyfin's normal behaviour.
+            </div>
+          </div>
         </div>
 
         <div class="verticalSection">
