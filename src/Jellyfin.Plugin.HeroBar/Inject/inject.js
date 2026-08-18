@@ -68,6 +68,9 @@
   // ==================================================================
   var PROBE_CLASS = 'heroBar-themeProbe';
   var FALLBACK_ACCENT = { r: 0, g: 164, b: 220, a: 1 }; // Jellyfin's own #00a4dc
+  // The last accent actually read off the page, kept so a probe taken before
+  // the theme's stylesheet has loaded cannot undo a good reading.
+  var lastGoodAccent = null;
 
   function parseColor(str) {
     if (!str) {
@@ -154,7 +157,21 @@
     var uaDefault = probeColor('', 'backgroundColor');
     if (!accent || accent.a < 0.5 || sameColor(accent, uaDefault) ||
         Math.abs(luminance(accent) - luminance(surface)) < 0.04) {
-      accent = FALLBACK_ACCENT;
+      // The probe failed - but that usually means the theme's stylesheet
+      // has not landed YET, not that the theme has no accent. On this
+      // server the skin arrives via an @import to a CDN, so a probe taken
+      // too early reads the browser's own default and used to drop the Play
+      // button to Jellyfin blue. Since the palette is only re-derived on
+      // scan ticks (throttled to 10s, and driven by DOM mutations), a quiet
+      // page could then sit on that blue indefinitely - which is exactly
+      // the intermittent blue button that was reported.
+      //
+      // A colour we have already read successfully is always a better guess
+      // than the generic fallback, so the fallback is now only for the case
+      // where we have never managed to read one at all.
+      accent = lastGoodAccent || FALLBACK_ACCENT;
+    } else {
+      lastGoodAccent = accent;
     }
 
     var black = { r: 0, g: 0, b: 0, a: 1 };
@@ -1252,6 +1269,23 @@
       loadConfig().then(function () {
         injectStyle();
         refreshPalette(true);
+
+        // A theme delivered by @import (which is how the skin arrives on at
+        // least one real server) can apply well after this point, and the
+        // routine re-derive only happens on scan ticks - which need a DOM
+        // mutation to fire. On a page that has gone quiet there may not be
+        // another one, so the first reading would stick. These few extra
+        // passes, plus window load, cover the window in which a stylesheet
+        // can realistically still turn up.
+        //
+        // Scheduled BEFORE runChecks() on purpose: anything that threw in
+        // there would otherwise take the retries down with it, and losing
+        // them is what leaves a wrong colour on screen for good.
+        [400, 1200, 3000, 8000].forEach(function (delay) {
+          setTimeout(function () { refreshPalette(true); }, delay);
+        });
+        window.addEventListener('load', function () { refreshPalette(true); });
+
         runChecks();
 
         var observer = new MutationObserver(function (mutations) {

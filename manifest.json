@@ -212,6 +212,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.4.0",
+        "changelog": "Rettet: Afspil/Fortsæt-knappen i hero-baren skiftede af og til til Jellyfins standardblå i stedet for temaets egen grå. Pluginet aflæser temaets accentfarve fra siden, og hvis den aflæsning sker før temaets stylesheet er nået at blive indlæst – på denne server hentes skinnet via et @import fra et CDN – aflæses browserens standardfarve i stedet, og så faldt knappen tilbage til blå. Farven blev kun genberegnet ved DOM-ændringer (højst hvert 10. sekund), så på en side der lå stille kunne den blive blå indtil næste genindlæsning. Nu huskes den sidst korrekt aflæste farve, så en mislykket aflæsning aldrig kan overskrive en god, og farven genberegnes desuden et par gange kort efter sideindlæsning og igen ved \"load\".",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.4.0/herobar_2.0.4.0.zip",
+        "checksum": "2e2db32a63a9a1b11942a0e4ed83f2e8",
+        "timestamp": "2026-08-18T08:01:00Z"
+      },
+      {
         "version": "2.0.3.0",
         "changelog": "Mindre mørklægning af billedet i hero-baren. Toningen bag titel og knapper er sat ned til 70% af det oprindelige, og ind-/udtoningen i top og bund er trukket ind (18%/78% → 10%/86%), så en større del af plakaten er synlig. Styrken kan nu justeres i indstillingerne (\"Artwork tint strength\") mellem 0 og 150% – teksten har sin egen skygge, så den kan læses et godt stykke under 100.",
         "targetAbi": "10.11.0.0",
