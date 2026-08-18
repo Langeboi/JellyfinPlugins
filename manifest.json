@@ -215,7 +215,7 @@
         "version": "2.0.3.0",
         "changelog": "Mindre mørklægning af billedet i hero-baren. Toningen bag titel og knapper er sat ned til 70% af det oprindelige, og ind-/udtoningen i top og bund er trukket ind (18%/78% → 10%/86%), så en større del af plakaten er synlig. Styrken kan nu justeres i indstillingerne (\"Artwork tint strength\") mellem 0 og 150% – teksten har sin egen skygge, så den kan læses et godt stykke under 100.",
         "targetAbi": "10.11.0.0",
-        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.3.0/herobar_2.0.3.0.zip",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.3.0.1/herobar_2.0.3.0.zip",
         "checksum": "3d1c37403f581355e622b44d79b3db30",
         "timestamp": "2026-08-18T07:46:00Z"
       },
