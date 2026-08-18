@@ -73,6 +73,16 @@
         </div>
 
         <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="OverlayStrength">Artwork tint strength (%)</label>
+          <input id="OverlayStrength" name="OverlayStrength" type="number" is="emby-input" min="0" max="150" />
+          <div class="fieldDescription">
+            How strongly the backdrop is darkened behind the title and buttons. 100 is the original
+            treatment; lower shows more of the image. Default 70. The text keeps its own shadow, so it
+            stays readable well below 100 &mdash; 0 removes the tint entirely.
+          </div>
+        </div>
+
+        <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="RandomRotationHours">Change the selection every (hours)</label>
           <input id="RandomRotationHours" name="RandomRotationHours" type="number" is="emby-input" min="1" max="720" />
           <div class="fieldDescription">

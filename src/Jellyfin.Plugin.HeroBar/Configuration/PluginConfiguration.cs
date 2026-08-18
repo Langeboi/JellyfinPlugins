@@ -55,6 +55,14 @@ namespace Jellyfin.Plugin.HeroBar.Configuration
         /// </summary>
         public int HeightPercent { get; set; } = 100;
 
+        /// <summary>
+        /// How strongly the artwork is tinted down behind the title and
+        /// buttons, as a percentage of the original treatment (100 = the
+        /// old look). Lower shows more of the image; the text keeps its own
+        /// shadow, so it stays legible well below 100.
+        /// </summary>
+        public int OverlayStrength { get; set; } = 70;
+
         /// <summary>Show the heart button that favourites the featured item.</summary>
         public bool ShowFavoriteButton { get; set; } = true;
 

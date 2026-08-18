@@ -365,6 +365,7 @@
   var dateCache = {}; // itemId -> DateCreated string (or null if unknown)
   var episodeLabelCache = {}; // seriesId -> "S{n}E{m}" of its latest episode (series entries only)
   var latestEpisodeIdCache = {}; // seriesId -> itemId of that same latest episode
+  var seriesAddedCache = {}; // seriesId -> DateCreated of the series row itself
   var ongoingCache = {}; // seriesId -> true if the show's Status is "Continuing"
   var pendingIds = new Set();
   var pendingBackdropIds = new Set();
@@ -558,6 +559,36 @@
   // a rewritten href.
   var EPISODE_LINK_ATTR = 'data-nb-episode-id';
 
+  // How close together the series row and its newest episode have to have
+  // been added for the card to count as "the whole show just arrived".
+  // Generous, because a large import can take a long time to finish
+  // scanning - the alternative case (an existing show gaining an episode)
+  // is separated by days at minimum, so there is a lot of room between them.
+  var WHOLE_SHOW_ARRIVAL_WINDOW_MS = 12 * 3600 * 1000;
+
+  function isWholeShowArrival(seriesId) {
+    var seriesAdded = seriesAddedCache[seriesId];
+    var newestEpisodeAdded = dateCache[seriesId]; // for a series this holds its newest EPISODE's date
+    if (!seriesAdded || !newestEpisodeAdded) {
+      // Without both dates there is no way to tell them apart. Falling back
+      // to the series page is the safer of the two: it is where Jellyfin
+      // would have gone anyway, so an unknown never sends you somewhere
+      // unexpected.
+      return true;
+    }
+    var gap = new Date(newestEpisodeAdded).getTime() - new Date(seriesAdded).getTime();
+    if (isNaN(gap)) {
+      return true;
+    }
+    // Signed, not absolute. A NEGATIVE gap - the newest episode recorded
+    // before the series row - happens routinely during a bulk import, where
+    // episode scanning finishes before the series entry is written. Measured
+    // on the real library: a full-series import came in at -12.8h, which an
+    // absolute comparison mistook for "a new episode 12.8 hours later".
+    // Only an episode arriving well AFTER the series means a new episode.
+    return gap < WHOLE_SHOW_ARRIVAL_WINDOW_MS;
+  }
+
   function applyEpisodeLinkIfKnown(card, id) {
     if (!cfg.EnableEpisodeDirectLink) {
       return;
@@ -571,6 +602,20 @@
     // 26 cards were being tagged where only the 14 in "Nyligt tilføjet"
     // should have been.
     if (card.closest('.newBadges-trendingSection, .newBadges-continueSection')) {
+      return;
+    }
+    // A WHOLE NEW SHOW should open the show, not drop you into one episode
+    // of it. The two cases are told apart by how far apart the series row
+    // and its newest episode were added: a show that has just been imported
+    // arrives together with its episodes (a gap of seconds or minutes),
+    // whereas an existing show getting a new episode has a series row that
+    // is days, weeks or seasons older.
+    //
+    // This is deliberately a GAP rather than "is the series itself recent":
+    // a show added last week that gets a genuinely new episode today would
+    // still be inside any freshness window, yet that card is about the
+    // episode, and the gap correctly says so.
+    if (isWholeShowArrival(id)) {
       return;
     }
     var episodeId = latestEpisodeIdCache[id];
@@ -704,11 +749,16 @@
       var seriesUserId = apiClient.getCurrentUserId();
       var statusUrl = apiClient.getUrl('Users/' + seriesUserId + '/Items', {
         Ids: seriesIds.join(','),
-        Fields: 'Status'
+        // DateCreated here is when the SERIES row itself was added, which is
+        // what separates "a whole new show arrived" from "an existing show
+        // got a new episode" - see applyEpisodeLinkIfKnown. Free to ask for:
+        // this lookup was already being made for Status.
+        Fields: 'Status,DateCreated'
       });
       promises.push(apiClient.getJSON(statusUrl).then(function (result) {
         (result.Items || []).forEach(function (item) {
           ongoingCache[item.Id] = item.Status === 'Continuing';
+          seriesAddedCache[item.Id] = item.DateCreated;
         });
       }).catch(function () {
         seriesIds.forEach(function (id) {

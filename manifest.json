@@ -212,6 +212,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.0.3.0",
+        "changelog": "Mindre mørklægning af billedet i hero-baren. Toningen bag titel og knapper er sat ned til 70% af det oprindelige, og ind-/udtoningen i top og bund er trukket ind (18%/78% → 10%/86%), så en større del af plakaten er synlig. Styrken kan nu justeres i indstillingerne (\"Artwork tint strength\") mellem 0 og 150% – teksten har sin egen skygge, så den kan læses et godt stykke under 100.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.0.3.0/herobar_2.0.3.0.zip",
+        "checksum": "3d1c37403f581355e622b44d79b3db30",
+        "timestamp": "2026-08-18T07:46:00Z"
+      },
+      {
         "version": "2.0.2.0",
         "changelog": "Hero-baren kan nu vise et tilfældigt udvalg fra hele biblioteket i stedet for \"trending + senest tilføjet\" - og udvalget er det SAMME for alle brugere på serveren. Det skiftes automatisk ud hver 48. time (kan ændres i indstillingerne). Udvalget trækkes ikke tilfældigt pr. bruger eller pr. sideindlæsning - det udledes af uret, så alle lander på præcis de samme titler uden at serveren skal gemme noget, og det skifter helt af sig selv når vinduet ruller over (justeret efter UTC, så det sker samtidigt for alle). Kan slås fra igen i indstillingerne.",
         "targetAbi": "10.11.0.0",
@@ -294,6 +302,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.3.0.0",
+        "changelog": "Genvejen fra \"Nyligt tilføjet\" kender nu forskel på et nyt AFSNIT og en helt ny SERIE. Er der kommet et nyt afsnit til en serie du allerede har, fører kortet direkte til afsnittet. Er hele serien lige tilføjet, fører kortet til seriens side – for så handler kortet om serien, ikke om ét bestemt afsnit. Forskellen måles på hvor lang tid der gik mellem at serien og dens nyeste afsnit blev tilføjet: en nyimporteret serie kommer ind sammen med sine afsnit (minutter), mens en eksisterende serie er uger eller måneder ældre end sit nye afsnit. Målt på det rigtige bibliotek ligger de to grupper på henholdsvis under 4 timer og over 1100 timer, så grænsen på 12 timer rammer midt i et meget stort tomrum.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.3.0.0/newbadges_2.3.0.0.zip",
+        "checksum": "9e287ae610d91fbf944150851a484d5a",
+        "timestamp": "2026-08-18T07:46:00Z"
+      },
       {
         "version": "2.2.2.0",
         "changelog": "Rettelse til 2.2.1.0: den direkte genvej til det nye afsnit ramte også kortene i Trending-rækken, så et klik dér åbnede seriens nyeste afsnit i stedet for selve serien. Trending handler om serien, ikke om et afsnit der lige er landet, så de kort fører nu til serien igen som før. Genvejen gælder – som beskrevet – kun rækkerne under \"Nyligt tilføjet\".",

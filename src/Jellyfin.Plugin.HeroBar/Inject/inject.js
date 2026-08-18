@@ -14,6 +14,7 @@
     IncludeTrending: true,
     TrendingWindowDays: 30,
     HeightPercent: 100,
+    OverlayStrength: 70,
     ShowFavoriteButton: true,
     ShowOverview: true
   };
@@ -256,6 +257,7 @@
           IncludeTrending: data.IncludeTrending !== false,
           TrendingWindowDays: clampInt(data.TrendingWindowDays, 1, 365, DEFAULTS.TrendingWindowDays),
           HeightPercent: clampInt(data.HeightPercent, 50, 150, DEFAULTS.HeightPercent),
+          OverlayStrength: clampInt(data.OverlayStrength, 0, 150, DEFAULTS.OverlayStrength),
           ShowFavoriteButton: data.ShowFavoriteButton !== false,
           ShowOverview: data.ShowOverview !== false
         };
@@ -993,6 +995,12 @@
     // Height is a variable so the configured percentage scales every
     // breakpoint's height at once rather than needing three overrides.
     var heightScale = (config && config.HeightPercent ? config.HeightPercent : 100) / 100;
+    // Scales every scrim alpha together. Rounded to 3 decimals so the
+    // generated CSS stays readable if anyone inspects it.
+    var overlayScale = (config && config.OverlayStrength != null ? config.OverlayStrength : 70) / 100;
+    function a(base) {
+      return Math.round(Math.min(1, base * overlayScale) * 1000) / 1000;
+    }
 
     style.textContent =
       // Height is viewport-relative but capped, so it stays proportionate
@@ -1007,20 +1015,29 @@
       '.heroBar-slide.is-active{opacity:1;pointer-events:auto;}' +
       // Alpha mask fades the imagery (backdrop + tint together) into the
       // page background at the top and bottom edges; text/buttons are
-      // siblings of this layer and stay unmasked/crisp.
+      // siblings of this layer and stay unmasked/crisp. The fade bands were
+      // pulled in (18%/78% -> 10%/86%) so less of the artwork is eaten by
+      // the blend while it still meets the page cleanly.
       '.heroBar-visual{position:absolute;inset:0;pointer-events:none;' +
-      '-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 78%,transparent 100%);' +
-      'mask-image:linear-gradient(to bottom,transparent 0%,black 18%,black 78%,transparent 100%);}' +
+      '-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10%,black 86%,transparent 100%);' +
+      'mask-image:linear-gradient(to bottom,transparent 0%,black 10%,black 86%,transparent 100%);}' +
       '.heroBar-backdrop{position:absolute;inset:0;background-size:cover;' +
       'background-position:center 20%;}' +
       // The tint is derived from the theme's own background colour at
       // runtime (see applyPalette) rather than being matched to one
-      // particular skin by hand, which is what this used to be.
+      // particular skin by hand, which is what this used to be. Its three
+      // layers are scaled together by OverlayStrength so the artwork can be
+      // shown more (or less) without editing a stylesheet: the bottom band
+      // is what carries the title, the top and side bands mostly just
+      // darken picture, which is what "it covers too much" refers to.
       '.heroBar-gradient{position:absolute;inset:0;pointer-events:none;background:' +
-      'linear-gradient(to top,rgba(var(--hb-scrim-rgb),.95) 0%,rgba(var(--hb-scrim-rgb),.5) 35%,' +
+      'linear-gradient(to top,rgba(var(--hb-scrim-rgb),' + a(0.95) + ') 0%,' +
+      'rgba(var(--hb-scrim-rgb),' + a(0.5) + ') 35%,' +
       'rgba(var(--hb-scrim-rgb),0) 65%),' +
-      'linear-gradient(to bottom,rgba(var(--hb-scrim-rgb),.7) 0%,rgba(var(--hb-scrim-rgb),0) 30%),' +
-      'linear-gradient(to right,rgba(var(--hb-scrim-rgb),.6) 0%,rgba(var(--hb-scrim-rgb),0) 55%);}' +
+      'linear-gradient(to bottom,rgba(var(--hb-scrim-rgb),' + a(0.7) + ') 0%,' +
+      'rgba(var(--hb-scrim-rgb),0) 30%),' +
+      'linear-gradient(to right,rgba(var(--hb-scrim-rgb),' + a(0.6) + ') 0%,' +
+      'rgba(var(--hb-scrim-rgb),0) 55%);}' +
       '.heroBar-content{position:absolute;left:0;bottom:0;right:0;padding:2em 2.5em;' +
       'max-width:min(700px,90%);z-index:1;}' +
       '.heroBar-logo{margin-bottom:.4em;}' +
@@ -1115,6 +1132,7 @@
     ['SlideCount', 'SlideCount', 'int'],
     ['RotationSeconds', 'RotationSeconds', 'int'],
     ['HeightPercent', 'HeightPercent', 'int'],
+    ['OverlayStrength', 'OverlayStrength', 'int'],
     ['ShowOverview', 'ShowOverview', 'bool'],
     ['ShowFavoriteButton', 'ShowFavoriteButton', 'bool'],
     ['RandomRotation', 'RandomRotation', 'bool'],
