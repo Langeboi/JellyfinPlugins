@@ -562,6 +562,17 @@
     if (!cfg.EnableEpisodeDirectLink) {
       return;
     }
+    // isRecentlyAddedSection() passes anything that is a .verticalSection
+    // without a sectionN class - which includes THIS plugin's own Trending
+    // and Continue Watching rows, so applyCard runs over those too (that is
+    // deliberate: it is how Trending cards get their NEW ribbon). Redirecting
+    // is different: a Trending card is about the show, not about an episode
+    // that just landed, so it must keep opening the series. Observed live -
+    // 26 cards were being tagged where only the 14 in "Nyligt tilføjet"
+    // should have been.
+    if (card.closest('.newBadges-trendingSection, .newBadges-continueSection')) {
+      return;
+    }
     var episodeId = latestEpisodeIdCache[id];
     if (!episodeId || card.getAttribute(EPISODE_LINK_ATTR) === episodeId) {
       return;

@@ -295,6 +295,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.2.2.0",
+        "changelog": "Rettelse til 2.2.1.0: den direkte genvej til det nye afsnit ramte også kortene i Trending-rækken, så et klik dér åbnede seriens nyeste afsnit i stedet for selve serien. Trending handler om serien, ikke om et afsnit der lige er landet, så de kort fører nu til serien igen som før. Genvejen gælder – som beskrevet – kun rækkerne under \"Nyligt tilføjet\".",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.2.2.0/newbadges_2.2.2.0.zip",
+        "checksum": "1ec6007350760dbef149d6e50e7dc91a",
+        "timestamp": "2026-08-18T07:39:00Z"
+      },
+      {
         "version": "2.2.1.0",
         "changelog": "Når et nyt afsnit er tilføjet, viser kortet i \"Nyligt tilføjet\" allerede hvilket afsnit det drejer sig om (fx S3E7) sammen med NEW-mærket – men et klik på kortet førte til seriens side, hvor man så selv skulle finde afsnittet. Nu åbner kortet direkte det nye afsnit. Gælder kun rækkerne under \"Nyligt tilføjet\"; alle andre rækker opfører sig som før. Afspil-knappen og den udvidede hover-rude er urørt – ruden viser seriens beskrivelse, så dens \"Læs mere\" fører stadig til serien. Kan slås fra i indstillingerne.",
         "targetAbi": "10.11.0.0",
