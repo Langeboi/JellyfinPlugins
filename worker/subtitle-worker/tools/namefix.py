@@ -39,7 +39,7 @@ import unicodedata
 # Unicode-aware on purpose. With an ASCII-only class the Danish
 # "Kongedrabbrødrene" split at the ø, and a correction meant for a
 # whole word was applied to the fragment before it.
-WORD = re.compile(r"[^\W\d_](?:[^\W\d_]|['\-])*")
+WORD = re.compile(r"[^\W\d_](?:[^\W\d_]|['\-])+")
 CUE_RE = re.compile(r'(\d+)\n([\d:,]+ --> [\d:,]+)\n(.*?)(?=\n\s*\n|\Z)', re.S)
 BACKUP_SUFFIX = '.namefix.bak'
 NEWLINE = chr(10)
@@ -54,6 +54,8 @@ HARVEST_MIN_HITS = 2
 HARVEST_MIN_LEN = 4
 # Distance ceiling for a correction, once the sounds already match.
 MAX_EDITS = 3
+# Shorter than this and a token is an initial or an abbreviation.
+MIN_TOKEN_LEN = 4
 # A correction must aim at a spelling the title uses at least this many
 # times more often than the one being replaced.
 CANONICAL_RATIO = 3
@@ -261,6 +263,12 @@ def corrections(text, gloss, df, attested=frozenset(), counts=None, allow=None):
             continue
 
         bare = fold(re.sub(r"'s$|'$", '', token))
+        # "D", "L", "B" are initials and abbreviations, not names Whisper
+        # got wrong. They match almost any short name on the consonant
+        # skeleton, and expanding them invents a person: D -> Doe fired 80
+        # times before this.
+        if len(bare) < MIN_TOKEN_LEN:
+            continue
         # The title's own subtitles already use this spelling, so it is the
         # title's spelling. Nothing rarer may displace it.
         if bare in attested:
@@ -451,8 +459,13 @@ def run(args, write):
     totals = collections.Counter()
     pairs = collections.Counter()
     for title in sorted(ours_by):
-        # Only genuine human subtitles may act as references.
-        sources = [p for p in refs_by.get(title, []) if looks_human(p)]
+        # References must be English AND human-written. Danish subtitles
+        # were in the pool before, and Danish words are rare in a mostly
+        # English library, so the rarity test happily accepted them as
+        # "names": Ansett -> Ansaette, Maluku -> Maelk, Nissa -> Naese.
+        # Hundreds of English lines would have been rewritten into Danish.
+        sources = [p for p in refs_by.get(title, [])
+                   if is_english(p) and looks_human(p)]
         if sources:
             terms, attested, counts = harvest(sources, df)
         else:
