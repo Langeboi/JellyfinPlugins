@@ -36,7 +36,10 @@ import os
 import re
 import unicodedata
 
-WORD = re.compile(r"[A-Za-z][A-Za-z'\-]+")
+# Unicode-aware on purpose. With an ASCII-only class the Danish
+# "Kongedrabbrødrene" split at the ø, and a correction meant for a
+# whole word was applied to the fragment before it.
+WORD = re.compile(r"[^\W\d_](?:[^\W\d_]|['\-])*")
 CUE_RE = re.compile(r'(\d+)\n([\d:,]+ --> [\d:,]+)\n(.*?)(?=\n\s*\n|\Z)', re.S)
 BACKUP_SUFFIX = '.namefix.bak'
 NEWLINE = chr(10)
@@ -151,6 +154,13 @@ class Glossary:
         for term in terms:
             for word in WORD.findall(term):
                 if len(word) < 3:
+                    continue
+                # Cast lists describe some parts by relation - "Davina's
+                # Mother", "Hayley's Dad" - and splitting those into words
+                # turns the possessive into a "name". It then proposed
+                # Danish "Davinas magt" -> "Davina's magt", which is not
+                # even correct Danish. A possessive is never a name.
+                if word.lower().endswith("'s"):
                     continue
                 self.terms[fold(word)] = word
                 self.by_skel[skeleton(word)].add(word)
@@ -351,6 +361,18 @@ def fix_ranks(text):
     return RANK_RE.sub(repl, text), hits
 
 
+def is_english(path):
+    """Only English subtitles are in scope.
+
+    Every rule here is English orthography - which words are common, when a
+    capital means a name, how a possessive is written. Danish forms its
+    genitive without an apostrophe, so "Davinas magt" is already correct and
+    "Davina's magt" is not. 104 Danish files were in range before this."""
+    name = os.path.basename(path).lower()
+    parts = name.split('.')
+    return any(p in ('en', 'eng', 'english') for p in parts[1:-1] if p)
+
+
 def load_list(path):
     return [l.strip() for l in io.open(path, encoding='utf-8-sig') if l.strip()]
 
@@ -391,7 +413,9 @@ def cmd_scan(args):
 
 def run(args, write):
     df = load_df(args.freq)
-    ours = [p for p in load_list(args.our_subs) if p.lower().endswith('.srt')]
+    every = [p for p in load_list(args.our_subs) if p.lower().endswith('.srt')]
+    ours = [p for p in every if is_english(p)]
+    print('subtitles in scope     : %d of %d (English only)' % (len(ours), len(every)))
     refs = load_list(args.ref_subs)
 
     ours_by = collections.defaultdict(list)
@@ -497,7 +521,8 @@ def run(args, write):
 def cmd_ranks(args, write=False):
     """Capitalise ranks used as titles. Needs no glossary, so it reaches the
     machine-transcribed files that have no reference subtitles either."""
-    ours = [p for p in load_list(args.our_subs) if p.lower().endswith('.srt')]
+    ours = [p for p in load_list(args.our_subs)
+            if p.lower().endswith('.srt') and is_english(p)]
     total = collections.Counter()
     samples = []
     for path in ours:
