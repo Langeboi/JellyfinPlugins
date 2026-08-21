@@ -37,30 +37,138 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 Write-Output "== Checking prerequisites =="
-$pythonExe = $null
-foreach ($candidate in @("python", "py")) {
-    try {
-        $ver = & $candidate -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-        if ($LASTEXITCODE -eq 0 -and [double]$ver -ge 3.10) { $pythonExe = $candidate; break }
-    } catch { }
-}
-if (-not $pythonExe) {
-    Write-Error "Python 3.10+ not found. Install from https://www.python.org/downloads/ (check 'Add to PATH') and re-run."
-}
-Write-Output "  Python: OK ($pythonExe)"
 
-$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-if (-not $ffmpeg) {
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if ($winget) {
-        Write-Output "  ffmpeg missing - installing via winget..."
-        winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
-        Write-Output "  NOTE: re-open PowerShell if ffmpeg is not found on PATH after this."
-    } else {
-        Write-Error "ffmpeg not found and winget unavailable. Install ffmpeg (https://www.gyan.dev/ffmpeg/builds/) and add it to PATH."
+# Supported interpreter window. The upper bound is not caution - it is a hard
+# wheel gap. ffsubsync pulls webrtcvad-wheels and the NLLB path pulls
+# tokenizers; neither publishes a cp314 wheel, so on Python 3.14 pip falls
+# back to compiling from source and dies with "Microsoft Visual C++ 14.0 or
+# greater is required". Raise MaxPython once those projects ship cp314.
+$MinPython = [version]"3.10"
+$MaxPython = [version]"3.14"   # exclusive
+
+# Probing a native command's version is done with $ErrorActionPreference
+# relaxed on purpose: PowerShell 5.1 turns a native process's stderr into
+# ErrorRecords, and under "Stop" the first one is TERMINATING - the same trap
+# documented at length in start.ps1. A Python that merely warns on startup
+# would otherwise look like "not installed".
+function Get-PythonVersion {
+    param([string]$Exe)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $out = & $Exe -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $txt = ($out | Out-String).Trim()
+        if ($txt -match '^\d+\.\d+$') { return [version]$txt }
+    } catch { } finally { $ErrorActionPreference = $old }
+    return $null
+}
+
+# Collect every interpreter on the box, not just whatever "python" resolves
+# to: the py launcher knows about side-by-side installs, python.org's
+# installer adds only the launcher when "Add python.exe to PATH" is left
+# unchecked, and a PATH edit is invisible to an ALREADY-OPEN PowerShell.
+$candidates = New-Object System.Collections.Generic.List[string]
+$launcher = Get-Command py -ErrorAction SilentlyContinue
+if ($launcher) {
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        foreach ($line in (& $launcher.Source -0p 2>$null)) {
+            # Parsed without a regex on purpose - the path is full of
+            # backslashes and every escaping layer between here and the file
+            # is one more chance to silently never match.
+            $t = "$line".Trim()
+            if ($t -like "*.exe") {
+                $i = $t.IndexOf(":\")
+                if ($i -gt 0) { $candidates.Add($t.Substring($i - 1)) }
+            }
+        }
+    } catch { } finally { $ErrorActionPreference = $old }
+}
+foreach ($n in @("python", "py")) {
+    $c = Get-Command $n -ErrorAction SilentlyContinue
+    if ($c) { $candidates.Add($c.Source) }
+}
+foreach ($root in @("$env:LOCALAPPDATA\Programs\Python", "$env:ProgramFiles\Python*", "C:\Python*")) {
+    foreach ($p in (Get-ChildItem -Path $root -Filter "python.exe" -Recurse -Depth 1 -ErrorAction SilentlyContinue)) {
+        $candidates.Add($p.FullName)
     }
 }
-Write-Output "  ffmpeg: OK"
+
+# Highest version inside the window wins.
+$pythonExe = $null
+$pythonVer = $null
+$rejected = @()
+foreach ($candidate in ($candidates | Select-Object -Unique)) {
+    # WindowsApps entries are Microsoft Store redirector stubs, not interpreters.
+    if ($candidate -like "*\WindowsApps\*") { continue }
+    # Never seed a new venv from another venv's python - it may itself be a
+    # stale build, and pyvenv.cfg chaining gets confusing fast.
+    if (Test-Path (Join-Path (Split-Path -Parent (Split-Path -Parent $candidate)) "pyvenv.cfg")) { continue }
+    # [version], not [double]: as a double "3.9" -ge 3.10 is TRUE and a
+    # too-old Python sailed through the check.
+    $v = Get-PythonVersion $candidate
+    if (-not $v) { continue }
+    if ($v -lt $MinPython -or $v -ge $MaxPython) { $rejected += "$v at $candidate"; continue }
+    if ((-not $pythonVer) -or ($v -gt $pythonVer)) { $pythonExe = $candidate; $pythonVer = $v }
+}
+if (-not $pythonExe) {
+    $msg = "No supported Python found (need >= $MinPython and < $MaxPython; 3.13 is the newest that works)."
+    if ($rejected) { $msg += " Found but unusable: " + ($rejected -join '; ') + "." }
+    $msg += " Install 3.13 from https://www.python.org/downloads/release/python-31311/ (tick 'Add python.exe to PATH'), then open a NEW administrator PowerShell and re-run. It installs alongside an existing 3.14 - nothing is removed."
+    Write-Error $msg
+}
+if ($rejected) { Write-Output "  (ignoring unsupported: $($rejected -join '; '))" }
+Write-Output "  Python: OK ($pythonVer at $pythonExe)"
+
+# ffmpeg is fetched as a static build into $InstallDir\bin rather than via a
+# package manager. winget does not exist on Windows LTSC / IoT / Server
+# images - they ship without the Store's App Installer - so "install winget
+# first" was a dead end on exactly the always-on boxes this worker targets.
+# A private copy also survives PATH changes and needs no shell restart.
+$ffmpegDir = Join-Path $InstallDir "bin"
+$ffmpegLocal = Join-Path $ffmpegDir "ffmpeg.exe"
+if ((Test-Path $ffmpegLocal) -and (($env:Path -split ';') -notcontains $ffmpegDir)) {
+    $env:Path = "$ffmpegDir;$env:Path"
+}
+$ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+if (-not $ffmpeg) {
+    Write-Output "  ffmpeg missing - downloading a static build (~160MB, one time)..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ffZip = Join-Path $env:TEMP ("ffmpeg-{0}.zip" -f (Get-Random))
+    $ffTmp = Join-Path $env:TEMP ("ffmpeg-x-{0}" -f (Get-Random))
+    Invoke-WebRequest -UseBasicParsing -OutFile $ffZip `
+        -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip"
+    Expand-Archive -Path $ffZip -DestinationPath $ffTmp -Force
+    New-Item -ItemType Directory -Force $ffmpegDir | Out-Null
+    foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+        $src = Get-ChildItem $ffTmp -Recurse -Filter $tool | Select-Object -First 1
+        if (-not $src) { Write-Error "ffmpeg archive did not contain $tool - aborting." }
+        Copy-Item -Force $src.FullName (Join-Path $ffmpegDir $tool)
+    }
+    Remove-Item -Recurse -Force $ffTmp -ErrorAction SilentlyContinue
+    Remove-Item -Force $ffZip -ErrorAction SilentlyContinue
+    $env:Path = "$ffmpegDir;$env:Path"
+    $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if (-not $ffmpeg) { Write-Error "ffmpeg still not runnable after download - aborting." }
+}
+# The scheduled task starts from a fresh environment, so a session-only PATH
+# entry would not reach the worker. Persist our bin dir for it to inherit.
+if (Test-Path $ffmpegLocal) {
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if (($machinePath -split ';') -notcontains $ffmpegDir) {
+        try {
+            [Environment]::SetEnvironmentVariable("Path", "$machinePath;$ffmpegDir", "Machine")
+            Write-Output "  Added $ffmpegDir to the machine PATH."
+        } catch {
+            # Not fatal: ffmpeg still sits beside the worker. Only worth a
+            # warning on a box where policy locks the machine environment.
+            Write-Output "  WARNING: could not persist $ffmpegDir to the machine PATH ($($_.Exception.Message))."
+        }
+    }
+}
+Write-Output "  ffmpeg: OK ($($ffmpeg.Source))"
 
 $hasGpu = $false
 try {
@@ -72,17 +180,35 @@ else { Write-Output "  NVIDIA GPU: NOT found (CPU worker: sync + small-model tra
 
 Write-Output "== Setting up $InstallDir =="
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
-$venvPython = Join-Path $InstallDir "venv\Scripts\python.exe"
+$venvDir = Join-Path $InstallDir "venv"
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
+# A venv built by an out-of-window interpreter is rebuilt, never reused: an
+# earlier run on an unsupported Python otherwise leaves behind a venv that can
+# never install the dependencies, and the "already exists" shortcut below
+# would silently keep it forever.
+if (Test-Path $venvPython) {
+    $venvVer = Get-PythonVersion $venvPython
+    if ((-not $venvVer) -or ($venvVer -lt $MinPython) -or ($venvVer -ge $MaxPython)) {
+        Write-Output "  Existing venv is Python $venvVer (unsupported) - rebuilding on $pythonVer."
+        Remove-Item -Recurse -Force $venvDir
+    }
+}
 if (-not (Test-Path $venvPython)) {
-    & $pythonExe -m venv (Join-Path $InstallDir "venv")
+    & $pythonExe -m venv $venvDir
+    if (-not (Test-Path $venvPython)) { Write-Error "Failed to create the virtualenv at $venvDir." }
 }
 & $venvPython -m pip install --upgrade pip --quiet
 Write-Output "== Installing packages (first run downloads a lot, be patient) =="
 # ffsubsync pinned - see install.sh for why (the worker relies on specific
 # --skip-sync-on-low-quality behavior an unpinned reinstall could silently change).
 & $venvPython -m pip install --quiet fastapi uvicorn "ffsubsync==0.5.0" faster-whisper
+# Aborting here matters: without this check a failed pip run fell through to
+# the model download and the enrollment banner, so the installer reported
+# success and printed an API key for a worker that could never start.
+if ($LASTEXITCODE -ne 0) { Write-Error "pip failed to install the core worker packages - aborting (see the pip error above)." }
 if ($hasGpu) {
     & $venvPython -m pip install --quiet nvidia-cublas-cu12 nvidia-cudnn-cu12
+    if ($LASTEXITCODE -ne 0) { Write-Error "pip failed to install the CUDA runtime packages - aborting." }
 }
 
 Write-Output "== Fetching worker + wrapper scripts =="
