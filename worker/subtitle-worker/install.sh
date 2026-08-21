@@ -20,6 +20,62 @@ echo "== Installing packages =="
 apt-get update
 apt-get install -y python3 python3-venv python3-pip ffmpeg curl
 
+echo "== Selecting a supported Python =="
+# Hard window, matching install.ps1. The upper bound is a wheel gap, not
+# caution: ffsubsync pulls webrtcvad-wheels and the NLLB path pulls
+# tokenizers, and neither publishes a cp314 wheel. On 3.14 pip therefore
+# falls back to building both from source, which needs python3-dev, a C
+# compiler and a Rust toolchain that this installer deliberately does not
+# pull in. Raise PY_MAX_MINOR once those projects ship cp314.
+PY_MIN_MINOR=10
+PY_MAX_MINOR=13
+py_minor() {
+  "$1" -c 'import sys; print(sys.version_info[1] if sys.version_info[0] == 3 else -1)' 2>/dev/null || echo -1
+}
+# Explicit override first, then the newest supported pythonX.Y on PATH, then
+# whatever python3 happens to be - so a box whose default python3 is too new
+# still installs cleanly if a supported interpreter is present alongside it.
+PY_CANDIDATES=""
+if [ -n "${SUBWORKER_PYTHON:-}" ]; then PY_CANDIDATES="$SUBWORKER_PYTHON"; fi
+_m=$PY_MAX_MINOR
+while [ "$_m" -ge "$PY_MIN_MINOR" ]; do
+  PY_CANDIDATES="$PY_CANDIDATES python3.$_m"
+  _m=$((_m - 1))
+done
+PY_CANDIDATES="$PY_CANDIDATES python3"
+PYTHON_BIN=""
+for _cand in $PY_CANDIDATES; do
+  command -v "$_cand" >/dev/null 2>&1 || continue
+  _got=$(py_minor "$_cand")
+  if [ "$_got" -ge "$PY_MIN_MINOR" ] && [ "$_got" -le "$PY_MAX_MINOR" ]; then
+    PYTHON_BIN=$(command -v "$_cand")
+    break
+  fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+  _have=$(python3 -V 2>&1 || true)
+  echo "ERROR: no supported Python (need 3.$PY_MIN_MINOR - 3.$PY_MAX_MINOR; this box has: ${_have:-none found})." >&2
+  # Only explain the wheel gap when the box is actually too NEW - on a box
+  # that is merely too old this paragraph is a red herring.
+  if [ "$(py_minor python3)" -gt "$PY_MAX_MINOR" ]; then
+    echo "  3.$((PY_MAX_MINOR + 1))+ cannot build this worker: webrtcvad-wheels (via ffsubsync)" >&2
+    echo "  and tokenizers (via transformers, for NLLB) publish no wheels for it yet," >&2
+    echo "  so pip would try to compile them from source." >&2
+  fi
+  echo "  Debian/Ubuntu:  apt-get install -y python3.$PY_MAX_MINOR python3.$PY_MAX_MINOR-venv" >&2
+  echo "  Or point at an existing one:" >&2
+  echo "    SUBWORKER_PYTHON=/usr/bin/python3.$PY_MAX_MINOR sudo -E bash install.sh" >&2
+  exit 1
+fi
+# A distro python3.X needs its matching -venv package; without it the failure
+# surfaces much later as a confusing pip error.
+if ! "$PYTHON_BIN" -c 'import venv, ensurepip' >/dev/null 2>&1; then
+  echo "ERROR: $PYTHON_BIN cannot create virtualenvs." >&2
+  echo "  Install its venv package, e.g.:  apt-get install -y python3.$(py_minor "$PYTHON_BIN")-venv" >&2
+  exit 1
+fi
+echo "  Python: $PYTHON_BIN (3.$(py_minor "$PYTHON_BIN"))"
+
 echo "== Creating service user and directories =="
 id -u "$SERVICE_USER" >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin "$SERVICE_USER"
 mkdir -p "$INSTALL_DIR"
@@ -58,7 +114,7 @@ else
 fi
 
 echo "== Python environment =="
-python3 -m venv "$INSTALL_DIR/venv"
+"$PYTHON_BIN" -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 # ffsubsync pinned: the worker relies on specific behavior (the
 # --skip-sync-on-low-quality flag and its "offset seconds:"/"low-quality
@@ -164,13 +220,23 @@ fi
 # the model, hitting a 429 rate limit, all failing). CUDA loads need the
 # runtime libs on LD_LIBRARY_PATH here too.
 echo "== Pre-downloading Whisper model ($WHISPER_MODEL) =="
-if LD_LIBRARY_PATH="${CUDA_LIBS:-}" HF_HOME="$HF_CACHE_DIR" hf_retry \
-     "$INSTALL_DIR/venv/bin/python" - "$WHISPER_MODEL" "$WHISPER_DEV" "$WHISPER_CT" <<'PYEOF'
+# The prefetch script goes in a FILE, never on stdin. A heredoc is consumed
+# by the FIRST attempt, so every hf_retry retry handed `python -` an empty
+# stdin - an empty script, which exits 0 - and the installer then reported
+# "Whisper model cached OK" having downloaded nothing. That only ever struck
+# on the retry path, i.e. exactly when HuggingFace was rate-limiting, which
+# is the whole reason hf_retry exists; the result was the runtime re-download
+# storm the comment above is meant to prevent.
+WHISPER_PREFETCH=$(mktemp)
+trap 'rm -f "$WHISPER_PREFETCH"' EXIT
+cat > "$WHISPER_PREFETCH" <<'PYEOF'
 import sys
 from faster_whisper import WhisperModel
 WhisperModel(sys.argv[1], device=sys.argv[2], compute_type=sys.argv[3])
 print("whisper model cached")
 PYEOF
+if LD_LIBRARY_PATH="${CUDA_LIBS:-}" HF_HOME="$HF_CACHE_DIR" hf_retry \
+     "$INSTALL_DIR/venv/bin/python" "$WHISPER_PREFETCH" "$WHISPER_MODEL" "$WHISPER_DEV" "$WHISPER_CT"
 then
   echo "  Whisper model cached OK"
 else
@@ -179,12 +245,19 @@ fi
 
 # Re-running this installer (e.g. to upgrade) must NOT rotate the API key -
 # that would silently break the worker's enrollment in the plugin.
-if [ -f "$INSTALL_DIR/env" ] && grep -q '^SUBWORKER_API_KEY=' "$INSTALL_DIR/env"; then
+# The trailing '.' matters: a bare '^SUBWORKER_API_KEY=' also matches an EMPTY
+# value, which was then "kept" and printed as a blank enrollment code.
+if [ -f "$INSTALL_DIR/env" ] && grep -q '^SUBWORKER_API_KEY=.' "$INSTALL_DIR/env"; then
   echo "== Keeping existing API key =="
-  API_KEY=$(grep '^SUBWORKER_API_KEY=' "$INSTALL_DIR/env" | cut -d= -f2-)
+  API_KEY=$(grep '^SUBWORKER_API_KEY=' "$INSTALL_DIR/env" | head -1 | cut -d= -f2-)
 else
   echo "== Generating API key =="
-  API_KEY=$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 32)
+  # Draw from /dev/urandom until 32 alnum characters are collected. The old
+  # form base64'd a fixed 24 bytes and stripped '+/=' AFTER the length was
+  # already fixed, so the "32-char" key was really 28-32 chars. head closing
+  # the pipe SIGPIPEs tr, which pipefail would report as a failed pipeline,
+  # so this runs in a subshell with pipefail off.
+  API_KEY=$(set +o pipefail; LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c 32)
 fi
 
 cat > "$INSTALL_DIR/env" <<EOF
