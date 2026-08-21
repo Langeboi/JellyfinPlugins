@@ -7,3 +7,7 @@ ref_subs.txt
 namefix-report.txt
 decisions.txt
 extra_terms.json
+proposals.txt
+skipped_titles.json
+poss.tsv
+received.json
