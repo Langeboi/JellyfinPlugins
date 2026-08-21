@@ -1,0 +1,110 @@
+# Corrections cleared for writing. Tab separated: title, wrong, right.
+#
+# The harvest proposes; this file decides. Roughly half of what it proposes
+# is wrong, because the local evidence cannot distinguish a name the show
+# spells oddly from a name a subtitle got wrong - "Barbas" is right and the
+# only Charmed subtitle carrying it says "Barbus". Everything here was
+# checked against what the title actually calls these people and places.
+#
+# Deliberately NOT approved, as examples of what the harvest gets wrong:
+#   Charmed        Barbas -> Barbus        Barbas is the demon's name
+#   Sons of Anarchy Diosa -> Deosa         Diosa is the business
+#   Mayday         Pitot -> Pettit         a pitot tube
+#   Mayday         Nepalese -> Nepals      an ordinary word
+#   The Good Doctor Anastomosis -> Anastomos   a real surgical term
+#   South Park     MPAA -> Moop            MPAA is real
+#   Peacemaker     Murn -> Mern            Murn is right
+#   Smallville     Kel-El -> Kai-El        it is Kal-El, neither of these
+#   Shameless      Fuckery -> Ficker
+#   Stargate       Tok'rin -> Tok'erne     Danish leaking into English
+
+Stargate SG-1 1997	Nequadria	Naquadria
+Stargate SG-1 1997	Nequadri	Naquadria
+Stargate SG-1 1997	Naquadar	Naquadria
+Stargate SG-1 1997	Naquadra	Naquadria
+Stargate SG-1 1997	Nequadria's	Naquadria's
+Stargate SG-1 1997	Naquda	Naquada
+Stargate SG-1 1997	Tritonin	Tretonin
+Stargate SG-1 1997	Tritona	Tretonin
+Stargate SG-1 1997	Tritonan	Tretonin
+Stargate SG-1 1997	Hothar	Hathor
+Stargate SG-1 1997	Her'ak	Harak
+Stargate SG-1 1997	Herak	Harak
+Stargate SG-1 1997	Ska'ara	Skaara
+Stargate SG-1 1997	Nearty	Nirrti
+Stargate SG-1 1997	Nirti	Nirrti
+Stargate SG-1 1997	Neerty	Nirrti
+Stargate SG-1 1997	Hak'til	Hak'tyl
+Stargate SG-1 1997	Haktil	Hak'tyl
+Stargate SG-1 1997	Katao	K'Tau
+Stargate SG-1 1997	Katao's	K'Tau's
+Stargate SG-1 1997	Takara	Tok'ra
+Stargate SG-1 1997	Toker	Tok'ra
+Stargate SG-1 1997	Tukra	Tok'ra
+Stargate SG-1 1997	Shalva	Sholva
+Stargate SG-1 1997	Shulva	Sholva
+Stargate SG-1 1997	Turi	Tauri
+Stargate SG-1 1997	Egger	Egeria
+Stargate SG-1 1997	Ravana	Revanna
+Outlander 2014	Sassnach	Sassenach
+Outlander 2014	Sassanach	Sassenach
+Outlander 2014	Sussnach	Sassenach
+Outlander 2014	Sassnich	Sassenach
+Outlander 2014	Sussanich	Sassenach
+Outlander 2014	Aardsmuir	Ardsmuir
+Outlander 2014	Jemmie	Jemmy
+Outlander 2014	Pardlo	Pardloe
+Outlander 2014	Hellwater	Helwater
+Outlander 2014	Malve	Malva
+Outlander 2014	Dunna	Dinna
+Vikings 2013	Katgat	Kattegat
+Vikings 2013	Gida	Gyda
+Superbad (2007)	Maclovin	McLovin
+South Park 1997	Towley	Towelie
+South Park 1997	Bar-Brady	Barbrady
+South Park 1997	Henke	Hankey
+South Park 1997	Vollmer	Valmer
+Orange Is the New Black 2013	Piscitella	Piscatella
+Orange Is the New Black 2013	Piscatello	Piscatella
+Orange Is the New Black 2013	Piscitella's	Piscatella's
+Orange Is the New Black 2013	Piscatello's	Piscatella's
+Orange Is the New Black 2013	Baddison	Badison
+Orange Is the New Black 2013	Luschak's	Luschek's
+Orange Is the New Black 2013	D-Black's	D-Block's
+Sons of Anarchy 2008	Halfsack	Half-Sack
+Sons of Anarchy 2008	Teggy	Tiggy
+How I Met Your Mother 2005	Schmoesby	Schmosby
+How I Met Your Mother 2005	Schmoesby's	Schmosby's
+Grimm 2011	Blutbadn	Blutbaden
+Grimm 2011	Zabberbeest	Zauberbeest
+Grimm 2011	Skallengecky	Skallengeck
+Silo 2023	Amundson	Amundsen
+The Wire (2002)	Dequan	Duquan
+The Wire (2002)	Broning	Broening
+SEAL Team 2017	DevGuru	DEVGRU
+SEAL Team 2017	Alsham	Al-Sham
+SEAL Team 2017	Alsham's	Al-Sham's
+SEAL Team 2017	Rejavi	Rajavi
+Vice (2018)	Unidear	UNODIR
+Chicago Fire 2012	Kilbourn	Kilbourne
+Chicago Fire 2012	Zemanski	Zemansky
+Chicago Fire 2012	Slammigan	Slamigan
+Chicago Fire 2012	Slamagon	Slamigan
+Chicago Fire 2012	Slammigan's	Slamigan's
+Bones 2005	Gormo-gon	Gormogon
+Bones 2005	Anacosta	Anacostia
+Bones 2005	Jeffersonia's	Jeffersonian's
+# Bones 2005	See-lo	Seeley	# rejected: the line is the joke "Seeley, not See-lo", and "correcting" it produced "Seeley, not Seeley"
+The Rookie 2018	Mid-Woolshire	Mid-Wilshire
+Smallville 2001	Shayara	Shayera
+Game of Thrones	Lysia	Lysa
+Game of Thrones	Kongedrabbr	Kongedrabber
+Parks and Recreation 2009	Knopey	Knope
+Parks and Recreation 2009	Pakaitis	Pikitis
+Parks and Recreation 2009	Langmann	Langman
+The Sopranos 1999	Sacrimony	Sacrimoni
+Narcos 2015	Pallomari	Palomari
+Narcos 2015	Palomaro	Palomari
+Narcos 2015	Grif	Greiff
+Aladdin (1992)	Gazim	Gazeem
+Charmed 1998	Orbbing	Orbing

@@ -1,0 +1,9 @@
+# Generated on the machine that runs the tool - large, and specific to one
+# library. Rebuild with: namefix.py scan
+wordfreq.txt
+all_subs.txt
+our_subs.txt
+ref_subs.txt
+namefix-report.txt
+decisions.txt
+extra_terms.json
