@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.3.3"
+WORKER_VERSION = "2.3.4"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -774,17 +774,30 @@ def process_translate_job(job: dict):
         return
 
     mtime = os.path.getmtime(media)
-    if already_processed(key, mtime):
+    force = bool(job.get("force"))
+    if already_processed(key, mtime) and not force:
         with state_lock:
             state["skipped"] += 1
         return
 
     target = os.path.splitext(media)[0] + ".da.srt"
-    if os.path.exists(target):
+    if os.path.exists(target) and not force:
+        # Never overwrite an existing Danish subtitle by accident. force=True
+        # is the deliberate re-translate, and without it our own earlier
+        # output could never be replaced - which mattered once the translator
+        # itself improved and every file made by the old one was frozen.
         record(key, mtime, None, "already-has-sub")
         with state_lock:
             state["skipped"] += 1
         return
+
+    # Someone else's subtitle being replaced is kept, same .bak convention
+    # the other paths use. Ours are reproducible, so they need no copy.
+    if os.path.exists(target) and not is_machine_generated(target):
+        try:
+            shutil.copy2(target, target + ".bak")
+        except OSError as exc:
+            print(f"[translate] could not back up {target}: {exc}", flush=True)
 
     tmp_extract = None
     try:
