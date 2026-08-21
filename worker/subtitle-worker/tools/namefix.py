@@ -23,6 +23,10 @@ USAGE
     namefix.py report   dry run - what would change, nothing written
     namefix.py apply    write the changes, keeping a .bak of each file
     namefix.py revert   restore every .bak this tool created
+
+    namefix.py ranks        dry run of the rank-capitalisation pass
+    namefix.py ranks-apply  write those (needs no glossary, so it also
+                            reaches titles with no reference subtitles)
 """
 import argparse
 import collections
@@ -35,6 +39,7 @@ import unicodedata
 WORD = re.compile(r"[A-Za-z][A-Za-z'\-]+")
 CUE_RE = re.compile(r'(\d+)\n([\d:,]+ --> [\d:,]+)\n(.*?)(?=\n\s*\n|\Z)', re.S)
 BACKUP_SUFFIX = '.namefix.bak'
+NEWLINE = chr(10)
 
 # A word appearing in more titles than this is ordinary vocabulary and is
 # never rewritten into somebody's surname.
@@ -302,6 +307,50 @@ def process_file(path, gloss, df, attested=frozenset(), counts=None, allow=None)
     return CUE_RE.sub(fix, raw), changes
 
 
+# A rank is capitalised when it is used as a title in front of a name
+# ("Captain Sobel") and lowercase otherwise ("the captain"). Whisper gets
+# this wrong about half the time.
+#
+# Kinship terms are deliberately absent. "father", "brother", "sister" and
+# "mother" precede a name constantly without being titles - "my brother
+# Dave" - and "miss" is usually the verb, as in "I miss Sarah". Together
+# those account for 3,600 of the 7,900 candidates in this library, and
+# nearly all of them would have been wrong.
+TITLE_RANKS = (
+    'captain', 'lieutenant', 'sergeant', 'corporal', 'private', 'colonel',
+    'general', 'commander', 'admiral', 'major', 'doctor', 'officer', 'agent',
+    'detective', 'sheriff', 'deputy', 'professor', 'president', 'senator',
+    'judge', 'inspector', 'constable', 'marshal', 'governor', 'chief',
+)
+# In front of one of these the word is a common noun, not a title:
+# "the doctor Smith recommended", "a general Johnson mentioned".
+RANK_BLOCKERS = {
+    'my', 'your', 'his', 'her', 'our', 'their', 'its', 'the', 'a', 'an',
+    'this', 'that', 'these', 'those', 'some', 'any', 'every', 'no', 'one',
+    'another', 'other', 'own', 'former', 'late', 'old', 'young', 'dear',
+}
+RANK_RE = re.compile(r'\b(' + '|'.join(TITLE_RANKS) + r')(\s+)([A-Z][a-z]{2,})')
+
+
+def fix_ranks(text):
+    """Capitalise a rank that is acting as a title before a name."""
+    hits = []
+
+    def repl(m):
+        rank, gap, name = m.group(1), m.group(2), m.group(3)
+        if rank[0].isupper():
+            return m.group(0)
+        before = text[:m.start()].rstrip()
+        prev = re.search(r"([A-Za-z']+)$", before)
+        if prev and prev.group(1).lower() in RANK_BLOCKERS:
+            return m.group(0)
+        fixed = rank[0].upper() + rank[1:]
+        hits.append((rank + ' ' + name, fixed + ' ' + name))
+        return fixed + gap + name
+
+    return RANK_RE.sub(repl, text), hits
+
+
 def load_list(path):
     return [l.strip() for l in io.open(path, encoding='utf-8-sig') if l.strip()]
 
@@ -445,6 +494,63 @@ def run(args, write):
     return pairs
 
 
+def cmd_ranks(args, write=False):
+    """Capitalise ranks used as titles. Needs no glossary, so it reaches the
+    machine-transcribed files that have no reference subtitles either."""
+    ours = [p for p in load_list(args.our_subs) if p.lower().endswith('.srt')]
+    total = collections.Counter()
+    samples = []
+    for path in ours:
+        try:
+            raw = read_text(path)
+        except OSError:
+            total['unreadable'] += 1
+            continue
+        changes = []
+
+        def fix(m):
+            body = m.group(3)
+            new, hits = fix_ranks(body)
+            if hits:
+                changes.append((m.group(1), body, new, hits))
+            return NEWLINE.join((m.group(1), m.group(2), new))
+
+        new_text = CUE_RE.sub(fix, raw)
+        if not changes:
+            continue
+        total['files'] += 1
+        for _, before, after, hits in changes:
+            for was, now in hits:
+                total['replacements'] += 1
+                total[was.split()[0].lower()] += 1
+            if len(samples) < 25:
+                samples.append((os.path.basename(path), before, after))
+        if write:
+            backup = path + BACKUP_SUFFIX
+            if not os.path.exists(backup):
+                with io.open(path, encoding='utf-8-sig', errors='replace', newline='') as fh:
+                    io.open(backup, 'w', encoding='utf-8', newline='').write(fh.read())
+            io.open(path, 'w', encoding='utf-8', newline=NEWLINE).write(new_text)
+
+    print('files changed : %d' % total['files'])
+    print('replacements  : %d' % total['replacements'])
+    print()
+    print('by rank:')
+    for r in TITLE_RANKS:
+        if total.get(r):
+            print('   %-12s %d' % (r, total[r]))
+    print()
+    print('samples:')
+    for name, before, after in samples[:12]:
+        print('   %s' % name[:44])
+        print('      - %s' % before.replace(NEWLINE, ' ')[:96])
+        print('      + %s' % after.replace(NEWLINE, ' ')[:96])
+
+
+def cmd_ranks_apply(args):
+    cmd_ranks(args, write=True)
+
+
 def cmd_report(args):
     run(args, write=False)
 
@@ -470,7 +576,8 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['scan', 'report', 'apply', 'revert'])
+    ap.add_argument('command', choices=['scan', 'report', 'apply', 'revert',
+                                        'ranks', 'ranks-apply'])
     ap.add_argument('--all-subs', default=os.path.join(here, 'all_subs.txt'))
     ap.add_argument('--our-subs', default=os.path.join(here, 'our_subs.txt'))
     ap.add_argument('--ref-subs', default=os.path.join(here, 'ref_subs.txt'))
@@ -481,8 +588,9 @@ def main():
                     help='tab-separated title/wrong/right; only these are written')
     ap.add_argument('--out', default=os.path.join(here, 'namefix-report.txt'))
     args = ap.parse_args()
-    {'scan': cmd_scan, 'report': cmd_report,
-     'apply': cmd_apply, 'revert': cmd_revert}[args.command](args)
+    {'scan': cmd_scan, 'report': cmd_report, 'apply': cmd_apply,
+     'revert': cmd_revert, 'ranks': cmd_ranks,
+     'ranks-apply': cmd_ranks_apply}[args.command](args)
 
 
 if __name__ == '__main__':
