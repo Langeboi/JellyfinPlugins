@@ -782,49 +782,17 @@
       '@keyframes seerrRequests-dotBounce{0%,12%,100%{transform:translateY(0);opacity:.5;}' +
       '6%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
-      // Genre filter pills, scoped per section now (Film / Serier each get
-      // their own row instead of one global type toggle).
-      'border:1px solid rgba(var(--seerr-fg-rgb),.18);border-radius:16px;padding:.35em .9em;' +
-      'font-size:.85em;cursor:pointer;transition:border-color .15s,background .15s;}' +
-      'border-color:var(--seerr-accent);color:var(--seerr-accent-fg);}' +
-      // Upcoming-releases hero: same visual family as the Hero Bar home
-      // hero (same verified rgba(30,40,54,...) gradient family), but
-      // thinner and rounded since it sits inside the width-constrained
-      // .sections column rather than full-bleed.
-      'border-radius:12px;background:rgb(var(--seerr-surface-rgb));color:var(--seerr-on-media);' +
-      'transition:height .3s ease;}' +
-      // Height is really a framing decision, not a size one. TMDB backdrops
-      // are composed at 16:9, and `cover` in a box wider than that throws
-      // away the top and bottom - at the old min(32vh,300px) a 1200px-wide
-      // hero came out 4.00:1 and showed just 44% of the image height, i.e. a
-      // thin arbitrary band sliced through the middle of every still, with
-      // heads and horizons routinely cut. That is what made the artwork look
-      // bad here while the identical images look fine on a card. Raising it
-      // to 420px takes the box to 2.86:1 and shows 62%, which is enough to
-      // keep a still's actual subject intact while staying a banner rather
-      // than becoming a full-height hero. The phone breakpoints below are
-      // deliberately NOT raised to match: a ~375px-wide hero at 230px is
-      // already 1.63:1, i.e. barely cropping at all.
-      // 30% rather than 25%: with the taller box there is less overscan to
-      // distribute, and film stills put their subject just above centre.
-      'background-position:center 30%;opacity:0;transition:opacity .8s ease;pointer-events:none;}' +
-      'linear-gradient(to top,rgba(var(--seerr-scrim-rgb),.95) 0%,rgba(var(--seerr-scrim-rgb),.45) 40%,' +
-      'rgba(var(--seerr-scrim-rgb),0) 70%),' +
-      'linear-gradient(to right,rgba(var(--seerr-scrim-rgb),.65) 0%,rgba(var(--seerr-scrim-rgb),0) 55%);}' +
-      'max-width:min(640px,92%);z-index:1;}' +
-      'color:var(--seerr-accent-fg);' +
-      'border-radius:999px;padding:.25em .9em;font-size:.75em;font-weight:700;letter-spacing:.04em;' +
-      'margin-bottom:.6em;box-shadow:0 2px 8px rgba(0,0,0,.4);}' +
-      'text-shadow:0 2px 6px rgba(0,0,0,.6);}' +
-      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}' +
-      'background:rgba(255,255,255,.4);cursor:pointer;transition:background .15s,transform .15s;}' +
-      '@media (max-width:800px){' +
-      // Genre pills: one horizontally swipeable row instead of wrapping into
-      // several rows that eat half the screen on a phone.
-      'scrollbar-width:none;-ms-overflow-style:none;padding-bottom:2px;}' +
-      // 16px minimum stops iOS Safari from auto-zooming the page when the
-      // search field gets focus.
-      '}' +
+      // A block of upcoming-hero and genre-pill CSS used to sit here with
+      // every selector missing - it shipped as bare declaration bodies in
+      // v1.7.0.0 and so never styled anything. It was not merely inert: the
+      // CSS parser read the orphaned declarations as one malformed rule and
+      // swallowed the NEXT real rule along with them, which silently killed
+      // .seerrRequests-hoverPop's base "position:fixed;opacity:0". The hover
+      // popover then rendered as a static, fully opaque block pinned to the
+      // top-left of the page, and stayed there across navigation because
+      // hiding it only removes .is-open. Deleted rather than repaired: the
+      // hero it targeted was removed in the 2.2.0.0 board rebuild, and the
+      // genre pills have their own .seerrBoard-chip rules now.
       // Hover-expand preview popover (desktop only - shown via matchMedia
       // hover check, so these styles never apply on touch devices).
       // A solid panel sitting ON the page rather than over artwork, so this
