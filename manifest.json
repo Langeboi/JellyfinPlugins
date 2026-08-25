@@ -578,6 +578,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.2.1.0",
+        "changelog": "Rettet: et billede fra en film eller serie kunne blive hængende øverst til venstre på siden. Det skete når man trykkede på et kort for noget vi ikke har på serveren, og billedet blev stående - også når man gik tilbage til forsiden.\n\nForhåndsvisningen (boksen der folder sig ud over et kort) havde mistet sin styling. Et stykke CSS længere oppe i filen manglede alle sine selektorer; det har ligget sådan siden 1.7.0.0 og har aldrig givet noget som helst stil. Men det var ikke bare virkningsløst: browseren læste de løse linjer som én ødelagt regel og slugte den næste rigtige regel sammen med dem - og det var netop den regel der holder forhåndsvisningen usynlig og placerer den fast på skærmen. Uden den blev boksen tegnet som et helt almindeligt element øverst til venstre, fuldt synlig selv når den var lukket. Derfor hjalp det ikke at lukke den.\n\nDet ødelagte CSS er fjernet. Det hørte til den roterende banner der forsvandt i 2.2.0.0, og genre-knapperne har deres egne regler nu, så intet bruger det længere.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/v2.2.1.0/seerrrequests_2.2.1.0.zip",
+        "checksum": "d52a5ce6ff4ab2d454b728b7a66e9545",
+        "timestamp": "2026-08-25T19:37:49Z"
+      },
+      {
         "version": "2.2.0.0",
         "changelog": "Fuld redesign af \"Tilføj Film/Serie\"-siden. Før: en roterende banner øverst, et tyndt søgefelt og fire vandrette rækker (Seneste anmodninger, Trending, Film, Serier) der hver viste omkring fire titler ad gangen. Nu: søgningen er det første og største på siden, og de fire rækker er erstattet af ÉT gitter, der viser alt på én gang. Alle/Film/Serier og genre-knapperne filtrerer nu det samme gitter i stedet for at være delt op i to næsten ens sektioner, og der er en \"Vis flere\"-knap. Statusmarkeringerne er lavet om til tre tydelige niveauer: den eneste du kan handle på (Tilføj) er en fremhævet knap, \"Anmodet\" er en dæmpet mat boble med en langsom puls, og noget der allerede er på serveren viser kun et lille flueben - og selve plakaten tones ned, så øjet springer den over. Titler du allerede har, er som udgangspunkt helt skjult (kan slås til med \"Vis dem vi har\"), og det du faktisk kan anmode om ligger øverst. Dine egne anmodninger er flyttet fra en stor plakat-række til en kompakt statusliste. Rettet undervejs: Seerr kan returnere flere forskellige titler med samme navn (fx tre udgaver af \"Paradise Hotel\"), som nu slås sammen til én; og den hårde kant øverst på siden, hvor Jellyfins faste header møder indholdet, er blødt op.",
         "targetAbi": "10.11.0.0",
