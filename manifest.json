@@ -212,6 +212,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.1.1.0",
+        "changelog": "Retter at pluginets indstillingsside ikke kunne åbnes på Jellyfin 12.\n\nPluginet kørte fint, men dets side under Dashboard → Plugins var der ikke, og der stod ingen fejl nogen steder. Jellyfin 12's nye dashboard viser kun en plugin-indstillingsside, hvis siden selv beder om at komme i menuen. Det gør den nu.\n\nKun relevant for Jellyfin 12 — på 10.11 kunne siden altid åbnes fra plugin-oversigten uanset hvad.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.1.1.0/herobar_2.1.1.0.zip",
+        "checksum": "9044e0f6bc3dd071ee651aa67b12fec5",
+        "timestamp": "2026-09-10T20:40:00Z"
+      },
+      {
         "version": "2.1.0.0",
         "changelog": "Understøtter nu Jellyfin 12. Denne udgave er bygget til Jellyfin 12 og kan KUN installeres der - Jellyfin 10.11 bliver på 2.0.4.0, som stadig virker uændret. Serveren vælger selv den rigtige.\n\nHvad der skulle laves om: Jellyfin 12 afviser den gamle måde at sende adgangsnøglen på (X-Emby-Token), så alle kald bruger nu det almindelige Authorization-felt i stedet. Uden det svarede serveren 401, og heroens \"mest sete\"-data kunne ikke hentes.\n\nAccentfarven læses nu direkte fra temaet. Før blev den gættet ved at male en usynlig knap med Jellyfins egne klasser og aflæse farven - men Jellyfin 12 tegner sine knapper på en helt ny måde, hvor den klasse ikke findes, så gættet slog fejl og faldt tilbage til en fast farve. Jellyfin 12 udstiller hele sin farvepalet direkte, så nu bliver den bare spurgt. På 10.11 fungerer den gamle metode som før.",
         "targetAbi": "12.0.0.0",
