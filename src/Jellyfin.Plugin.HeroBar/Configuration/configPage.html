@@ -5,6 +5,152 @@
 </head>
 <body>
   <div id="HeroBarConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox,emby-select">
+      <!--
+        Jellyfin 12 builds its own settings pages out of MUI components. A
+        plugin config page is plain HTML injected into the dashboard, so it
+        cannot render React ones - and MUI's class names carry no styling by
+        themselves: all of it lives in Emotion hashes like css-1f20jcn.
+        Verified on 12.0.0 that an element wearing only MuiButton-root
+        computes identically to a completely unstyled button, and those
+        hashes change whenever jellyfin-web is rebuilt, so they cannot be
+        borrowed either.
+
+        So this matches 12's filled-field look using 12's own design tokens,
+        which it publishes as --jf-* custom properties and which are stable.
+        The measurements come from 12's own Settings page: 54px fields on
+        rgba(255,255,255,.09), 25px/12px/8px padding, the label shrunk to
+        .75em at 12px/7px, helper text indented 14px, and a 42px primary
+        button at 8px/22px.
+
+        Everything is scoped to .jf12, which inject.js adds only when those
+        tokens actually exist. A 10.11 server has none, gets no class, and
+        keeps the legacy styling that matches ITS dashboard - the point is to
+        look native on whichever server it lands on, not to look like 12
+        everywhere.
+      -->
+      <style>
+        .jf12 .verticalSection > h2 {
+          font-size: 1.5em;
+          font-weight: 300;
+          color: var(--jf-palette-text-secondary, rgba(255, 255, 255, .7));
+          margin: 1.6em 0 .2em;
+        }
+
+        .jf12 .inputContainer,
+        .jf12 .selectContainer {
+          position: relative;
+          margin: 1.6em 0 0;
+        }
+
+        /* The label sits inside the field, as MUI's filled variant does with
+           a shrunk floating label. These pages always have a value present,
+           so it can simply stay in the shrunk position rather than animating. */
+        .jf12 .inputContainer > label,
+        .jf12 .selectContainer > label {
+          position: absolute;
+          top: 7px;
+          left: 12px;
+          z-index: 1;
+          pointer-events: none;
+          font-size: .75em;
+          line-height: 1;
+          color: var(--jf-palette-text-secondary, rgba(255, 255, 255, .7));
+        }
+
+        .jf12 .inputContainer > input,
+        .jf12 .selectContainer > select {
+          box-sizing: border-box;
+          width: 100%;
+          height: 54px;
+          margin: 0;
+          padding: 25px 12px 8px;
+          border: 0;
+          border-bottom: 1px solid var(--jf-palette-divider, rgba(255, 255, 255, .12));
+          border-radius: 4px 4px 0 0;
+          background: var(--jf-palette-action-hover, rgba(255, 255, 255, .09));
+          color: var(--jf-palette-text-primary, #fff);
+          font-size: 1em;
+          font-family: inherit;
+        }
+
+        .jf12 .inputContainer > input:hover,
+        .jf12 .selectContainer > select:hover {
+          background: var(--jf-palette-action-selected, rgba(255, 255, 255, .16));
+        }
+
+        /* MUI thickens the underline to the primary colour on focus. Doing it
+           with an inset box-shadow rather than a 2px border keeps the field
+           from shifting by a pixel as it gains focus. */
+        .jf12 .inputContainer > input:focus,
+        .jf12 .selectContainer > select:focus {
+          outline: none;
+          box-shadow: inset 0 -2px 0 0 var(--jf-palette-primary-main, #00a4dc);
+        }
+
+        .jf12 .selectContainer > select {
+          padding-right: 32px;
+          -webkit-appearance: none;
+          -moz-appearance: none;
+          appearance: none;
+          background-image:
+            linear-gradient(45deg, transparent 50%, currentColor 50%),
+            linear-gradient(135deg, currentColor 50%, transparent 50%);
+          background-position:
+            right 16px top 60%,
+            right 11px top 60%;
+          background-size: 5px 5px, 5px 5px;
+          background-repeat: no-repeat;
+        }
+
+        .jf12 .fieldDescription {
+          margin: 3px 0 0 14px;
+          font-size: .9em;
+          color: var(--jf-palette-text-secondary, rgba(255, 255, 255, .7));
+        }
+
+        .jf12 .checkboxContainer {
+          margin: 1.1em 0 0;
+        }
+
+        .jf12 .checkboxContainer + .fieldDescription,
+        .jf12 .checkboxContainer .fieldDescription {
+          margin-left: 34px;
+        }
+
+        .jf12 .checkboxContainer input[type="checkbox"] {
+          accent-color: var(--jf-palette-primary-main, #00a4dc);
+          width: 18px;
+          height: 18px;
+          margin-right: 12px;
+          vertical-align: -3px;
+        }
+
+        .jf12 .checkboxContainer label {
+          color: var(--jf-palette-text-primary, #fff);
+        }
+
+        .jf12 .button-submit {
+          display: block;
+          width: 100%;
+          min-height: 42px;
+          margin-top: 1.8em;
+          padding: 8px 22px;
+          border: 0;
+          border-radius: 4px;
+          background: var(--jf-palette-primary-main, #00a4dc);
+          color: var(--jf-palette-primary-contrastText, rgba(0, 0, 0, .87));
+          font-size: 1em;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background-color .2s ease, box-shadow .2s ease;
+        }
+
+        .jf12 .button-submit:hover {
+          background: var(--jf-palette-primary-dark, #0072a0);
+          box-shadow: var(--jf-shadows-2, 0 3px 6px rgba(0, 0, 0, .3));
+        }
+      </style>
     <div data-role="content">
       <div class="content-primary">
         <div class="verticalSection">

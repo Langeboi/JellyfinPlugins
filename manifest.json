@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.2.0.0",
+        "changelog": "Indstillingssiden er tegnet om, så den ser ud som resten af Jellyfin 12.\n\nJellyfin 12 har lavet sine egne indstillingssider om: felterne er nu fyldte bokse med en lille etiket øverst i selve feltet, i stedet for en label ovenover. Denne side fulgte stadig den gamle stil og stak derfor ud fra alt andet i dashboardet.\n\nFelter, afkrydsningsfelter, overskrifter og Gem-knappen matcher nu Jellyfin 12's egne — samme højde, samme afrunding, samme farver. Farverne hentes fra Jellyfin 12's eget tema, så siden også følger med hvis du skifter tema.\n\nKun udseende. Der er ikke ændret noget i hvad siden gør, eller i indstillingerne selv. På Jellyfin 10.11 ser siden ud præcis som før — den nye stil slås kun til, hvis serveren rent faktisk er 12.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.2.0.0/herobar_2.2.0.0.zip",
+        "checksum": "715c5405bc4e4621ccc7c4c2a42a6941",
+        "timestamp": "2026-09-10T22:10:00Z"
+      },
+      {
         "version": "2.1.1.0",
         "changelog": "Retter at pluginets indstillingsside ikke kunne åbnes på Jellyfin 12.\n\nPluginet kørte fint, men dets side under Dashboard → Plugins var der ikke, og der stod ingen fejl nogen steder. Jellyfin 12's nye dashboard viser kun en plugin-indstillingsside, hvis siden selv beder om at komme i menuen. Det gør den nu.\n\nKun relevant for Jellyfin 12 — på 10.11 kunne siden altid åbnes fra plugin-oversigten uanset hvad.",
         "targetAbi": "12.0.0.0",
@@ -334,6 +342,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.5.0.0",
+        "changelog": "Indstillingssiden er tegnet om, så den ser ud som resten af Jellyfin 12.\n\nJellyfin 12 har lavet sine egne indstillingssider om: felterne er nu fyldte bokse med en lille etiket øverst i selve feltet, i stedet for en label ovenover. Denne side fulgte stadig den gamle stil og stak derfor ud fra alt andet i dashboardet.\n\nFelter, afkrydsningsfelter, overskrifter og Gem-knappen matcher nu Jellyfin 12's egne — samme højde, samme afrunding, samme farver. Farverne hentes fra Jellyfin 12's eget tema, så siden også følger med hvis du skifter tema.\n\nKun udseende. Der er ikke ændret noget i hvad siden gør, eller i indstillingerne selv. På Jellyfin 10.11 ser siden ud præcis som før — den nye stil slås kun til, hvis serveren rent faktisk er 12.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.5.0.0/newbadges_2.5.0.0.zip",
+        "checksum": "20a8251a41df8f249dbd8cab9159bd5c",
+        "timestamp": "2026-09-10T22:10:00Z"
+      },
       {
         "version": "2.4.0.0",
         "changelog": "Understøtter nu Jellyfin 12.\n\nJellyfin 12 afviser den gamle måde at sende adgangsnøglen på (X-Emby-Token), så alle kald bruger nu det almindelige Authorization-felt. Uden det svarede serveren 401.\n\nIndstillingssiden kunne ikke åbnes på Jellyfin 12. Pluginet kørte, men dets side under Dashboard → Plugins var der ikke, og der stod ingen fejl nogen steder. Jellyfin 12's nye dashboard viser kun siden, hvis den selv beder om at komme i menuen.\n\nAccentfarven læses nu direkte fra temaet. Før blev den gættet ved at male en usynlig knap med Jellyfins egne klasser og aflæse farven — men Jellyfin 12 tegner sine knapper på en ny måde hvor den klasse ikke findes, så gættet slog fejl og faldt tilbage til en fast farve.\n\nDenne udgave er bygget til Jellyfin 12 og kan kun installeres der. Kører du stadig 10.11, bliver du på den forrige udgave, som virker uændret — serveren vælger selv den rigtige. Grunden til at der skal være to: 10.11 og 12 kører på hver sin udgave af .NET, så det samme build kan ikke køre begge steder.",
@@ -609,6 +625,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.4.0.0",
+        "changelog": "Indstillingssiden er tegnet om, så den ser ud som resten af Jellyfin 12.\n\nJellyfin 12 har lavet sine egne indstillingssider om: felterne er nu fyldte bokse med en lille etiket øverst i selve feltet, i stedet for en label ovenover. Denne side fulgte stadig den gamle stil og stak derfor ud fra alt andet i dashboardet.\n\nFelter, afkrydsningsfelter, overskrifter og Gem-knappen matcher nu Jellyfin 12's egne — samme højde, samme afrunding, samme farver. Farverne hentes fra Jellyfin 12's eget tema, så siden også følger med hvis du skifter tema.\n\nKun udseende. Der er ikke ændret noget i hvad siden gør, eller i indstillingerne selv. På Jellyfin 10.11 ser siden ud præcis som før — den nye stil slås kun til, hvis serveren rent faktisk er 12.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.4.0.0/seerrrequests_2.4.0.0.zip",
+        "checksum": "2901215cc425f4101e5888bf9788f375",
+        "timestamp": "2026-09-10T22:10:00Z"
+      },
       {
         "version": "2.3.0.0",
         "changelog": "Understøtter nu Jellyfin 12.\n\nFanerne \"Tilføj Film/Serie\" og \"Udgivelseskalender\" er flyttet med. Jellyfin 12 har lavet hele den øverste menulinje om, og den gamle fanerække findes stadig i siden men bliver aldrig tegnet — så fanerne blev lagt et sted ingen kunne se dem. De sidder nu i den rigtige menulinje sammen med Favoritter, Film og Serier, og i menuen i siden på telefon.\n\nJellyfin 12 afviser den gamle måde at sende adgangsnøglen på (X-Emby-Token), så alle kald bruger nu det almindelige Authorization-felt. Uden det svarede serveren 401.\n\nIndstillingssiden kunne ikke åbnes på Jellyfin 12. Pluginet kørte, men dets side under Dashboard → Plugins var der ikke, og der stod ingen fejl nogen steder. Jellyfin 12's nye dashboard viser kun siden, hvis den selv beder om at komme i menuen.\n\nAccentfarven læses nu direkte fra temaet. Før blev den gættet ved at male en usynlig knap med Jellyfins egne klasser og aflæse farven — men Jellyfin 12 tegner sine knapper på en ny måde hvor den klasse ikke findes, så gættet slog fejl og faldt tilbage til en fast farve.\n\nDenne udgave er bygget til Jellyfin 12 og kan kun installeres der. Kører du stadig 10.11, bliver du på den forrige udgave, som virker uændret — serveren vælger selv den rigtige. Grunden til at der skal være to: 10.11 og 12 kører på hver sin udgave af .NET, så det samme build kan ikke køre begge steder.",

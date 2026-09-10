@@ -2370,6 +2370,17 @@
     if (!page || page.hasAttribute(CONFIG_WIRED_ATTR)) {
       return;
     }
+
+    // Jellyfin 12 renders its own settings pages with MUI. This page cannot
+    // do that - it is plain HTML injected into the dashboard - so its
+    // stylesheet reproduces 12's filled-field look from 12's own --jf-*
+    // design tokens instead, gated behind this class. The gate is the token
+    // itself rather than a version string: 10.11 publishes no such tokens,
+    // gets no class, and keeps the legacy styling that matches ITS dashboard.
+    if (getComputedStyle(document.documentElement)
+        .getPropertyValue('--jf-palette-primary-main').trim()) {
+      page.classList.add('jf12');
+    }
     // The page can appear a beat before the dashboard's own globals do -
     // leave it unmarked so the next observer tick tries again.
     if (!window.ApiClient || !window.Dashboard) {
