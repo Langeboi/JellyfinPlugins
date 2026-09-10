@@ -150,6 +150,36 @@
           background: var(--jf-palette-primary-dark, #0072a0);
           box-shadow: var(--jf-shadows-2, 0 3px 6px rgba(0, 0, 0, .3));
         }
+
+        /* Secondary actions - a .raised button that is not the submit one -
+           become MUI's outlined variant, so a page with two buttons reads as
+           one primary and one secondary rather than two equal ones.
+           The padding is 7px/21px against the submit button's 8px/22px on
+           purpose: MUI subtracts the border width from an outlined button's
+           padding so both variants end up exactly the same size. Colour comes
+           from the palette's channel token, which is what lets the border be
+           the primary colour at 50% alpha the way MUI draws it. */
+        .jf12 .raised:not(.button-submit) {
+          display: block;
+          width: 100%;
+          min-height: 42px;
+          margin-top: .8em;
+          padding: 7px 21px;
+          border: 1px solid rgb(var(--jf-palette-primary-mainChannel, 0 164 220) / .5);
+          border-radius: 4px;
+          background: transparent;
+          color: var(--jf-palette-primary-main, #00a4dc);
+          font-size: 1em;
+          font-weight: 500;
+          font-family: inherit;
+          cursor: pointer;
+          transition: background-color .2s ease, border-color .2s ease;
+        }
+
+        .jf12 .raised:not(.button-submit):hover {
+          border-color: var(--jf-palette-primary-main, #00a4dc);
+          background: rgb(var(--jf-palette-primary-mainChannel, 0 164 220) / .08);
+        }
       </style>
     <div data-role="content">
       <div class="content-primary">
