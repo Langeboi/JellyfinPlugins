@@ -326,7 +326,7 @@
     return fetch(apiClient.getUrl('user_usage_stats/submit_custom_query'), {
       method: 'POST',
       headers: {
-        'X-Emby-Token': apiClient.accessToken(),
+        'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ CustomQueryString: sql })
@@ -904,7 +904,7 @@
         }
         return fetch(apiClient.getUrl('Sessions/' + sessions[0].Id + '/Playing', params), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken() }
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
         });
       })
       .then(function (resp) {
@@ -931,7 +931,7 @@
     btn.disabled = true;
     fetch(apiClient.getUrl('Users/' + userId + '/FavoriteItems/' + itemId), {
       method: method,
-      headers: { 'X-Emby-Token': apiClient.accessToken() }
+      headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
     }).then(function (resp) {
       if (!resp.ok) {
         throw new Error('Favorite toggle failed: ' + resp.status);

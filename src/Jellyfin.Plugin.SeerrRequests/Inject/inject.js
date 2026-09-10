@@ -443,7 +443,7 @@
   function apiFetch(path, options) {
     var apiClient = window.ApiClient;
     options = options || {};
-    var headers = { 'X-Emby-Token': apiClient.accessToken() };
+    var headers = { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' };
     var body;
     if (options.body) {
       headers['Content-Type'] = 'application/json';

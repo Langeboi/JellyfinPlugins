@@ -884,7 +884,7 @@
 
     var userId = apiClient.getCurrentUserId();
     var url = apiClient.getUrl('Users/' + userId + '/Items/' + itemId);
-    fetch(url, { headers: { 'X-Emby-Token': apiClient.accessToken() } })
+    fetch(url, { headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' } })
       .then(function (resp) { return resp.json(); })
       .then(function (item) {
         var imageItemId = item.Id;
@@ -1114,7 +1114,7 @@
     return fetch(apiClient.getUrl('user_usage_stats/submit_custom_query'), {
       method: 'POST',
       headers: {
-        'X-Emby-Token': apiClient.accessToken(),
+        'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ CustomQueryString: sql })
@@ -1657,7 +1657,7 @@
         }
         return fetch(apiClient.getUrl('Sessions/' + sessions[0].Id + '/Playing', params), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken() }
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
         });
       })
       .then(function (resp) {
@@ -2738,7 +2738,7 @@
       EnableImageTypes: 'Primary',
       EnableTotalRecordCount: false
     });
-    titleIndexPromise = fetch(url, { headers: { 'X-Emby-Token': apiClient.accessToken() } })
+    titleIndexPromise = fetch(url, { headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var items = (data && data.Items) || [];
@@ -2796,7 +2796,7 @@
       EnableTotalRecordCount: false
     });
     fetch(url, {
-      headers: { 'X-Emby-Token': apiClient.accessToken() },
+      headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' },
       signal: ac ? ac.signal : undefined
     })
       .then(function (r) { return r.json(); })

@@ -777,7 +777,7 @@
     var apiClient = window.ApiClient;
     return fetch(apiClient.getUrl('Sessions/' + sessionId + '/Command'), {
       method: 'POST',
-      headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+      headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"', 'Content-Type': 'application/json' },
       body: JSON.stringify({ Name: 'SetSubtitleStreamIndex', Arguments: { Index: String(index) } })
     });
   }
@@ -1127,7 +1127,7 @@
       label.textContent = sgT('Sender...');
       fetch(apiClient.getUrl(opts.endpoint + btn.getAttribute('data-item-id')), {
         method: 'POST',
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; }); })
         .then(function (r) {
@@ -1164,7 +1164,7 @@
         return;
       }
       fetch(apiClient.getUrl('SubtitleGuard/progress/' + btn.getAttribute('data-item-id')), {
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (r) { return r.json(); })
         .then(function (d) {
@@ -1901,7 +1901,7 @@
         return;
       }
       fetch(apiClient.getUrl('SubtitleGuard/recent'), {
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (resp) { return resp.json(); })
         .then(function (data) {
@@ -1945,7 +1945,7 @@
         btn.textContent = sgT('Ruller tilbage...');
         fetch(apiClient.getUrl('SubtitleGuard/rollback'), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"', 'Content-Type': 'application/json' },
           body: JSON.stringify({ Url: btn.getAttribute('data-sg-url'), SubtitlePath: btn.getAttribute('data-sg-path') })
         })
           .then(function (resp) {
@@ -1989,7 +1989,7 @@
         if (restoreOsStatus) { restoreOsStatus.textContent = ''; }
         fetch(apiClient.getUrl('SubtitleGuard/restore-opensubtitles'), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken() }
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
         })
           .then(function (resp) {
             return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; });
@@ -2063,7 +2063,7 @@
       var chart = page.querySelector('#SgStatsChart');
       if (!tiles || !chart) { return; }
       fetch(apiClient.getUrl('SubtitleGuard/stats', { days: 14 }), {
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -2130,7 +2130,7 @@
       var box = page.querySelector('#SgTransHistory');
       if (!box) { return; }
       fetch(apiClient.getUrl('SubtitleGuard/history', { kind: 'transcribe', limit: 15 }), {
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (r) { return r.json(); })
         .then(function (data) {
@@ -2174,7 +2174,7 @@
 
     function refreshStatuses() {
       fetch(apiClient.getUrl('SubtitleGuard/workers/status'), {
-        headers: { 'X-Emby-Token': apiClient.accessToken() }
+        headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
       })
         .then(function (resp) { return resp.json(); })
         .then(function (data) {
@@ -2322,7 +2322,7 @@
           ctrl.disabled = true;
           fetch(apiClient.getUrl('SubtitleGuard/workers/control'), {
             method: 'POST',
-            headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+            headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"', 'Content-Type': 'application/json' },
             body: JSON.stringify({ Url: ctrl.getAttribute('data-sg-url'), Action: ctrl.getAttribute('data-sg-control') })
           }).then(refreshStatuses).catch(refreshStatuses);
           return;
@@ -2368,7 +2368,7 @@
         retryFailedBtn.disabled = true;
         fetch(apiClient.getUrl('SubtitleGuard/retry-failed'), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken() }
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"' }
         })
           .then(function (r) { return r.json(); })
           .then(function (d) {
@@ -2405,7 +2405,7 @@
         setBtnLabel(btn, sgT('Sender...'));
         fetch(apiClient.getUrl('SubtitleGuard/transcribe-path'), {
           method: 'POST',
-          headers: { 'X-Emby-Token': apiClient.accessToken(), 'Content-Type': 'application/json' },
+          headers: { 'Authorization': 'MediaBrowser Token="' + apiClient.accessToken() + '"', 'Content-Type': 'application/json' },
           body: JSON.stringify({ MediaPath: btn.getAttribute('data-sg-retrypath') })
         })
           .then(function (r) { return r.json(); })
