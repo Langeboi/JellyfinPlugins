@@ -1136,17 +1136,101 @@
     });
   }
 
-  function injectMuiNavLinks() {
-    var nav = muiNav();
-    if (!nav) {
+  // Below roughly 1000px the AppBar carries no text links at all - 12 moves
+  // navigation into a MUI Drawer instead. At those widths the drawer stays
+  // mounted even while closed, so this populates it up front rather than
+  // waiting for it to be opened; at desktop widths it is not in the DOM at
+  // all and this returns null, leaving the AppBar as the only surface.
+  function muiDrawerList() {
+    var paper = document.querySelector('.MuiDrawer-root .MuiDrawer-paper');
+    if (!paper) {
+      return null;
+    }
+    // Anchor on Favourites specifically. The drawer holds two lists either
+    // side of a divider - home destinations first, then "Libraries" - and a
+    // home tab belongs in the first. Favourites is the one entry guaranteed
+    // to be in it (a server can have no libraries at all), and it is already
+    // exactly what we are: an item that selects a tab on the home page
+    // rather than routing somewhere new.
+    var favourites = paper.querySelector('a[href*="/home?tab="]');
+    var template = favourites && favourites.closest ? favourites.closest('li') : null;
+    if (!template || !template.parentElement) {
+      return null;
+    }
+    return { list: template.parentElement, template: template };
+  }
+
+  function addMuiDrawerLink(nav, marker, label, icon, onClick) {
+    if (nav.list.querySelector('[' + marker + ']')) {
       return;
     }
-    attachMuiNavWatcher(nav.stack);
-    if (cfg.ShowRequestsTab) {
-      addMuiTabLink(nav, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
+    // Cloned for the same reason as the AppBar links - see addMuiTabLink.
+    // The drawer uses a different shape (li > a > .MuiListItemIcon-root +
+    // .MuiListItemText-primary) so the slots differ, but nothing here is
+    // hardcoded beyond MUI's own stable component class names.
+    var item = nav.template.cloneNode(true);
+    var link = item.querySelector('a');
+    if (!link) {
+      return;
     }
-    if (cfg.ShowCalendarTab) {
-      addMuiTabLink(nav, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
+    link.setAttribute(marker, 'true');
+    link.setAttribute('href', '#/home');
+    link.removeAttribute('aria-current');
+
+    var iconSlot = item.querySelector('.MuiListItemIcon-root');
+    if (iconSlot) {
+      iconSlot.innerHTML =
+        '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' +
+        escapeHtml(icon) + '</span>';
+    }
+    var text = item.querySelector('.MuiListItemText-primary');
+    if (text) {
+      text.textContent = label;
+    }
+
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Every other item in this drawer closes it by navigating. Ours
+      // deliberately does not navigate, so it has to close the drawer itself
+      // or the panel we just switched to sits behind it.
+      closeMuiDrawer();
+      onClick();
+    }, true);
+
+    nav.list.appendChild(item);
+  }
+
+  function closeMuiDrawer() {
+    var backdrop = document.querySelector('.MuiDrawer-root .MuiBackdrop-root');
+    if (backdrop) {
+      backdrop.click();
+    }
+  }
+
+  function injectMuiNavLinks() {
+    // Both surfaces, not one or the other: which of them is showing depends
+    // on viewport width, and the window can be resized without a reload.
+    var nav = muiNav();
+    if (nav) {
+      attachMuiNavWatcher(nav.stack);
+      if (cfg.ShowRequestsTab) {
+        addMuiTabLink(nav, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
+      }
+      if (cfg.ShowCalendarTab) {
+        addMuiTabLink(nav, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
+      }
+    }
+
+    var drawer = muiDrawerList();
+    if (drawer) {
+      attachMuiNavWatcher(drawer.list);
+      if (cfg.ShowRequestsTab) {
+        addMuiDrawerLink(drawer, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
+      }
+      if (cfg.ShowCalendarTab) {
+        addMuiDrawerLink(drawer, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
+      }
     }
   }
 
@@ -1488,10 +1572,12 @@
     });
 
     tab.classList.add('is-active');
-    var ourBtn = document.querySelector('[' + marker + ']');
-    if (ourBtn) {
-      ourBtn.classList.add('emby-tab-button-active');
-    }
+    // querySelectorAll, not querySelector: on Jellyfin 12 the same tab can
+    // exist twice at once - once in the AppBar and once in the drawer - and
+    // marking only the first left the other stuck looking inactive.
+    document.querySelectorAll('[' + marker + ']').forEach(function (el) {
+      el.classList.add('emby-tab-button-active');
+    });
   }
 
   function activateSeerrTab() {
@@ -1617,10 +1703,9 @@
       tab.classList.remove('is-active');
       restoreNativeActiveTab(homePage, explicitIndex);
     }
-    var ourBtn = document.querySelector('[' + CAL_BUTTON_MARKER + ']');
-    if (ourBtn) {
-      ourBtn.classList.remove('emby-tab-button-active');
-    }
+    document.querySelectorAll('[' + CAL_BUTTON_MARKER + ']').forEach(function (el) {
+      el.classList.remove('emby-tab-button-active');
+    });
   }
 
   function loadCalendar(tab) {
@@ -1805,10 +1890,9 @@
       // screen in that case.
       restoreNativeActiveTab(homePage, explicitIndex);
     }
-    var ourBtn = document.querySelector('[' + BUTTON_MARKER + ']');
-    if (ourBtn) {
-      ourBtn.classList.remove('emby-tab-button-active');
-    }
+    document.querySelectorAll('[' + BUTTON_MARKER + ']').forEach(function (el) {
+      el.classList.remove('emby-tab-button-active');
+    });
   }
 
   // Jellyfin's router only restores the active TAB BUTTON's highlighted
