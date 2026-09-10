@@ -212,6 +212,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.1.0.0",
+        "changelog": "Understøtter nu Jellyfin 12. Denne udgave er bygget til Jellyfin 12 og kan KUN installeres der - Jellyfin 10.11 bliver på 2.0.4.0, som stadig virker uændret. Serveren vælger selv den rigtige.\n\nHvad der skulle laves om: Jellyfin 12 afviser den gamle måde at sende adgangsnøglen på (X-Emby-Token), så alle kald bruger nu det almindelige Authorization-felt i stedet. Uden det svarede serveren 401, og heroens \"mest sete\"-data kunne ikke hentes.\n\nAccentfarven læses nu direkte fra temaet. Før blev den gættet ved at male en usynlig knap med Jellyfins egne klasser og aflæse farven - men Jellyfin 12 tegner sine knapper på en helt ny måde, hvor den klasse ikke findes, så gættet slog fejl og faldt tilbage til en fast farve. Jellyfin 12 udstiller hele sin farvepalet direkte, så nu bliver den bare spurgt. På 10.11 fungerer den gamle metode som før.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.1.0.0/herobar_2.1.0.0.zip",
+        "checksum": "e49a09324c1338ae13685eec26e1b57c",
+        "timestamp": "2026-09-10T20:15:00Z"
+      },
+      {
         "version": "2.0.4.0",
         "changelog": "Rettet: Afspil/Fortsæt-knappen i hero-baren skiftede af og til til Jellyfins standardblå i stedet for temaets egen grå. Pluginet aflæser temaets accentfarve fra siden, og hvis den aflæsning sker før temaets stylesheet er nået at blive indlæst – på denne server hentes skinnet via et @import fra et CDN – aflæses browserens standardfarve i stedet, og så faldt knappen tilbage til blå. Farven blev kun genberegnet ved DOM-ændringer (højst hvert 10. sekund), så på en side der lå stille kunne den blive blå indtil næste genindlæsning. Nu huskes den sidst korrekt aflæste farve, så en mislykket aflæsning aldrig kan overskrive en god, og farven genberegnes desuden et par gange kort efter sideindlæsning og igen ved \"load\".",
         "targetAbi": "10.11.0.0",
