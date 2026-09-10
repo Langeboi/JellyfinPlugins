@@ -782,6 +782,15 @@
       '@keyframes seerrRequests-dotBounce{0%,12%,100%{transform:translateY(0);opacity:.5;}' +
       '6%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
+      // Active state for the Jellyfin 12 nav links. MUI links do not respond
+      // to .emby-tab-button-active (that class only means something to the
+      // legacy row), so give the same class a visible meaning here. Colour
+      // comes from 12's own theme tokens - it publishes the whole MUI
+      // palette as --jf-* custom properties - falling back to our derived
+      // accent on 10.11, which has no such tokens.
+      'a[data-seerr-requests-button].emby-tab-button-active,' +
+      'a[data-seerr-calendar-button].emby-tab-button-active{' +
+        'color:var(--jf-palette-primary-main,var(--seerr-accent));}' +
       // A block of upcoming-hero and genre-pill CSS used to sit here with
       // every selector missing - it shipped as bare declaration bodies in
       // v1.7.0.0 and so never styled anything. It was not merely inert: the
@@ -909,7 +918,14 @@
     // this is NOT page-scoped chrome. isHomeRoute() above is what keeps this
     // from firing while some other section's tab row is showing instead.
     var slider = document.querySelector('.tabs-viewmenubar .emby-tabs-slider');
-    if (!slider) {
+    // Presence is NOT enough to pick this path on Jellyfin 12. That release
+    // moved the top navigation to a MUI AppBar of <a> links and left the
+    // whole legacy row (.skinHeader, .tabs-viewmenubar, .emby-tab-button)
+    // mounted but never rendered - measured live at 0x0. Injecting into it
+    // still "worked": the button existed, carried the right classes, and was
+    // completely unreachable. getClientRects() is what tells the two apart.
+    if (!slider || !slider.getClientRects().length) {
+      injectMuiNavLinks();
       return;
     }
 
@@ -1011,6 +1027,127 @@
         deactivateCalendarTab(null, index);
       }
     });
+  }
+
+  // ---- Jellyfin 12 tab row (MUI AppBar) ----
+  //
+  // 12.0 renders the top navigation as MUI <a> buttons in an AppBar and
+  // promotes the libraries into it, so the row now reads
+  // "<server> | Favorites | Film | Serier". Our two tabs belong there as
+  // peers; the legacy .emby-tab-button row they used to live in is still in
+  // the DOM but is never painted.
+
+  // Returns the live nav container plus a sibling to copy styling from, or
+  // null when the bar has not rendered yet (it is absent below ~1000px wide,
+  // where 12 moves navigation into the drawer instead).
+  function muiNav() {
+    var header = document.querySelector('header.MuiAppBar-root');
+    if (!header) {
+      return null;
+    }
+    var links = header.querySelectorAll('a');
+    var peers = [];
+    for (var i = 0; i < links.length; i++) {
+      // Text-bearing links only: the right-hand side of the bar is icon-only
+      // buttons (search, cast, user) which are a different MUI size and
+      // would be the wrong thing to copy.
+      if ((links[i].textContent || '').trim() && !isInjectedTabButton(links[i])) {
+        peers.push(links[i]);
+      }
+    }
+    // The LAST peer, not the first: the first is the server-name link, which
+    // MUI renders at sizeLarge while the destination links are sizeMedium.
+    if (!peers.length) {
+      return null;
+    }
+    var template = peers[peers.length - 1];
+    return { stack: template.parentElement, template: template };
+  }
+
+  function addMuiTabLink(nav, marker, label, icon, onClick) {
+    if (nav.stack.querySelector('[' + marker + ']')) {
+      return;
+    }
+
+    // Cloned from a live sibling rather than assembled from a class list.
+    // MUI's styling arrives through Emotion classes (css-1f20jcn and
+    // friends) whose names are content hashes - they change whenever
+    // jellyfin-web is rebuilt, so hardcoding them would look correct today
+    // and silently wrong after any point release. Cloning inherits whatever
+    // the running build happens to use, including the icon wrapper's own
+    // classes, and keeps working across upgrades.
+    var link = nav.template.cloneNode(true);
+    link.setAttribute(marker, 'true');
+    link.setAttribute('href', '#/home');
+    link.removeAttribute('aria-current');
+
+    // Same reasoning as addTabButton: the icon goes in as a Material
+    // ligature resolved by NAME, not a .material-icons.<name> class, because
+    // a skin may repoint the icon font and the class form resolves to a
+    // hardcoded codepoint that then renders a plausible-but-wrong glyph.
+    // Measured against the native links: this renders 19x19 beside their
+    // 20x20 SVGs, inside MUI's own .MuiButton-icon wrapper.
+    var iconSlot = link.querySelector('.MuiButton-icon');
+    if (iconSlot) {
+      iconSlot.innerHTML =
+        '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' +
+        escapeHtml(icon) + '</span>';
+    }
+
+    // The label is the element's own text node, sitting after the icon span.
+    var replaced = false;
+    for (var i = 0; i < link.childNodes.length; i++) {
+      var node = link.childNodes[i];
+      if (node.nodeType === 3 && node.textContent.trim()) {
+        node.textContent = label;
+        replaced = true;
+      }
+    }
+    if (!replaced) {
+      link.appendChild(document.createTextNode(label));
+    }
+
+    // Capture phase, as with the legacy button: this is not a route the
+    // router knows about, so its navigation must never run.
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick();
+    }, true);
+
+    nav.stack.appendChild(link);
+  }
+
+  // The 12.0 equivalent of attachNativeTabWatcher: leaving our tab has to
+  // work the same way arriving does. There is no data-index to read off a
+  // MUI link, so this defers to restoreNativeActiveTab's own lookup, which
+  // falls back to index 0 - the correct answer, since every real link in
+  // this bar either routes away from home or selects the first home tab.
+  function attachMuiNavWatcher(stack) {
+    if (stack.hasAttribute('data-seerr-mui-nav-watcher')) {
+      return;
+    }
+    stack.setAttribute('data-seerr-mui-nav-watcher', 'true');
+    stack.addEventListener('click', function (e) {
+      var link = e.target.closest ? e.target.closest('a') : null;
+      if (link && !isInjectedTabButton(link)) {
+        deactivateAllSeerrTabs();
+      }
+    });
+  }
+
+  function injectMuiNavLinks() {
+    var nav = muiNav();
+    if (!nav) {
+      return;
+    }
+    attachMuiNavWatcher(nav.stack);
+    if (cfg.ShowRequestsTab) {
+      addMuiTabLink(nav, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
+    }
+    if (cfg.ShowCalendarTab) {
+      addMuiTabLink(nav, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
+    }
   }
 
   // ---- Tab content (integrated like Favoritter - a sibling
