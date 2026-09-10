@@ -297,6 +297,32 @@
     return parseColor(value);
   }
 
+  // Reads a CSS custom property as a colour. Jellyfin 12 publishes its whole
+  // MUI palette as --jf-* properties on :root, so the accent can be read
+  // straight out of the theme instead of being reverse-engineered from a
+  // painted element.
+  //
+  // Read through a probe rather than parsing the raw value: a token may be
+  // authored as hex, hsl(), or anything else CSS accepts - it is #00a4dc on
+  // a stock 12 install, which parseColor would reject outright - and
+  // getComputedStyle normalises whatever it is to rgb().
+  //
+  // The `transparent` fallback is what makes "token missing" detectable. An
+  // undefined var() with no fallback leaves the probe inheriting body text
+  // colour, so on a server with no such tokens this would return a confident
+  // and completely wrong accent instead of nothing.
+  function tokenColor(name) {
+    var el = document.createElement('span');
+    el.className = PROBE_CLASS;
+    el.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;' +
+      'pointer-events:none;opacity:0;color:var(' + name + ',transparent);';
+    document.body.appendChild(el);
+    var raw = getComputedStyle(el).color;
+    el.parentNode.removeChild(el);
+    var c = parseColor(raw);
+    return (c && c.a > 0.5) ? c : null;
+  }
+
   function sameColor(a, b) {
     return !!a && !!b && a.r === b.r && a.g === b.g && a.b === b.b;
   }
@@ -318,12 +344,23 @@
       // with none of Jellyfin's classes shows what the browser itself
       // paints; if the themed probe matches that, no theme claimed the class
       // and the user agent's default grey must not be mistaken for an accent.
-      var probed = probeColor('emby-button raised button-submit', 'backgroundColor');
-      var uaDefault = probeColor('', 'backgroundColor');
-      accent = (!probed || probed.a < 0.5 || sameColor(probed, uaDefault) ||
-        Math.abs(luminance(probed) - luminance(surface)) < 0.04)
-        ? FALLBACK_ACCENT
-        : probed;
+      // Ask the theme directly first. The probe below depends on
+      // .button-submit actually being painted, and Jellyfin 12 renders its
+      // buttons as MUI components that never carry that class - measured
+      // live, .raised matches nothing at all there - so on 12 the probe
+      // finds nothing and quietly falls back. "Use the theme's accent"
+      // had stopped meaning anything.
+      var token = tokenColor('--jf-palette-primary-main');
+      if (token) {
+        accent = token;
+      } else {
+        var probed = probeColor('emby-button raised button-submit', 'backgroundColor');
+        var uaDefault = probeColor('', 'backgroundColor');
+        accent = (!probed || probed.a < 0.5 || sameColor(probed, uaDefault) ||
+          Math.abs(luminance(probed) - luminance(surface)) < 0.04)
+          ? FALLBACK_ACCENT
+          : probed;
+      }
     }
 
     var black = { r: 0, g: 0, b: 0, a: 1 };
