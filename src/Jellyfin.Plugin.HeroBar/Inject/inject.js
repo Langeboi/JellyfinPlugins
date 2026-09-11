@@ -1218,6 +1218,26 @@
       '.heroBar-visual{position:absolute;inset:0;pointer-events:none;' +
       '-webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 10%,black 86%,transparent 100%);' +
       'mask-image:linear-gradient(to bottom,transparent 0%,black 10%,black 86%,transparent 100%);}' +
+      // Pulled up under Jellyfin 12's see-through app bar (syncBarOverHero).
+      // Padding, not height, makes room for the bar, so every breakpoint's
+      // height below still applies unchanged; and the top fade goes, because
+      // the artwork now runs on up behind the bar instead of meeting the page
+      // there.
+      '.heroBar-container.heroBar-underBar{box-sizing:content-box;' +
+      'margin-top:calc(-1 * var(--hb-bar-h,0px));padding-top:var(--hb-bar-h,0px);}' +
+      '.heroBar-underBar .heroBar-visual{' +
+      '-webkit-mask-image:linear-gradient(to bottom,black 0%,black 86%,transparent 100%);' +
+      'mask-image:linear-gradient(to bottom,black 0%,black 86%,transparent 100%);}' +
+      // The bar itself while it sits over artwork: its theme background, blur
+      // and edge give way to a short scrim that keeps its icons and labels
+      // readable on a bright backdrop. !important because the bar is styled
+      // by MUI's generated classes and, on a skinned server, by the skin too.
+      'header.MuiAppBar-root{transition:background-color .25s ease;}' +
+      'header.MuiAppBar-root.heroBar-barOverHero{background-color:transparent!important;' +
+      'background-image:linear-gradient(to bottom,rgba(var(--hb-scrim-rgb,0,0,0),.6),' +
+      'rgba(var(--hb-scrim-rgb,0,0,0),0))!important;' +
+      '-webkit-backdrop-filter:none!important;backdrop-filter:none!important;' +
+      'box-shadow:none!important;border-bottom-color:transparent!important;}' +
       '.heroBar-backdrop{position:absolute;inset:0;background-size:cover;' +
       'background-position:center 20%;}' +
       // The tint is derived from the theme's own background colour at
@@ -1313,6 +1333,8 @@
       // sits centre/right and the text column is bottom-left - and it is
       // where a carousel's position indicator conventionally goes on mobile.
       '.heroBar-dots{top:.8em;bottom:auto;right:.9em;}' +
+      // Under the bar, top-right would be behind it.
+      '.heroBar-underBar .heroBar-dots{top:calc(var(--hb-bar-h,0px) + .8em);}' +
       '}';
     document.head.appendChild(style);
   }
@@ -1420,9 +1442,67 @@
 
   // ---- Scan cycle ----
 
+  // ---- See-through app bar over the hero (Jellyfin 12) ----
+  //
+  // While the hero fills the top of the screen, the bar goes see-through and
+  // the artwork runs up behind it; once it has scrolled away the bar is solid
+  // again. Anywhere the hero is not on screen - other pages, Favourites, the
+  // Seerr panels - nothing changes. The bar is 12's MUI AppBar; 10.11's
+  // header is a different element and is left alone.
+  var BAR_OVER_HERO_CLASS = 'heroBar-barOverHero';
+  var UNDER_BAR_CLASS = 'heroBar-underBar';
+  var barSyncQueued = false;
+
+  function syncBarOverHero() {
+    var header = document.querySelector('header.MuiAppBar-root');
+    if (!header) {
+      return;
+    }
+
+    var hero = null;
+    if (isHomeRoute()) {
+      var homePage = getActiveHomePage();
+      var candidate = homePage ? homePage.querySelector('#' + HERO_ID) : null;
+      if (candidate && candidate.getClientRects().length) {
+        hero = candidate;
+      }
+    }
+
+    var barHeight = header.getBoundingClientRect().height;
+    var barHeightPx = Math.round(barHeight) + 'px';
+    document.querySelectorAll('#' + HERO_ID).forEach(function (el) {
+      var under = el === hero;
+      if (el.classList.contains(UNDER_BAR_CLASS) !== under) {
+        el.classList.toggle(UNDER_BAR_CLASS, under);
+      }
+      if (under && el.style.getPropertyValue('--hb-bar-h') !== barHeightPx) {
+        el.style.setProperty('--hb-bar-h', barHeightPx);
+      }
+    });
+
+    // Solid again a little before the artwork's lower edge reaches the bar,
+    // while there is still picture behind it rather than bare page.
+    var over = !!hero && hero.getBoundingClientRect().bottom > barHeight * 2.5;
+    if (header.classList.contains(BAR_OVER_HERO_CLASS) !== over) {
+      header.classList.toggle(BAR_OVER_HERO_CLASS, over);
+    }
+  }
+
+  function queueBarSync() {
+    if (barSyncQueued) {
+      return;
+    }
+    barSyncQueued = true;
+    requestAnimationFrame(function () {
+      barSyncQueued = false;
+      syncBarOverHero();
+    });
+  }
+
   function runChecks() {
     refreshPalette(false);
     insertHeroBar();
+    syncBarOverHero();
   }
 
   // window.ApiClient is only set some time after DOMContentLoaded - reading
@@ -1476,6 +1556,18 @@
           setTimeout(function () { refreshPalette(true); }, delay);
         });
         window.addEventListener('load', function () { refreshPalette(true); });
+
+        // The bar follows the scroll position. Switching between Home,
+        // Favourites and the Seerr panels only toggles classes, which the DOM
+        // observer below never reports, so a slow check covers those - two
+        // querySelectors and two rects, and skipped while the tab is hidden.
+        window.addEventListener('scroll', queueBarSync, { passive: true });
+        window.addEventListener('resize', queueBarSync);
+        setInterval(function () {
+          if (!document.hidden) {
+            syncBarOverHero();
+          }
+        }, 500);
 
         runChecks();
 

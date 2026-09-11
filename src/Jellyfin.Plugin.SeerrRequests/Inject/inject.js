@@ -46,6 +46,13 @@
   var EN = {
     tabRequests: 'Request media',
     tabCalendar: 'Release calendar',
+    // Jellyfin 12's top bar and drawer. Short on purpose: four of these share
+    // one pill beside the libraries, and the long forms pushed the bar to its
+    // limit on a laptop-width window.
+    navHome: 'Home',
+    navFavorites: 'Favorites',
+    navRequests: 'Request',
+    navCalendar: 'Calendar',
     searchPlaceholder: 'Search for a title...',
     askHeading: 'What are we missing?',
     askSub: 'Search for a film or series and we will fetch it to the server.',
@@ -112,6 +119,10 @@
   var DA = {
     tabRequests: 'Tilføj Film/Serie',
     tabCalendar: 'Udgivelseskalender',
+    navHome: 'Hjem',
+    navFavorites: 'Favoritter',
+    navRequests: 'Tilføj',
+    navCalendar: 'Kalender',
     searchPlaceholder: 'Søg efter titel...',
     askHeading: 'Hvad mangler vi?',
     askSub: 'Søg efter en film eller serie – så henter vi den til serveren.',
@@ -819,15 +830,42 @@
       '@keyframes seerrRequests-dotBounce{0%,12%,100%{transform:translateY(0);opacity:.5;}' +
       '6%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
-      // Active state for the Jellyfin 12 nav links. MUI links do not respond
-      // to .emby-tab-button-active (that class only means something to the
-      // legacy row), so give the same class a visible meaning here. Colour
-      // comes from 12's own theme tokens - it publishes the whole MUI
-      // palette as --jf-* custom properties - falling back to our derived
-      // accent on 10.11, which has no such tokens.
-      'a[data-seerr-requests-button].emby-tab-button-active,' +
-      'a[data-seerr-calendar-button].emby-tab-button-active{' +
-        'color:var(--jf-palette-primary-main,var(--seerr-accent));}' +
+      // Jellyfin 12's home switcher pill (see ensureNavPill). The track and
+      // hover wash are mixed from the bar's own text colour, so they read on
+      // a light theme as well as a dark one; the plain rgba line before each
+      // is what a browser without color-mix() keeps. The filled segment takes
+      // 12's primary colour - the one its own buttons use - falling back to
+      // our derived accent.
+      '[' + PILL_REPLACED_ATTR + ']{display:none!important;}' +
+      // While one of our panels is open, Jellyfin's own tab panels are hidden
+      // rather than switched off - see activateInjectedTab.
+      '.page.homePage[' + PANEL_ATTR + '] > .tabContent.pageTabContent' +
+        ':not(#' + TAB_CONTENT_ID + '):not(#' + CAL_TAB_CONTENT_ID + '){display:none!important;}' +
+      // align-self: the bar's stack stretches its children to its own 44px.
+      '.seerrNav-pill{display:inline-flex;align-self:center;align-items:center;gap:2px;padding:3px;margin:0 8px;' +
+        'border-radius:999px;background:rgba(255,255,255,.07);' +
+        'background:color-mix(in srgb,currentColor 8%,transparent);' +
+        'box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);' +
+        'box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 10%,transparent);}' +
+      '.seerrNav-seg{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px 0 10px;' +
+        'border-radius:999px;color:inherit;text-decoration:none;font:inherit;font-size:13px;font-weight:500;' +
+        'line-height:1;white-space:nowrap;opacity:.8;cursor:pointer;' +
+        'transition:background-color .2s ease,color .2s ease,opacity .2s ease;}' +
+      '.seerrNav-seg:hover{opacity:1;background:rgba(255,255,255,.08);' +
+        'background:color-mix(in srgb,currentColor 10%,transparent);}' +
+      '.seerrNav-seg:focus-visible{outline:2px solid var(--jf-palette-primary-main,var(--seerr-accent));' +
+        'outline-offset:1px;}' +
+      '.seerrNav-seg.is-active{opacity:1;background:var(--jf-palette-primary-main,var(--seerr-accent));' +
+        'color:var(--jf-palette-primary-contrastText,#fff);}' +
+      '.seerrNav-seg > .material-icons.seerrRequests-tabIcon{font-size:18px;line-height:1;flex:none;' +
+        'font-variation-settings:"FILL" 0;font-feature-settings:"liga";}' +
+      '.seerrNav-seg.is-active > .material-icons.seerrRequests-tabIcon{font-variation-settings:"FILL" 1;}' +
+      // While one of ours is showing, the drawer's own Home or Favourites
+      // entry still believes it is current - MUI works that out from the
+      // address, which ours never change - so its fill is taken away and
+      // exactly one entry reads as selected.
+      'body[data-seerr-nav-state] .MuiDrawer-paper a.Mui-selected' +
+        ':not([' + BUTTON_MARKER + ']):not([' + CAL_BUTTON_MARKER + ']){background-color:transparent!important;}' +
       // A block of upcoming-hero and genre-pill CSS used to sit here with
       // every selector missing - it shipped as bare declaration bodies in
       // v1.7.0.0 and so never styled anything. It was not merely inert: the
@@ -947,12 +985,9 @@
   // ---- Button injection (Hjem / Favoritter tab row) ----
 
   function injectButtonIfHome() {
-    if (!isHomeRoute()) {
-      return;
-    }
     // .tabs-viewmenubar lives in the shared app header (.skinHeader), a
     // sibling of .page.homePage, not a descendant of it - confirmed live,
-    // this is NOT page-scoped chrome. isHomeRoute() above is what keeps this
+    // this is NOT page-scoped chrome. isHomeRoute() below is what keeps this
     // from firing while some other section's tab row is showing instead.
     var slider = document.querySelector('.tabs-viewmenubar .emby-tabs-slider');
     // Presence is NOT enough to pick this path on Jellyfin 12. That release
@@ -962,7 +997,13 @@
     // still "worked": the button existed, carried the right classes, and was
     // completely unreachable. getClientRects() is what tells the two apart.
     if (!slider || !slider.getClientRects().length) {
+      // Jellyfin 12's bar is global chrome, shown on every page, so the pill
+      // is kept and kept in step everywhere - not only while home is open.
       injectMuiNavLinks();
+      return;
+    }
+
+    if (!isHomeRoute()) {
       return;
     }
 
@@ -1088,7 +1129,8 @@
       // Text-bearing links only: the right-hand side of the bar is icon-only
       // buttons (search, cast, user) which are a different MUI size and
       // would be the wrong thing to copy.
-      if ((links[i].textContent || '').trim() && !isInjectedTabButton(links[i])) {
+      if ((links[i].textContent || '').trim() && !isInjectedTabButton(links[i]) &&
+          !(links[i].closest && links[i].closest('[' + PILL_ATTR + ']'))) {
         peers.push(links[i]);
       }
     }
@@ -1101,58 +1143,202 @@
     return { stack: template.parentElement, template: template };
   }
 
-  function addMuiTabLink(nav, marker, label, icon, onClick) {
-    if (nav.stack.querySelector('[' + marker + ']')) {
+  // ---- Jellyfin 12: the home switcher pill ----
+  //
+  // Home, Favourites, Request and Calendar are all views of the same home
+  // page - Favourites is a tab of #/home and ours are sibling tab panels - so
+  // they sit together in one segmented control, with the view on screen
+  // filled in. They used to be loose links beside the libraries, where Home
+  // had no entry at all and ours were marked only by a change of text colour.
+  //
+  // Jellyfin's own Favourites link is hidden in favour of the pill's rather
+  // than moved into it: React owns that element and would put it back, or
+  // lose track of it. The libraries stay where they were, after the pill.
+  // The pill is built from scratch, not cloned like the old links were - it
+  // takes nothing from MUI's hashed Emotion classes, so there is nothing for
+  // a jellyfin-web rebuild to change underneath it.
+  var PILL_ATTR = 'data-seerr-nav-pill';
+  var PILL_REPLACED_ATTR = 'data-seerr-pill-replaced';
+  var FAVOURITES_HREF = '#/home?tab=1';
+  var PANEL_ATTR = 'data-seerr-panel';
+
+  function ensureNavPill(nav) {
+    // Direct children only. Jellyfin re-renders its Favourites link after the
+    // libraries arrive, and the fresh copy lands after the pill - where a
+    // document-order search found the pill's own Favourites segment first and
+    // hid that instead, leaving Jellyfin's link showing beside the pill.
+    var favourites = nav.stack.querySelector(':scope > a[href="' + FAVOURITES_HREF + '"]');
+    var pill = nav.stack.querySelector('[' + PILL_ATTR + ']');
+
+    if (!cfg.ShowRequestsTab && !cfg.ShowCalendarTab) {
+      // Nothing of ours to group - leave Jellyfin's bar exactly as it was.
+      if (pill) {
+        pill.parentNode.removeChild(pill);
+      }
+      if (favourites) {
+        favourites.removeAttribute(PILL_REPLACED_ATTR);
+      }
       return;
     }
 
-    // Cloned from a live sibling rather than assembled from a class list.
-    // MUI's styling arrives through Emotion classes (css-1f20jcn and
-    // friends) whose names are content hashes - they change whenever
-    // jellyfin-web is rebuilt, so hardcoding them would look correct today
-    // and silently wrong after any point release. Cloning inherits whatever
-    // the running build happens to use, including the icon wrapper's own
-    // classes, and keeps working across upgrades.
-    var link = nav.template.cloneNode(true);
-    link.setAttribute(marker, 'true');
-    link.setAttribute('href', '#/home');
-    link.removeAttribute('aria-current');
-
-    // Same reasoning as addTabButton: the icon goes in as a Material
-    // ligature resolved by NAME, not a .material-icons.<name> class, because
-    // a skin may repoint the icon font and the class form resolves to a
-    // hardcoded codepoint that then renders a plausible-but-wrong glyph.
-    // Measured against the native links: this renders 19x19 beside their
-    // 20x20 SVGs, inside MUI's own .MuiButton-icon wrapper.
-    var iconSlot = link.querySelector('.MuiButton-icon');
-    if (iconSlot) {
-      iconSlot.innerHTML =
-        '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' +
-        escapeHtml(icon) + '</span>';
+    // Re-applied every tick: React can replace the element with a fresh one.
+    if (favourites && !favourites.hasAttribute(PILL_REPLACED_ATTR)) {
+      favourites.setAttribute(PILL_REPLACED_ATTR, 'true');
+    }
+    if (pill) {
+      return;
     }
 
-    // The label is the element's own text node, sitting after the icon span.
-    var replaced = false;
-    for (var i = 0; i < link.childNodes.length; i++) {
-      var node = link.childNodes[i];
-      if (node.nodeType === 3 && node.textContent.trim()) {
-        node.textContent = label;
-        replaced = true;
-      }
+    pill = document.createElement('div');
+    pill.className = 'seerrNav-pill';
+    pill.setAttribute(PILL_ATTR, 'true');
+    pill.setAttribute('role', 'tablist');
+
+    // Jellyfin's own, already translated word for Favourites where it has one.
+    var favouritesLabel = favourites && favourites.textContent.trim()
+      ? favourites.textContent.trim()
+      : t('navFavorites');
+    addPillSegment(pill, 'home', null, t('navHome'), 'home', '#/home', goHomeTab);
+    addPillSegment(pill, 'favorites', null, favouritesLabel, 'favorite', FAVOURITES_HREF, goFavouritesTab);
+    if (cfg.ShowRequestsTab) {
+      addPillSegment(pill, 'requests', BUTTON_MARKER, t('navRequests'), 'add_circle', '#/home', function () {
+        openHomeTab(activateSeerrTab);
+      });
     }
-    if (!replaced) {
-      link.appendChild(document.createTextNode(label));
+    if (cfg.ShowCalendarTab) {
+      addPillSegment(pill, 'calendar', CAL_BUTTON_MARKER, t('navCalendar'), 'event', '#/home', function () {
+        openHomeTab(activateCalendarTab);
+      });
     }
 
-    // Capture phase, as with the legacy button: this is not a route the
-    // router knows about, so its navigation must never run.
-    link.addEventListener('click', function (e) {
+    // Where Favourites was; straight after the server name on a build without it.
+    var first = nav.stack.querySelector('a');
+    nav.stack.insertBefore(pill, favourites ? favourites.nextSibling : (first ? first.nextSibling : null));
+    syncNavPill();
+  }
+
+  function addPillSegment(pill, key, marker, label, icon, href, onClick) {
+    var segment = document.createElement('a');
+    segment.className = 'seerrNav-seg';
+    segment.setAttribute('href', href);
+    segment.setAttribute('role', 'tab');
+    segment.setAttribute('aria-selected', 'false');
+    segment.setAttribute('data-seg', key);
+    if (marker) {
+      // The markers the old links carried, so everything that finds our tabs
+      // by them - New Badges' drawer shortcut included - still finds them.
+      segment.setAttribute(marker, 'true');
+    }
+    // The icon as a Material ligature by NAME, for the reason given in
+    // addTabButton: a skin may repoint the icon font.
+    segment.innerHTML =
+      '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' + escapeHtml(icon) + '</span>' +
+      '<span class="seerrNav-label">' + escapeHtml(label) + '</span>';
+    // Capture phase: none of these may run the router's own navigation.
+    segment.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
       onClick();
     }, true);
+    pill.appendChild(segment);
+  }
 
-    nav.stack.appendChild(link);
+  // Ours are panels of the home page, so from anywhere else home has to be
+  // brought back first. Clicking Request on a library page used to do nothing
+  // at all - there was no home page on screen to switch.
+  function openHomeTab(activate) {
+    if (isHomeRoute() && getActiveHomePage()) {
+      activate();
+      return;
+    }
+    location.hash = '#/home';
+    var tries = 0;
+    var poll = setInterval(function () {
+      if (isHomeRoute() && getActiveHomePage()) {
+        clearInterval(poll);
+        activate();
+      } else if (++tries > 50) {
+        clearInterval(poll);
+      }
+    }, 100);
+  }
+
+  function goHomeTab() {
+    deactivateAllSeerrTabs();
+    if (location.hash !== '#/home') {
+      location.hash = '#/home';
+    }
+    syncNavPill();
+  }
+
+  function goFavouritesTab() {
+    deactivateAllSeerrTabs();
+    if (location.hash !== FAVOURITES_HREF) {
+      location.hash = FAVOURITES_HREF;
+    }
+    syncNavPill();
+  }
+
+  // Which of the four is on screen, read from the page itself rather than
+  // remembered from the last click - the old per-link active class was never
+  // cleared from MUI links, which is how Request stayed lit after Calendar
+  // was opened. Null anywhere but home: on a library page nothing is filled.
+  function currentNavState() {
+    if (!isHomeRoute()) {
+      return null;
+    }
+    var homePage = getActiveHomePage();
+    if (!homePage) {
+      return null;
+    }
+    if (homePage.querySelector('#' + TAB_CONTENT_ID + '.is-active')) {
+      return 'requests';
+    }
+    if (homePage.querySelector('#' + CAL_TAB_CONTENT_ID + '.is-active')) {
+      return 'calendar';
+    }
+    var active = homePage.querySelector(
+      ':scope > .tabContent.pageTabContent.is-active:not(#' + TAB_CONTENT_ID + '):not(#' + CAL_TAB_CONTENT_ID + ')');
+    var index = active ? active.getAttribute('data-index') : null;
+    if (index == null) {
+      var tabMatch = /[?&]tab=(\d+)/.exec(location.hash);
+      index = tabMatch ? tabMatch[1] : '0';
+    }
+    return index === '1' ? 'favorites' : (index === '0' ? 'home' : null);
+  }
+
+  // Cheap and idempotent - only ever writes what actually changed - so it is
+  // called freely: every scan tick, after every switch, after every hashchange.
+  function syncNavPill() {
+    var state = currentNavState();
+
+    document.querySelectorAll('[' + PILL_ATTR + '] .seerrNav-seg').forEach(function (segment) {
+      var on = segment.getAttribute('data-seg') === state;
+      if (segment.classList.contains('is-active') !== on) {
+        segment.classList.toggle('is-active', on);
+        segment.setAttribute('aria-selected', on ? 'true' : 'false');
+      }
+    });
+
+    // The drawer's copies of ours (see addMuiDrawerLink) use MUI's own
+    // selected class, so they are filled exactly like Home and Favourites.
+    document.querySelectorAll('.MuiDrawer-paper a[' + BUTTON_MARKER + '], .MuiDrawer-paper a[' + CAL_BUTTON_MARKER + ']')
+      .forEach(function (link) {
+        var on = (state === 'requests' && link.hasAttribute(BUTTON_MARKER)) ||
+          (state === 'calendar' && link.hasAttribute(CAL_BUTTON_MARKER));
+        if (link.classList.contains('Mui-selected') !== on) {
+          link.classList.toggle('Mui-selected', on);
+        }
+      });
+
+    var bodyState = state === 'requests' || state === 'calendar' ? state : '';
+    if ((document.body.getAttribute('data-seerr-nav-state') || '') !== bodyState) {
+      if (bodyState) {
+        document.body.setAttribute('data-seerr-nav-state', bodyState);
+      } else {
+        document.body.removeAttribute('data-seerr-nav-state');
+      }
+    }
   }
 
   // The 12.0 equivalent of attachNativeTabWatcher: leaving our tab has to
@@ -1201,7 +1387,9 @@
     if (nav.list.querySelector('[' + marker + ']')) {
       return;
     }
-    // Cloned for the same reason as the AppBar links - see addMuiTabLink.
+    // Cloned from a live entry rather than assembled from a class list: MUI's
+    // styling arrives through Emotion classes whose names are content hashes
+    // and change whenever jellyfin-web is rebuilt.
     // The drawer uses a different shape (li > a > .MuiListItemIcon-root +
     // .MuiListItemText-primary) so the slots differ, but nothing here is
     // hardcoded beyond MUI's own stable component class names.
@@ -1213,6 +1401,10 @@
     link.setAttribute(marker, 'true');
     link.setAttribute('href', '#/home');
     link.removeAttribute('aria-current');
+    // Copied along with everything else when the template happened to be the
+    // current entry - which left both of ours filled in beside Home.
+    // syncNavPill decides from here on.
+    link.classList.remove('Mui-selected');
 
     var iconSlot = item.querySelector('.MuiListItemIcon-root');
     if (iconSlot) {
@@ -1251,24 +1443,25 @@
     var nav = muiNav();
     if (nav) {
       attachMuiNavWatcher(nav.stack);
-      if (cfg.ShowRequestsTab) {
-        addMuiTabLink(nav, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
-      }
-      if (cfg.ShowCalendarTab) {
-        addMuiTabLink(nav, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
-      }
+      ensureNavPill(nav);
     }
 
     var drawer = muiDrawerList();
     if (drawer) {
       attachMuiNavWatcher(drawer.list);
       if (cfg.ShowRequestsTab) {
-        addMuiDrawerLink(drawer, BUTTON_MARKER, t('tabRequests'), 'add_circle', activateSeerrTab);
+        addMuiDrawerLink(drawer, BUTTON_MARKER, t('navRequests'), 'add_circle', function () {
+          openHomeTab(activateSeerrTab);
+        });
       }
       if (cfg.ShowCalendarTab) {
-        addMuiDrawerLink(drawer, CAL_BUTTON_MARKER, t('tabCalendar'), 'event', activateCalendarTab);
+        addMuiDrawerLink(drawer, CAL_BUTTON_MARKER, t('navCalendar'), 'event', function () {
+          openHomeTab(activateCalendarTab);
+        });
       }
     }
+
+    syncNavPill();
   }
 
   // ---- Tab content (integrated like Favoritter - a sibling
@@ -1595,26 +1788,44 @@
     loadGenreIndex().then(function () { renderChips(tab); });
   }
 
-  // Shared by both injected tabs: clear whatever is active (native tabs AND
-  // our other injected tab, which is a sibling .tabContent just like theirs),
-  // then light up ours.
+  // Shared by both injected tabs. Jellyfin's own panels are HIDDEN while ours
+  // is open (PANEL_ATTR, see the stylesheet), and Jellyfin's tab state is left
+  // alone: its tab control works out which tab to switch off from that state,
+  // and editing it by hand - panels switched off and on again, the buttons'
+  // active class stripped - left Home and Favourites both on screen after
+  // Calendar -> Favourites (measured on 12). Left alone, whatever Jellyfin
+  // considers current is simply what reappears when ours closes.
   function activateInjectedTab(homePage, tab, marker) {
-    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
-      el.classList.remove('is-active');
-    });
-    document.querySelectorAll('.emby-tab-button.emby-tab-button-active').forEach(function (el) {
-      if (!el.hasAttribute(marker)) {
-        el.classList.remove('emby-tab-button-active');
-      }
-    });
+    homePage.querySelectorAll(':scope > #' + TAB_CONTENT_ID + ', :scope > #' + CAL_TAB_CONTENT_ID)
+      .forEach(function (el) {
+        if (el !== tab) {
+          el.classList.remove('is-active');
+        }
+      });
+    homePage.setAttribute(PANEL_ATTR, tab.id);
+    // The highlight only moves on a tab row someone can actually see (10.11).
+    // Jellyfin 12 never paints that row, but its tab control still finds the
+    // tab to switch off by the button carrying this class - with it stripped,
+    // the next Home/Favourites switch had nothing to switch off.
+    var legacyRow = document.querySelector('.tabs-viewmenubar .emby-tabs-slider');
+    if (legacyRow && legacyRow.getClientRects().length) {
+      document.querySelectorAll('.emby-tab-button.emby-tab-button-active').forEach(function (el) {
+        if (!el.hasAttribute(marker)) {
+          el.classList.remove('emby-tab-button-active');
+        }
+      });
+    }
 
     tab.classList.add('is-active');
-    // querySelectorAll, not querySelector: on Jellyfin 12 the same tab can
-    // exist twice at once - once in the AppBar and once in the drawer - and
-    // marking only the first left the other stuck looking inactive.
-    document.querySelectorAll('[' + marker + ']').forEach(function (el) {
+    // The legacy row's own class, on legacy buttons only. On Jellyfin 12 the
+    // pill and the drawer are marked by syncNavPill from which panel is
+    // actually showing. Marking them here as well is what left Request lit
+    // after switching to Calendar: the clearing loop above only ever looked
+    // at .emby-tab-button elements, and MUI links are not that.
+    document.querySelectorAll('.emby-tab-button[' + marker + ']').forEach(function (el) {
       el.classList.add('emby-tab-button-active');
     });
+    syncNavPill();
   }
 
   function activateSeerrTab() {
@@ -1661,41 +1872,6 @@
       '<span class="seerrRequests-requestBtnIcon">+</span>' + escapeHtml(t('request')) + '</button>';
   }
 
-  // Jellyfin's content-div ids for its own tabs (#homeTab, #favoritesTab,
-  // ...) carry a data-index matching their tab BUTTON's data-index -
-  // confirmed live. That's the generic hook used to figure out which native
-  // tab should become visible again once ours is deactivated, without
-  // hardcoding tab names/ids that could differ per install.
-  function restoreNativeActiveTab(homePage, explicitIndex) {
-    var index = explicitIndex;
-    if (index == null) {
-      // No explicit index (the hashchange-driven path, where there's no
-      // click to read a data-index from) - fall back to querying which
-      // native button is currently active. Safe here because a hashchange
-      // fires only after Jellyfin's router has already finished syncing
-      // that state, unlike a click where our own listener can run first.
-      // Excludes BOTH injected markers, not just one - the old version only
-      // excluded the "Tilføj" marker, so it could match the CALENDAR tab's
-      // own (still momentarily active) button and resolve a bogus index.
-      var activeBtn = document.querySelector(
-        '.tabs-viewmenubar .emby-tab-button.emby-tab-button-active:not([' + BUTTON_MARKER + ']):not([' + CAL_BUTTON_MARKER + '])'
-      );
-      index = activeBtn ? activeBtn.getAttribute('data-index') : '0';
-    }
-
-    // Defensive: clear any other content div that's stuck is-active before
-    // activating the resolved target, so a previous bad guess can never
-    // leave two panels simultaneously marked active.
-    homePage.querySelectorAll(':scope > .tabContent.pageTabContent.is-active').forEach(function (el) {
-      el.classList.remove('is-active');
-    });
-
-    var target = homePage.querySelector(':scope > .tabContent.pageTabContent[data-index="' + index + '"]');
-    if (target) {
-      target.classList.add('is-active');
-    }
-  }
-
   // ---- "Kommer Snart" release calendar tab ----
 
   function getOrCreateCalendarTab(homePage) {
@@ -1738,11 +1914,14 @@
     var tab = homePage.querySelector('#' + CAL_TAB_CONTENT_ID);
     if (tab && tab.classList.contains('is-active')) {
       tab.classList.remove('is-active');
-      restoreNativeActiveTab(homePage, explicitIndex);
+    }
+    if (homePage.getAttribute(PANEL_ATTR) === CAL_TAB_CONTENT_ID) {
+      homePage.removeAttribute(PANEL_ATTR);
     }
     document.querySelectorAll('[' + CAL_BUTTON_MARKER + ']').forEach(function (el) {
       el.classList.remove('emby-tab-button-active');
     });
+    syncNavPill();
   }
 
   function loadCalendar(tab) {
@@ -1920,16 +2099,17 @@
     var tab = homePage.querySelector('#' + TAB_CONTENT_ID);
     if (tab && tab.classList.contains('is-active')) {
       tab.classList.remove('is-active');
-      // Clicking a native tab button already triggers Jellyfin's own
-      // content-swap (this is a harmless no-op then), but a hashchange-driven
-      // call (see deactivateAllSeerrTabs below) has no such native swap to
-      // rely on, so this is the only thing that puts a real tab back on
-      // screen in that case.
-      restoreNativeActiveTab(homePage, explicitIndex);
+    }
+    // Jellyfin's own current tab was never switched off (see
+    // activateInjectedTab), so un-hiding it is all that closing ours takes -
+    // on a native tab click and on a hashchange alike.
+    if (homePage.getAttribute(PANEL_ATTR) === TAB_CONTENT_ID) {
+      homePage.removeAttribute(PANEL_ATTR);
     }
     document.querySelectorAll('[' + BUTTON_MARKER + ']').forEach(function (el) {
       el.classList.remove('emby-tab-button-active');
     });
+    syncNavPill();
   }
 
   // Jellyfin's router only restores the active TAB BUTTON's highlighted
@@ -2641,6 +2821,12 @@
     // after clicking a details link from inside our tab) - see
     // deactivateAllSeerrTabs for why this can't just be click-based.
     window.addEventListener('hashchange', deactivateAllSeerrTabs);
+    // Jellyfin switches Home and Favourites a moment after the address
+    // changes, and only by toggling classes - nothing the scan observer sees.
+    window.addEventListener('hashchange', function () {
+      setTimeout(syncNavPill, 0);
+      setTimeout(syncNavPill, 400);
+    });
   }
 
   function init() {

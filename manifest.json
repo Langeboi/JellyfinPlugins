@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.4.0.0",
+        "changelog": "Gennemsigtig topbar over banneret på Jellyfin 12.\n\n- Banneret går helt op under topbaren, og topbaren er gennemsigtig, så billedet fylder hele toppen af forsiden.\n- Når du scroller forbi banneret, bliver topbaren almindelig igen.\n- På Favoritter, Tilføj, Kalender og alle andre sider er topbaren som før.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.4.0.0/herobar_2.4.0.0.zip",
+        "checksum": "b785675ecc6f7bff427675c352190b2e",
+        "timestamp": "2026-09-11T19:30:00Z"
+      },
+      {
         "version": "2.3.0.0",
         "changelog": "Forsiden indlæses hurtigere.\n\n- Banneret husker sine slides mellem besøg - de skifter alligevel kun hver 48. time - så det vises med det samme, når du åbner appen. Før blev 400 titler hentet igen ved hvert besøg, mens Jellyfins egne rækker ventede.\n- Når der skal vælges nye slides, hentes kun id'erne på de 400 kandidater og derefter de 8 valgte, i stedet for alle detaljer om alle 400.\n- Afspil/Fortsæt og favorit-hjertet opdateres, når Jellyfins egne rækker er indlæst, så banneret ikke sinker dem.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
         "targetAbi": "12.0.0.0",
@@ -665,6 +673,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.6.0.2",
+        "changelog": "Ny topbar på Jellyfin 12.\n\n- Hjem, Favoritter, Tilføj og Kalender er samlet i én knapgruppe, hvor den side, du er på, er fyldt ud. Før var Hjem slet ikke med, og den aktive side blev kun vist med blå tekst.\n- Kortere navne: \"Tilføj\" og \"Kalender\" (på engelsk \"Request\" og \"Calendar\"), så topbaren også er plads til på en bærbar.\n- Tilføj og Kalender virker nu også fra andre sider end forsiden - før skete der ingenting.\n- Rettet: efter at have åbnet Kalender kunne både Tilføj og Kalender stå markeret, og i sidemenuen på mobilen kunne tre punkter være markeret på én gang.\n- Rettet: at skifte fra Tilføj eller Kalender til Hjem eller Favoritter kunne vise to faner oven i hinanden.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.6.0.2/seerrrequests_2.6.0.2.zip",
+        "checksum": "32a90c3fc4d007c16670cba8bca83028",
+        "timestamp": "2026-09-11T19:30:00Z"
+      },
       {
         "version": "2.5.0.0",
         "changelog": "Forsiden indlæses hurtigere.\n\n- Kalenderens hukommelse - alle de titler, den har set - ligger nu i sin egen fil på serveren i stedet for i plugin-indstillingerne. Indstillingerne hentes af alle browsere ved hver sideindlæsning og var vokset til over 100 KB; nu er de få KB. Flytningen sker af sig selv, når serveren starter.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
