@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.4.5.0",
+        "changelog": "Intet blink i topbaren, når du scroller helt op.\n\n- Når siden ramte toppen, skiftede Jellyfin 12 topbarens udseende og fjernede samtidig den markering, der gør den gennemsigtig over banneret. I et splitsekund kom temaets farvede bar frem og forsvandt igen. Markeringen sidder nu et sted, Jellyfin ikke rører, så topbaren forbliver gennemsigtig.\n- Topbaren bliver nu gennemsigtig med det samme i stedet for at tone ud, så temaets farve ikke hænger et øjeblik i toppen, når du hopper helt op.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.4.5.0/herobar_2.4.5.0.zip",
+        "checksum": "537631e6674620d8f52146a9e5f2451f",
+        "timestamp": "2026-09-11T23:30:00Z"
+      },
+      {
         "version": "2.4.3.0",
         "changelog": "Mindre prikker på mobil og tablet.\n\n- Prikkerne, der viser hvilket slide du er på, fyldte omkring halvdelen af skærmbredden på en telefon. De er nu mindre og tættere.\n- Den aktive prik blev tegnet i hele sit trykfelt og var derfor en stor hvid plet. Den er nu kun lidt større end de andre.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
         "targetAbi": "12.0.0.0",

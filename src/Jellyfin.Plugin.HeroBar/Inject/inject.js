@@ -1231,8 +1231,13 @@
       // The bar itself while it sits over artwork: its theme background, blur
       // and edge all go. !important because the bar is styled by MUI's
       // generated classes and, on a skinned server, by the skin too.
+      // Fades in when the bar turns solid on the way down, but goes
+      // see-through at once. Fading out, the theme's bar colour lingered for a
+      // quarter second at the very top whenever the page was sent straight
+      // back up - a jump to the top, or a tap on a phone's status bar.
       'header.MuiAppBar-root{transition:background-color .25s ease;}' +
-      'header.MuiAppBar-root.heroBar-barOverHero{background-color:transparent!important;' +
+      'html[data-herobar-over-hero] header.MuiAppBar-root{transition:none!important;}' +
+      'html[data-herobar-over-hero] header.MuiAppBar-root{background-color:transparent!important;' +
       'background-image:none!important;' +
       '-webkit-backdrop-filter:none!important;backdrop-filter:none!important;' +
       'box-shadow:none!important;border-bottom-color:transparent!important;}' +
@@ -1465,7 +1470,13 @@
   // again. Anywhere the hero is not on screen - other pages, Favourites, the
   // Seerr panels - nothing changes. The bar is 12's MUI AppBar; 10.11's
   // header is a different element and is left alone.
-  var BAR_OVER_HERO_CLASS = 'heroBar-barOverHero';
+  // An attribute on <html>, not a class on the bar itself. The bar belongs
+  // to React, which re-renders it as the page reaches the top and writes its
+  // class list afresh - wiping a class of ours. The bar then went solid until
+  // the next check put the class back: measured, 110-240ms of the theme's bar
+  // colour fading in and out over the artwork every time the page was
+  // scrolled to the top. Nothing re-renders <html>.
+  var BAR_OVER_HERO_ATTR = 'data-herobar-over-hero';
   var UNDER_BAR_CLASS = 'heroBar-underBar';
   var barSyncQueued = false;
 
@@ -1499,8 +1510,13 @@
     // Solid again a little before the artwork's lower edge reaches the bar,
     // while there is still picture behind it rather than bare page.
     var over = !!hero && hero.getBoundingClientRect().bottom > barHeight * 2.5;
-    if (header.classList.contains(BAR_OVER_HERO_CLASS) !== over) {
-      header.classList.toggle(BAR_OVER_HERO_CLASS, over);
+    var root = document.documentElement;
+    if (root.hasAttribute(BAR_OVER_HERO_ATTR) !== over) {
+      if (over) {
+        root.setAttribute(BAR_OVER_HERO_ATTR, '');
+      } else {
+        root.removeAttribute(BAR_OVER_HERO_ATTR);
+      }
     }
   }
 
