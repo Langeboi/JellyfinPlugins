@@ -1108,6 +1108,147 @@
     return new URLSearchParams(location.hash.slice(qIndex + 1)).get('id');
   }
 
+  // ==================================================================
+  //  Image sizes and placeholders
+  //  Jellyfin renders an image the first time a size is asked for and keeps
+  //  the result, so a size nobody has asked for yet costs 120-550ms on the
+  //  server (measured on 12.0.0) and one that has been asked for about 10ms.
+  //  Everything here used to ask for its own width times the screen's exact
+  //  pixel ratio, so the same poster came in a dozen sizes and nearly every
+  //  request was a first one. Widths are now rounded to a short list - the
+  //  same list the server rounds every app's requests to and pre-renders
+  //  (Performance/ImageSizing.cs). Screens denser than 2x get 2x images: the
+  //  difference cannot be seen on a poster, only paid for in bytes.
+  // ==================================================================
+  var IMAGE_BUCKETS = [120, 160, 240, 320, 400, 480, 640, 800, 960, 1280, 1600, 1920, 2560, 3840];
+
+  function imageBucket(px) {
+    for (var i = 0; i < IMAGE_BUCKETS.length; i++) {
+      if (IMAGE_BUCKETS[i] >= px * 0.9) {
+        return IMAGE_BUCKETS[i];
+      }
+    }
+    return Math.round(px);
+  }
+
+  function sizedImageUrl(itemId, type, tag, cssWidth) {
+    var density = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    var options = {
+      type: type,
+      maxWidth: imageBucket(cssWidth * density),
+      quality: type === 'Backdrop' ? 80 : 90
+    };
+    if (tag) {
+      options.tag = tag;
+    }
+    return window.ApiClient.getImageUrl(itemId, options);
+  }
+
+  var BLURHASH_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~';
+  var blurhashUrls = {};
+  var blurhashUrlCount = 0;
+
+  function blurhashNumber(text) {
+    var value = 0;
+    for (var i = 0; i < text.length; i++) {
+      value = value * 83 + BLURHASH_DIGITS.indexOf(text.charAt(i));
+    }
+    return value;
+  }
+
+  function blurhashToLinear(channel) {
+    var v = channel / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+
+  function blurhashToSrgb(value) {
+    var v = Math.max(0, Math.min(1, value));
+    return Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255);
+  }
+
+  function blurhashAc(quantised, maxAc) {
+    var v = (quantised - 9) / 9;
+    return (v < 0 ? -1 : 1) * v * v * maxAc;
+  }
+
+  // Jellyfin keeps a blurhash - a ~30 character summary of an image's colours
+  // - for every image, and sends it with item lists at no extra cost. Decoded
+  // into a tiny PNG and painted under the real image, it makes a card that is
+  // still waiting for its picture look like a soft version of it rather than
+  // an empty grey box. Standard blurhash decoding, cached per hash.
+  function blurhashUrl(hash, width, height) {
+    if (!hash || hash.length < 6) {
+      return '';
+    }
+    var key = hash + '/' + width + 'x' + height;
+    if (blurhashUrls[key] !== undefined) {
+      return blurhashUrls[key];
+    }
+    var url = '';
+    try {
+      var sizeFlag = blurhashNumber(hash.charAt(0));
+      var countY = Math.floor(sizeFlag / 9) + 1;
+      var countX = (sizeFlag % 9) + 1;
+      if (hash.length === 4 + 2 * countX * countY) {
+        var maxAc = (blurhashNumber(hash.charAt(1)) + 1) / 166;
+        var dc = blurhashNumber(hash.substring(2, 6));
+        var colors = [[blurhashToLinear(dc >> 16), blurhashToLinear((dc >> 8) & 255), blurhashToLinear(dc & 255)]];
+        for (var c = 1; c < countX * countY; c++) {
+          var ac = blurhashNumber(hash.substring(4 + c * 2, 6 + c * 2));
+          colors.push([blurhashAc(Math.floor(ac / 361), maxAc), blurhashAc(Math.floor(ac / 19) % 19, maxAc), blurhashAc(ac % 19, maxAc)]);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        var ctx = canvas.getContext('2d');
+        var image = ctx.createImageData(width, height);
+        for (var y = 0; y < height; y++) {
+          for (var x = 0; x < width; x++) {
+            var r = 0;
+            var g = 0;
+            var b = 0;
+            for (var j = 0; j < countY; j++) {
+              for (var i = 0; i < countX; i++) {
+                var basis = Math.cos(Math.PI * x * i / width) * Math.cos(Math.PI * y * j / height);
+                var color = colors[i + j * countX];
+                r += color[0] * basis;
+                g += color[1] * basis;
+                b += color[2] * basis;
+              }
+            }
+            var p = 4 * (x + y * width);
+            image.data[p] = blurhashToSrgb(r);
+            image.data[p + 1] = blurhashToSrgb(g);
+            image.data[p + 2] = blurhashToSrgb(b);
+            image.data[p + 3] = 255;
+          }
+        }
+        ctx.putImageData(image, 0, 0);
+        url = canvas.toDataURL();
+      }
+    } catch (e) {
+      url = '';
+    }
+    if (++blurhashUrlCount > 600) {
+      blurhashUrls = {};
+      blurhashUrlCount = 1;
+    }
+    blurhashUrls[key] = url;
+    return url;
+  }
+
+  function itemBlurhash(item, type, tag) {
+    var hashes = item && item.ImageBlurHashes && item.ImageBlurHashes[type];
+    return hashes && tag ? hashes[tag] || '' : '';
+  }
+
+  // For a style="" attribute: the image, with its placeholder as a second
+  // layer underneath that simply stops showing once the image has painted.
+  function backgroundLayers(url, placeholder) {
+    return 'url(&quot;' + url.replace(/&/g, '&amp;') + '&quot;)' +
+      (placeholder ? ',url(&quot;' + placeholder + '&quot;)' : '');
+  }
+
   function ensureBackdrop() {
     if (!cfg.EnableDetailsBackdrop || !isItemDetailsRoute()) {
       return;
@@ -1142,19 +1283,10 @@
           return;
         }
 
-        // Quantized width: window.innerWidth minted a NEW image URL for
-        // every distinct window size, so a half-sized window meant a fresh
-        // server-side rescale instead of a browser-cache hit (visibly slow).
-        // Four fixed buckets keep the URL stable across resizes - after the
-        // first load, any window size paints from cache instantly.
-        var bucket = window.innerWidth <= 960 ? 960
-          : window.innerWidth <= 1280 ? 1280
-          : window.innerWidth <= 1920 ? 1920 : 2560;
-        var imgUrl = apiClient.getScaledImageUrl(imageItemId, {
-          type: 'Backdrop',
-          tag: tag,
-          maxWidth: bucket
-        });
+        // Rounded to the shared size list (see sizedImageUrl), so every
+        // window size between two steps reuses one image - from the
+        // browser's cache and from the server's.
+        var imgUrl = sizedImageUrl(imageItemId, 'Backdrop', tag, window.innerWidth);
 
         var freshContainer = document.querySelector('.backdropContainer');
         if (!freshContainer || freshContainer.querySelector('.displayingBackdropImage')) {
@@ -1531,12 +1663,9 @@
     var apiClient = window.ApiClient;
     var bgStyle = '';
     if (item.ImageTags && item.ImageTags.Primary) {
-      var imgUrl = apiClient.getScaledImageUrl(item.Id, {
-        type: 'Primary',
-        tag: item.ImageTags.Primary,
-        maxWidth: 300
-      });
-      bgStyle = ' style="background-image:url(&quot;' + imgUrl + '&quot;)"';
+      bgStyle = ' style="background-image:' + backgroundLayers(
+        sizedImageUrl(item.Id, 'Primary', item.ImageTags.Primary, 300),
+        blurhashUrl(itemBlurhash(item, 'Primary', item.ImageTags.Primary), 20, 30)) + '"';
     }
     var name = escapeHtml(item.Name);
 
@@ -1780,7 +1909,7 @@
     if (!type) {
       return null;
     }
-    return apiClient.getScaledImageUrl(item.Id, { type: type, tag: tag, maxWidth: 400 });
+    return sizedImageUrl(item.Id, type, tag, 400);
   }
 
   function getContinueCardTextLines(item) {
@@ -2351,12 +2480,9 @@
     var apiClient = window.ApiClient;
     var bgStyle = '';
     if (item.ImageTags && item.ImageTags.Primary) {
-      var imgUrl = apiClient.getScaledImageUrl(item.Id, {
-        type: 'Primary',
-        tag: item.ImageTags.Primary,
-        maxWidth: 300
-      });
-      bgStyle = ' style="background-image:url(&quot;' + imgUrl + '&quot;)"';
+      bgStyle = ' style="background-image:' + backgroundLayers(
+        sizedImageUrl(item.Id, 'Primary', item.ImageTags.Primary, 300),
+        blurhashUrl(itemBlurhash(item, 'Primary', item.ImageTags.Primary), 20, 30)) + '"';
     }
     return (
       '<div class="card overflowPortraitCard card-hoverable" data-id="' + item.Id + '" data-type="Movie">' +
@@ -2946,6 +3072,12 @@
   var TITLE_INDEX_MAX = 20000;
   var SEARCH_CAST_LIMIT = 20;
   var SEARCH_DIR_LIMIT = 12;
+  // How long typing has to pause before the top result's cast is loaded.
+  var SEARCH_ENRICH_DELAY_MS = 250;
+  // Cast and filmographies hardly ever change, so they are kept across visits.
+  var ENRICH_STORE_KEY = 'newBadges-searchEnrich-v1';
+  var ENRICH_STORE_TTL_MS = 24 * 60 * 60 * 1000;
+  var ENRICH_STORE_MAX = 80;
 
   function LruCache(max) { this.max = max; this.map = new Map(); }
   LruCache.prototype.get = function (k) {
@@ -2968,6 +3100,10 @@
     results: [],
     focused: -1,
     enrichReqId: 0,
+    enrichTimer: null,
+    prefetchTimer: null,
+    enrichSaveTimer: null,
+    enrichInflight: {},              // itemId -> {cast, full} promises
     resultCache: new LruCache(40),   // lowercased query -> items[]
     enrichCache: new LruCache(60)    // itemId -> {actors, director, works}
   };
@@ -3058,6 +3194,12 @@
       '.newBadges-searchDirTitle{font-size:.95em;font-weight:600;white-space:nowrap;overflow:hidden;' +
       'text-overflow:ellipsis;}' +
       '.newBadges-searchDirYear{font-size:.85em;opacity:.5;}' +
+      // The previous result's cast, dimmed while the next one's is on its way.
+      '.newBadges-searchEnrich{transition:opacity .15s ease;}' +
+      '.newBadges-searchEnrich.is-stale{opacity:.45;}' +
+      '.newBadges-searchDirSkeleton{cursor:default;}' +
+      '.newBadges-searchDirSkeleton .newBadges-searchDirTitle{height:.95em;width:75%;border-radius:4px;' +
+      'background:rgba(var(--nb-fg-rgb),.09);}' +
       'body.newBadges-searchOpen{overflow:hidden;}' +
       '@media (max-width:600px){.newBadges-searchOverlay{padding:0;}' +
       '.newBadges-searchPanel{max-width:100%;min-height:100%;background:rgba(var(--nb-surface-rgb),.98);padding:1em;}' +
@@ -3101,7 +3243,7 @@
       var row = e.target.closest ? e.target.closest('.newBadges-searchResult') : null;
       if (row) {
         var idx = parseInt(row.getAttribute('data-idx'), 10);
-        if (!isNaN(idx) && searchState.results[idx]) { fetchEnrichData(searchState.results[idx]); }
+        if (!isNaN(idx) && searchState.results[idx]) { fetchEnrichData(searchState.results[idx]).full.catch(function () {}); }
       }
     });
     el.querySelector('.newBadges-searchEnrich').addEventListener('click', function (e) {
@@ -3130,6 +3272,8 @@
     document.body.classList.remove('newBadges-searchOpen');
     if (searchState.abort) { try { searchState.abort.abort(); } catch (e) { /* noop */ } }
     clearTimeout(searchState.debounceTimer);
+    clearTimeout(searchState.enrichTimer);
+    clearTimeout(searchState.prefetchTimer);
   }
 
   function clearSearchResults() {
@@ -3138,7 +3282,7 @@
     if (searchOverlay) {
       searchOverlay.querySelector('.newBadges-searchResults').innerHTML =
         '<div class="newBadges-searchHint">' + escapeHtml(t('searchTypeToSearch')) + '</div>';
-      searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
+      resetEnrichPanel(searchOverlay.querySelector('.newBadges-searchEnrich'));
     }
   }
 
@@ -3265,20 +3409,22 @@
     var box = searchOverlay.querySelector('.newBadges-searchResults');
     if (!items.length) {
       box.innerHTML = '<div class="newBadges-searchHint">' + escapeHtml(t('searchNoResults')) + '</div>';
-      searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = '';
+      resetEnrichPanel(searchOverlay.querySelector('.newBadges-searchEnrich'));
       searchState.focused = -1;
       return;
     }
     box.innerHTML = items.map(buildSearchResultHtml).join('');
-    setSearchFocus(0);   // auto-enrich the best match
+    setSearchFocus(0, true);   // enrich the best match once typing pauses
   }
 
   function buildSearchResultHtml(item, idx) {
     var apiClient = window.ApiClient;
     var thumb;
     if (item.ImageTags && item.ImageTags.Primary) {
-      var u = apiClient.getScaledImageUrl(item.Id, { type: 'Primary', tag: item.ImageTags.Primary, maxWidth: 90 });
-      thumb = '<span class="newBadges-searchThumb" style="background-image:url(&quot;' + u + '&quot;)"></span>';
+      var tag = item.ImageTags.Primary;
+      thumb = '<span class="newBadges-searchThumb" style="background-image:' +
+        backgroundLayers(sizedImageUrl(item.Id, 'Primary', tag, 70), blurhashUrl(itemBlurhash(item, 'Primary', tag), 16, 24)) +
+        '"></span>';
     } else {
       thumb = '<span class="newBadges-searchThumb newBadges-searchThumbEmpty"><span class="material-icons">' +
         (item.Type === 'Series' ? 'live_tv' : 'movie') + '</span></span>';
@@ -3294,109 +3440,310 @@
     '</button>';
   }
 
-  function setSearchFocus(idx) {
+  function resetEnrichPanel(panel) {
+    clearTimeout(searchState.enrichTimer);
+    searchState.enrichReqId++;
+    panel.innerHTML = '';
+    panel.removeAttribute('data-item-id');
+    panel.removeAttribute('data-complete');
+    panel.classList.remove('is-stale');
+  }
+
+  function setSearchFocus(idx, fromTyping) {
     if (idx < 0 || idx >= searchState.results.length) { return; }
     searchState.focused = idx;
     var rows = searchOverlay.querySelectorAll('.newBadges-searchResult');
     for (var i = 0; i < rows.length; i++) { rows[i].classList.toggle('is-focused', i === idx); }
     if (rows[idx] && rows[idx].scrollIntoView) { rows[idx].scrollIntoView({ block: 'nearest' }); }
-    enrichFocusedResult(searchState.results[idx]);
+    var item = searchState.results[idx];
+    clearTimeout(searchState.enrichTimer);
+    // While typing, the top result changes with nearly every keystroke.
+    // Loading each one's cast meant a details lookup, a filmography query
+    // (400ms+ on 12) and up to 32 portraits and posters for a result that was
+    // gone again a keystroke later - and the browser kept downloading them
+    // after they had left the page. The cast now follows once typing pauses;
+    // arrow keys, hover and anything already known still show at once.
+    if (fromTyping && !getEnrichCached(item.Id)) {
+      searchState.enrichReqId++;
+      var panel = searchOverlay.querySelector('.newBadges-searchEnrich');
+      if (panel.getAttribute('data-item-id') !== item.Id) { panel.classList.add('is-stale'); }
+      searchState.enrichTimer = setTimeout(function () { enrichFocusedResult(item); }, SEARCH_ENRICH_DELAY_MS);
+      return;
+    }
+    enrichFocusedResult(item);
+  }
+
+  // ---- Cast and filmography, kept across visits ----
+  // Held in memory (enrichCache) and in localStorage for a day, so searching
+  // for something again - the usual way search is used - shows its cast and
+  // the director's other films straight away instead of repeating a
+  // filmography query that takes 400ms+ on 12.
+  var enrichStore = null;
+
+  function loadEnrichStore() {
+    var userId = window.ApiClient ? window.ApiClient.getCurrentUserId() : '';
+    if (enrichStore && enrichStore.user === userId) { return enrichStore; }
+    if (enrichStore) { searchState.enrichCache = new LruCache(60); }   // a different user signed in
+    var stored = null;
+    try { stored = JSON.parse(localStorage.getItem(ENRICH_STORE_KEY) || 'null'); } catch (e) { stored = null; }
+    enrichStore = stored && stored.user === userId && stored.entries ? stored : { user: userId, entries: {} };
+    return enrichStore;
+  }
+
+  function getEnrichCached(itemId) {
+    var store = loadEnrichStore();
+    var hit = searchState.enrichCache.get(itemId);
+    if (hit) { return hit; }
+    var entry = store.entries[itemId];
+    if (entry && entry.d && Date.now() - entry.t < ENRICH_STORE_TTL_MS) {
+      searchState.enrichCache.set(itemId, entry.d);
+      return entry.d;
+    }
+    return undefined;
+  }
+
+  function setEnrichCached(itemId, data) {
+    var store = loadEnrichStore();
+    searchState.enrichCache.set(itemId, data);
+    if (data.failed) { return; }   // retried next visit rather than kept for a day
+    store.entries[itemId] = { t: Date.now(), d: data };
+    var ids = Object.keys(store.entries);
+    if (ids.length > ENRICH_STORE_MAX) {
+      ids.sort(function (a, b) { return store.entries[a].t - store.entries[b].t; })
+        .slice(0, ids.length - ENRICH_STORE_MAX)
+        .forEach(function (id) { delete store.entries[id]; });
+    }
+    clearTimeout(searchState.enrichSaveTimer);
+    searchState.enrichSaveTimer = setTimeout(function () {
+      try { localStorage.setItem(ENRICH_STORE_KEY, JSON.stringify(store)); } catch (e) { /* full or unavailable */ }
+    }, 500);
+  }
+
+  function slimPerson(p) {
+    var tag = p.PrimaryImageTag || '';
+    return {
+      Id: p.Id,
+      Name: p.Name,
+      Role: p.Role || '',
+      Type: p.Type,
+      PrimaryImageTag: tag,
+      Blurhash: tag && p.ImageBlurHashes && p.ImageBlurHashes.Primary ? p.ImageBlurHashes.Primary[tag] || '' : ''
+    };
+  }
+
+  function slimWork(w) {
+    var tag = (w.ImageTags && w.ImageTags.Primary) || '';
+    return { Id: w.Id, Name: w.Name, ProductionYear: w.ProductionYear || null, Tag: tag, Blurhash: itemBlurhash(w, 'Primary', tag) };
   }
 
   // Fetch (and cache) an item's cast + director + the director's other work.
-  // Returns a promise; safe to call for prefetch (hover) without rendering.
+  // Returns {cast, full}: cast resolves as soon as the quick details lookup
+  // is back (~50ms), full once the director's filmography is too. Safe to
+  // call for prefetch (hover, neighbours) without rendering, and calls for
+  // the same item share one set of requests.
   function fetchEnrichData(item) {
-    var cached = searchState.enrichCache.get(item.Id);
-    if (cached) { return Promise.resolve(cached); }
+    var cached = getEnrichCached(item.Id);
+    if (cached) {
+      var done = Promise.resolve(cached);
+      return { cast: done, full: done };
+    }
+    if (searchState.enrichInflight[item.Id]) { return searchState.enrichInflight[item.Id]; }
     var apiClient = window.ApiClient;
     var userId = apiClient.getCurrentUserId();
-    return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/' + item.Id, { Fields: 'People' }))
+    var cast = apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items/' + item.Id, { Fields: 'People' }))
       .then(function (detail) {
         var people = (detail && detail.People) || [];
-        var actors = people.filter(function (p) { return p.Type === 'Actor'; }).slice(0, SEARCH_CAST_LIMIT);
-        var director = people.filter(function (p) { return p.Type === 'Director'; })[0] || null;
-        if (!director) {
-          var noDir = { actors: actors, director: null, works: [] };
-          searchState.enrichCache.set(item.Id, noDir);
-          return noDir;
-        }
-        return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items', {
-          PersonIds: director.Id,
-          IncludeItemTypes: 'Movie,Series',
-          Recursive: true,
-          SortBy: 'PremiereDate',
-          SortOrder: 'Descending',
-          Limit: SEARCH_DIR_LIMIT + 2,
-          ExcludeItemIds: item.Id,
-          Fields: 'ProductionYear',
-          EnableImages: true, ImageTypeLimit: 1, EnableImageTypes: 'Primary',
-          EnableTotalRecordCount: false
-        })).then(function (res) {
-          var works = ((res && res.Items) || []).filter(function (w) { return w.Id !== item.Id; }).slice(0, SEARCH_DIR_LIMIT);
-          var data = { actors: actors, director: director, works: works };
-          searchState.enrichCache.set(item.Id, data);
-          return data;
-        }).catch(function () {
-          var partial = { actors: actors, director: director, works: [] };
-          searchState.enrichCache.set(item.Id, partial);
-          return partial;
-        });
+        return {
+          actors: people.filter(function (p) { return p.Type === 'Actor'; }).slice(0, SEARCH_CAST_LIMIT).map(slimPerson),
+          director: people.filter(function (p) { return p.Type === 'Director'; }).map(slimPerson)[0] || null,
+          works: null
+        };
       });
+    var full = cast.then(function (partial) {
+      if (!partial.director) {
+        return { actors: partial.actors, director: null, works: [] };
+      }
+      return apiClient.getJSON(apiClient.getUrl('Users/' + userId + '/Items', {
+        PersonIds: partial.director.Id,
+        IncludeItemTypes: 'Movie,Series',
+        Recursive: true,
+        SortBy: 'PremiereDate',
+        SortOrder: 'Descending',
+        Limit: SEARCH_DIR_LIMIT + 2,
+        ExcludeItemIds: item.Id,
+        Fields: 'ProductionYear',
+        EnableImages: true, ImageTypeLimit: 1, EnableImageTypes: 'Primary',
+        EnableUserData: false,
+        EnableTotalRecordCount: false
+      })).then(function (res) {
+        var works = ((res && res.Items) || []).filter(function (w) { return w.Id !== item.Id; })
+          .slice(0, SEARCH_DIR_LIMIT).map(slimWork);
+        return { actors: partial.actors, director: partial.director, works: works };
+      }).catch(function () {
+        return { actors: partial.actors, director: partial.director, works: [], failed: true };
+      });
+    }).then(function (data) {
+      setEnrichCached(item.Id, data);
+      return data;
+    });
+    var request = { cast: cast, full: full };
+    searchState.enrichInflight[item.Id] = request;
+    full.catch(function () {}).then(function () { delete searchState.enrichInflight[item.Id]; });
+    return request;
   }
 
   function enrichFocusedResult(item) {
     if (!item) { return; }
     var panel = searchOverlay.querySelector('.newBadges-searchEnrich');
     var reqId = ++searchState.enrichReqId;
-    var cached = searchState.enrichCache.get(item.Id);
-    if (cached) { renderEnrich(cached); return; }   // instant
-    panel.innerHTML = '<div class="newBadges-searchHint">' + escapeHtml(t('searchLoadingCast')) + '</div>';
-    fetchEnrichData(item).then(function (data) {
-      if (reqId === searchState.enrichReqId) { renderEnrich(data); }  // a newer focus wins
+    var cached = getEnrichCached(item.Id);
+    if (cached) {
+      renderEnrich(cached, item.Id);   // instant
+      prefetchNeighbours();
+      return;
+    }
+    if (panel.getAttribute('data-item-id') !== item.Id) { panel.classList.add('is-stale'); }
+    var request = fetchEnrichData(item);
+    // The cast is drawn as soon as it is known, with the director's row held
+    // open by placeholders, instead of the quick half waiting on the slow one.
+    request.cast.then(function (partial) {
+      if (reqId === searchState.enrichReqId) { renderEnrich(partial, item.Id); }   // a newer focus wins
+    }).catch(function () {});
+    request.full.then(function (data) {
+      if (reqId === searchState.enrichReqId) {
+        renderEnrich(data, item.Id);
+        prefetchNeighbours();
+      }
     }).catch(function () {
-      if (reqId === searchState.enrichReqId) { panel.innerHTML = ''; }
+      if (reqId === searchState.enrichReqId) { resetEnrichPanel(panel); }
     });
   }
 
-  function renderEnrich(data) {
-    var apiClient = window.ApiClient;
-    var html = '';
-    if (data.actors && data.actors.length) {
-      html += '<div class="newBadges-searchSection">' +
-        '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchCast')) + '</h3>' +
-        '<div class="newBadges-searchCast">' +
-        data.actors.map(function (p) {
-          var img = p.PrimaryImageTag
-            ? '<span class="newBadges-searchActorImg" style="background-image:url(&quot;' +
-                apiClient.getScaledImageUrl(p.Id, { type: 'Primary', tag: p.PrimaryImageTag, maxWidth: 100 }) + '&quot;)"></span>'
-            : '<span class="newBadges-searchActorImg newBadges-searchActorImgEmpty"><span class="material-icons">person</span></span>';
-          return '<button type="button" class="newBadges-searchActor" data-nav-id="' + p.Id + '" ' +
-            'title="' + escapeHtml(p.Name) + (p.Role ? ' — ' + escapeHtml(p.Role) : '') + '">' +
-            img +
-            '<span class="newBadges-searchActorName"><bdi>' + escapeHtml(p.Name) + '</bdi></span>' +
-            (p.Role ? '<span class="newBadges-searchActorRole"><bdi>' + escapeHtml(p.Role) + '</bdi></span>' : '') +
-          '</button>';
-        }).join('') +
-        '</div></div>';
+  // Once the focused result is complete, quietly load the next two, so
+  // arrowing down the list shows them at once.
+  function prefetchNeighbours() {
+    clearTimeout(searchState.prefetchTimer);
+    var query = searchState.query;
+    var from = searchState.focused;
+    searchState.prefetchTimer = setTimeout(function () {
+      [from + 1, from + 2].reduce(function (chain, idx) {
+        return chain.then(function () {
+          var next = searchState.results[idx];
+          if (searchState.query !== query || !next || getEnrichCached(next.Id)) { return null; }
+          return fetchEnrichData(next).full.catch(function () {});
+        });
+      }, Promise.resolve());
+    }, 400);
+  }
+
+  var lazyBackgroundObserver = null;
+
+  function lazyBackgroundHtml(className, url, placeholder) {
+    return '<span class="' + className + '" data-bg="' + url.replace(/&/g, '&amp;') + '"' +
+      (placeholder ? ' data-ph="' + placeholder + '" style="background-image:url(&quot;' + placeholder + '&quot;)"' : '') +
+      '></span>';
+  }
+
+  function showLazyBackground(el) {
+    var url = el.getAttribute('data-bg');
+    if (!url) { return; }
+    el.removeAttribute('data-bg');
+    var placeholder = el.getAttribute('data-ph');
+    el.style.backgroundImage = 'url("' + url + '")' + (placeholder ? ', url("' + placeholder + '")' : '');
+  }
+
+  // Portraits and posters load as they come into view. All twenty cast
+  // members and twelve films used to be requested the moment a result was
+  // focused, though a window shows perhaps eight of each; the rest show
+  // their blurred placeholder until scrolled to.
+  function observeLazyBackgrounds(root) {
+    var pending = root.querySelectorAll('[data-bg]');
+    if (!('IntersectionObserver' in window)) {
+      for (var i = 0; i < pending.length; i++) { showLazyBackground(pending[i]); }
+      return;
     }
-    if (data.director && data.works && data.works.length) {
-      html += '<div class="newBadges-searchSection">' +
-        '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchMoreFrom') + data.director.Name) + '</h3>' +
-        '<div class="newBadges-searchDirRow">' +
-        data.works.map(function (w) {
-          var bg = (w.ImageTags && w.ImageTags.Primary)
-            ? ' style="background-image:url(&quot;' + apiClient.getScaledImageUrl(w.Id, { type: 'Primary', tag: w.ImageTags.Primary, maxWidth: 220 }) + '&quot;)"'
-            : '';
-          return '<button type="button" class="newBadges-searchDirCard" data-nav-id="' + w.Id + '" title="' + escapeHtml(w.Name) + '">' +
-            '<span class="newBadges-searchDirPoster' + (bg ? '' : ' newBadges-searchThumbEmpty') + '"' + bg + '>' +
-              (bg ? '' : '<span class="material-icons">movie</span>') + '</span>' +
-            '<span class="newBadges-searchDirTitle"><bdi>' + escapeHtml(w.Name) + '</bdi></span>' +
-            (w.ProductionYear ? '<span class="newBadges-searchDirYear">' + w.ProductionYear + '</span>' : '') +
-          '</button>';
-        }).join('') +
-        '</div></div>';
+    if (!lazyBackgroundObserver) {
+      lazyBackgroundObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            lazyBackgroundObserver.unobserve(entry.target);
+            showLazyBackground(entry.target);
+          }
+        });
+      }, { rootMargin: '200px' });
     }
-    searchOverlay.querySelector('.newBadges-searchEnrich').innerHTML = html;
+    // Only this panel uses it, so anything still watched is from a render
+    // that has since been replaced.
+    lazyBackgroundObserver.disconnect();
+    for (var j = 0; j < pending.length; j++) { lazyBackgroundObserver.observe(pending[j]); }
+  }
+
+  function buildCastHtml(actors) {
+    if (!actors || !actors.length) { return ''; }
+    return '<div class="newBadges-searchSection">' +
+      '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchCast')) + '</h3>' +
+      '<div class="newBadges-searchCast">' +
+      actors.map(function (p) {
+        var img = p.PrimaryImageTag
+          ? lazyBackgroundHtml('newBadges-searchActorImg', sizedImageUrl(p.Id, 'Primary', p.PrimaryImageTag, 110), blurhashUrl(p.Blurhash, 16, 16))
+          : '<span class="newBadges-searchActorImg newBadges-searchActorImgEmpty"><span class="material-icons">person</span></span>';
+        return '<button type="button" class="newBadges-searchActor" data-nav-id="' + p.Id + '" ' +
+          'title="' + escapeHtml(p.Name) + (p.Role ? ' — ' + escapeHtml(p.Role) : '') + '">' +
+          img +
+          '<span class="newBadges-searchActorName"><bdi>' + escapeHtml(p.Name) + '</bdi></span>' +
+          (p.Role ? '<span class="newBadges-searchActorRole"><bdi>' + escapeHtml(p.Role) + '</bdi></span>' : '') +
+        '</button>';
+      }).join('') +
+      '</div></div>';
+  }
+
+  function buildDirectorHtml(data) {
+    if (!data.director) { return ''; }
+    var cards;
+    if (!data.works) {
+      // Still being looked up: placeholder cards keep the row in place, so
+      // the page does not jump when the films arrive.
+      cards = [0, 1, 2, 3, 4, 5].map(function () {
+        return '<span class="newBadges-searchDirCard newBadges-searchDirSkeleton">' +
+          '<span class="newBadges-searchDirPoster"></span><span class="newBadges-searchDirTitle"></span></span>';
+      }).join('');
+    } else if (!data.works.length) {
+      return '';
+    } else {
+      cards = data.works.map(function (w) {
+        var poster = w.Tag
+          ? lazyBackgroundHtml('newBadges-searchDirPoster', sizedImageUrl(w.Id, 'Primary', w.Tag, 156), blurhashUrl(w.Blurhash, 20, 30))
+          : '<span class="newBadges-searchDirPoster newBadges-searchThumbEmpty"><span class="material-icons">movie</span></span>';
+        return '<button type="button" class="newBadges-searchDirCard" data-nav-id="' + w.Id + '" title="' + escapeHtml(w.Name) + '">' +
+          poster +
+          '<span class="newBadges-searchDirTitle"><bdi>' + escapeHtml(w.Name) + '</bdi></span>' +
+          (w.ProductionYear ? '<span class="newBadges-searchDirYear">' + w.ProductionYear + '</span>' : '') +
+        '</button>';
+      }).join('');
+    }
+    return '<div class="newBadges-searchSection">' +
+      '<h3 class="newBadges-searchSectionTitle">' + escapeHtml(t('searchMoreFrom') + data.director.Name) + '</h3>' +
+      '<div class="newBadges-searchDirRow">' + cards + '</div></div>';
+  }
+
+  // Draws an item's cast and director row. Called twice for an item that was
+  // not known yet - first with the cast alone, then complete - and the second
+  // call only replaces the director row, so portraits already on screen are
+  // not torn down and drawn again.
+  function renderEnrich(data, itemId) {
+    var panel = searchOverlay.querySelector('.newBadges-searchEnrich');
+    var sameItem = panel.getAttribute('data-item-id') === itemId;
+    var complete = !!data.works;
+    panel.classList.remove('is-stale');
+    if (sameItem && (panel.getAttribute('data-complete') === 'true' || !complete)) { return; }
+    if (!sameItem) {
+      panel.innerHTML = buildCastHtml(data.actors) + '<div class="newBadges-searchDirSlot"></div>';
+      panel.setAttribute('data-item-id', itemId);
+    }
+    var slot = panel.querySelector('.newBadges-searchDirSlot');
+    if (slot) { slot.innerHTML = buildDirectorHtml(data); }
+    panel.setAttribute('data-complete', complete ? 'true' : 'false');
+    observeLazyBackgrounds(panel);
   }
 
   function onSearchKeydown(e) {
@@ -3563,14 +3910,14 @@
   function hoverPreviewImageUrl(details) {
     var apiClient = window.ApiClient;
     if (details.BackdropImageTags && details.BackdropImageTags.length) {
-      return apiClient.getScaledImageUrl(details.Id, { type: 'Backdrop', tag: details.BackdropImageTags[0], maxWidth: 780 });
+      return sizedImageUrl(details.Id, 'Backdrop', details.BackdropImageTags[0], 780);
     }
     // Episodes rarely carry their own backdrop - fall back to the series'.
     if (details.ParentBackdropItemId && details.ParentBackdropImageTags && details.ParentBackdropImageTags.length) {
-      return apiClient.getScaledImageUrl(details.ParentBackdropItemId, { type: 'Backdrop', tag: details.ParentBackdropImageTags[0], maxWidth: 780 });
+      return sizedImageUrl(details.ParentBackdropItemId, 'Backdrop', details.ParentBackdropImageTags[0], 780);
     }
     if (details.ImageTags && details.ImageTags.Primary) {
-      return apiClient.getScaledImageUrl(details.Id, { type: 'Primary', tag: details.ImageTags.Primary, maxWidth: 500 });
+      return sizedImageUrl(details.Id, 'Primary', details.ImageTags.Primary, 500);
     }
     return null;
   }
@@ -4360,6 +4707,9 @@
     ['NbEnableDrawerExtras', 'EnableDrawerExtras', 'bool'],
     ['NbEnableSeerrShortcut', 'EnableSeerrShortcut', 'bool'],
     ['NbEnableDetailsBackdrop', 'EnableDetailsBackdrop', 'bool'],
+    ['NbEnableImageTuning', 'EnableImageTuning', 'bool'],
+    ['NbEnableImageWarmup', 'EnableImageWarmup', 'bool'],
+    ['NbEnableApiCache', 'EnableApiCache', 'bool'],
     ['NbHeaderLogoUrl', 'HeaderLogoUrl', 'text'],
     ['NbHeaderLogoWidth', 'HeaderLogoWidth', 'text']
   ];

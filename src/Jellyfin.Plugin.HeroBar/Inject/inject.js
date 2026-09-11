@@ -588,6 +588,11 @@
       CommunityRating: item.CommunityRating,
       OfficialRating: item.OfficialRating,
       BackdropImageTags: item.BackdropImageTags ? item.BackdropImageTags.slice(0, 1) : [],
+      // The backdrop's blurhash, for the placeholder (see blurhashUrl).
+      BackdropBlurHash: item.BackdropImageTags && item.BackdropImageTags.length &&
+        item.ImageBlurHashes && item.ImageBlurHashes.Backdrop
+        ? item.ImageBlurHashes.Backdrop[item.BackdropImageTags[0]] || ''
+        : '',
       ImageTags: item.ImageTags && item.ImageTags.Logo ? { Logo: item.ImageTags.Logo } : {},
       UserData: item.UserData
         ? { IsFavorite: item.UserData.IsFavorite, PlaybackPositionTicks: item.UserData.PlaybackPositionTicks }
@@ -860,20 +865,200 @@
     return parts.map(escapeHtml).join(' &nbsp;•&nbsp; ');
   }
 
+  // ---- Image sizes and placeholders ----
+  // Jellyfin renders each image size the first time it is asked for (a
+  // backdrop took 360-550ms on 12.0.0) and serves it from disk after that
+  // (about 10ms). All eight backdrops used to be requested at once at 1920
+  // times the screen's pixel ratio - 2880px on a 1.5x laptop, 3.5MB while
+  // the home page was still loading. Widths now come from the short list the
+  // server rounds to and pre-renders (New Badges'
+  // Performance/ImageSizing.cs), capped at 2x, and only the slide on screen
+  // and the one after it are downloaded.
+  var IMAGE_BUCKETS = [120, 160, 240, 320, 400, 480, 640, 800, 960, 1280, 1600, 1920, 2560, 3840];
+  var TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+  function imageBucket(px) {
+    for (var i = 0; i < IMAGE_BUCKETS.length; i++) {
+      if (IMAGE_BUCKETS[i] >= px * 0.9) {
+        return IMAGE_BUCKETS[i];
+      }
+    }
+    return Math.round(px);
+  }
+
+  function imageDensity() {
+    return Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  }
+
+  // The backdrop is drawn with background-size:cover, so on a tall, narrow
+  // phone it is the hero's height rather than the screen's width that decides
+  // how wide the image has to be. Heights mirror the stylesheet's breakpoints.
+  function backdropWidth() {
+    var width = window.innerWidth || 1280;
+    var height = window.innerHeight || 720;
+    var heroHeight = width <= 500 ? Math.min(height * 0.38, 300)
+      : width <= 800 ? Math.min(height * 0.46, 420)
+      : Math.min(height * 0.56, 560);
+    heroHeight += 64;   // it runs on up under Jellyfin 12's app bar
+    return Math.min(2560, imageBucket(Math.max(width, heroHeight * 16 / 9) * imageDensity()));
+  }
+
+  function logoWidth() {
+    return imageBucket((window.innerWidth <= 500 ? 200 : 280) * imageDensity());
+  }
+
+  function htmlAttr(value) {
+    return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  }
+
+  var BLURHASH_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~';
+
+  function blurhashNumber(text) {
+    var value = 0;
+    for (var i = 0; i < text.length; i++) {
+      value = value * 83 + BLURHASH_DIGITS.indexOf(text.charAt(i));
+    }
+    return value;
+  }
+
+  function blurhashToLinear(channel) {
+    var v = channel / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }
+
+  function blurhashToSrgb(value) {
+    var v = Math.max(0, Math.min(1, value));
+    return Math.round((v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255);
+  }
+
+  function blurhashAc(quantised, maxAc) {
+    var v = (quantised - 9) / 9;
+    return (v < 0 ? -1 : 1) * v * v * maxAc;
+  }
+
+  // Jellyfin keeps a blurhash - a ~30 character summary of an image's colours
+  // - for every image and sends it with the item. Decoded into a tiny PNG it
+  // is a soft version of the backdrop that can be shown the instant a slide
+  // is drawn, so the banner never sits empty while the picture downloads.
+  // Standard blurhash decoding.
+  function blurhashUrl(hash, width, height) {
+    if (!hash || hash.length < 6) {
+      return '';
+    }
+    try {
+      var sizeFlag = blurhashNumber(hash.charAt(0));
+      var countY = Math.floor(sizeFlag / 9) + 1;
+      var countX = (sizeFlag % 9) + 1;
+      if (hash.length !== 4 + 2 * countX * countY) {
+        return '';
+      }
+      var maxAc = (blurhashNumber(hash.charAt(1)) + 1) / 166;
+      var dc = blurhashNumber(hash.substring(2, 6));
+      var colors = [[blurhashToLinear(dc >> 16), blurhashToLinear((dc >> 8) & 255), blurhashToLinear(dc & 255)]];
+      for (var c = 1; c < countX * countY; c++) {
+        var ac = blurhashNumber(hash.substring(4 + c * 2, 6 + c * 2));
+        colors.push([blurhashAc(Math.floor(ac / 361), maxAc), blurhashAc(Math.floor(ac / 19) % 19, maxAc), blurhashAc(ac % 19, maxAc)]);
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      var ctx = canvas.getContext('2d');
+      var image = ctx.createImageData(width, height);
+      for (var y = 0; y < height; y++) {
+        for (var x = 0; x < width; x++) {
+          var r = 0;
+          var g = 0;
+          var b = 0;
+          for (var j = 0; j < countY; j++) {
+            for (var i = 0; i < countX; i++) {
+              var basis = Math.cos(Math.PI * x * i / width) * Math.cos(Math.PI * y * j / height);
+              var color = colors[i + j * countX];
+              r += color[0] * basis;
+              g += color[1] * basis;
+              b += color[2] * basis;
+            }
+          }
+          var p = 4 * (x + y * width);
+          image.data[p] = blurhashToSrgb(r);
+          image.data[p + 1] = blurhashToSrgb(g);
+          image.data[p + 2] = blurhashToSrgb(b);
+          image.data[p + 3] = 255;
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+      return canvas.toDataURL();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // The image, with its placeholder as a second layer underneath that simply
+  // stops showing once the image above it has painted.
+  function backgroundLayers(url, placeholder) {
+    return 'url("' + url + '")' + (placeholder ? ', url("' + placeholder + '")' : '');
+  }
+
+  // Swaps a slide's placeholder for its real backdrop and logo.
+  function loadSlideImages(slide) {
+    if (!slide || slide.hasAttribute('data-hb-loaded')) {
+      return;
+    }
+    slide.setAttribute('data-hb-loaded', '');
+    var backdrop = slide.querySelector('.heroBar-backdrop[data-bg]');
+    if (backdrop) {
+      backdrop.style.backgroundImage = backgroundLayers(backdrop.getAttribute('data-bg'), backdrop.getAttribute('data-ph'));
+    }
+    var logo = slide.querySelector('img.heroBar-logoImg[data-src]');
+    if (logo) {
+      logo.src = logo.getAttribute('data-src');
+      logo.removeAttribute('data-src');
+    }
+  }
+
+  // Downloads a slide's images before it is shown, so the fade goes to the
+  // picture itself rather than to its placeholder.
+  function preloadSlide(slide) {
+    if (!slide || slide.hasAttribute('data-hb-loaded') || slide.hasAttribute('data-hb-preloading')) {
+      return;
+    }
+    slide.setAttribute('data-hb-preloading', '');
+    var logo = slide.querySelector('img.heroBar-logoImg[data-src]');
+    if (logo) {
+      new Image().src = logo.getAttribute('data-src');
+    }
+    var backdrop = slide.querySelector('.heroBar-backdrop[data-bg]');
+    if (!backdrop) {
+      loadSlideImages(slide);
+      return;
+    }
+    var img = new Image();
+    img.onload = img.onerror = function () {
+      loadSlideImages(slide);
+    };
+    img.src = backdrop.getAttribute('data-bg');
+  }
+
   function buildSlideHtml(item, index) {
     var apiClient = window.ApiClient;
     var play = item._playAction || { label: t('play'), targetId: item.Id, ticks: 0 };
-    var backdropUrl = apiClient.getScaledImageUrl(item.Id, {
+    var backdropUrl = apiClient.getImageUrl(item.Id, {
       type: 'Backdrop',
       tag: item.BackdropImageTags[0],
-      maxWidth: 1920
+      maxWidth: backdropWidth(),
+      quality: 80
     });
+    var placeholder = blurhashUrl(item.BackdropBlurHash, 32, 18);
+    // Only the first slide's images are requested straight away; the others
+    // wait for goToSlide and preloadSlide.
+    var eager = index === 0;
     var hasLogo = !!(item.ImageTags && item.ImageTags.Logo);
     var logoUrl = hasLogo
-      ? apiClient.getScaledImageUrl(item.Id, { type: 'Logo', tag: item.ImageTags.Logo, maxWidth: 400 })
+      ? apiClient.getImageUrl(item.Id, { type: 'Logo', tag: item.ImageTags.Logo, maxWidth: logoWidth(), quality: 90 })
       : '';
     var titleHtml = hasLogo
-      ? '<img class="heroBar-logoImg" src="' + escapeHtml(logoUrl) + '" alt="' + escapeHtml(mediaTitle(item)) + '" ' +
+      ? '<img class="heroBar-logoImg" src="' + htmlAttr(eager ? logoUrl : TRANSPARENT_PIXEL) + '"' +
+        (eager ? '' : ' data-src="' + htmlAttr(logoUrl) + '"') +
+        ' alt="' + escapeHtml(mediaTitle(item)) + '" ' +
         'onerror="this.replaceWith(Object.assign(document.createElement(&quot;h1&quot;),' +
         '{className:&quot;heroBar-titleText&quot;,textContent:this.alt}))" />'
       : '<h1 class="heroBar-titleText">' + escapeHtml(mediaTitle(item)) + '</h1>';
@@ -881,12 +1066,19 @@
     var overview = item.Overview ? escapeHtml(item.Overview) : '';
 
     return (
-      '<div class="heroBar-slide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '">' +
+      '<div class="heroBar-slide' + (index === 0 ? ' is-active' : '') + '" data-index="' + index + '"' +
+        (eager ? ' data-hb-loaded=""' : '') + '>' +
         // Backdrop + tint live in their own masked layer so the imagery
         // fades into the page background at the top and bottom edges while
         // the text/buttons (siblings, unmasked) stay fully crisp.
         '<div class="heroBar-visual">' +
-          '<div class="heroBar-backdrop" style="background-image:url(&quot;' + backdropUrl + '&quot;)"></div>' +
+          (eager
+            ? '<div class="heroBar-backdrop" style="background-image:' + htmlAttr(backgroundLayers(backdropUrl, placeholder)) + '"></div>'
+            : '<div class="heroBar-backdrop" data-bg="' + htmlAttr(backdropUrl) + '"' +
+              (placeholder
+                ? ' data-ph="' + placeholder + '" style="background-image:' + htmlAttr(backgroundLayers(placeholder)) + '"'
+                : '') +
+              '></div>') +
           '<div class="heroBar-gradient"></div>' +
         '</div>' +
         '<div class="heroBar-content">' +
@@ -943,6 +1135,10 @@
     dots.forEach(function (el, i) {
       el.classList.toggle('is-active', i === index);
     });
+    loadSlideImages(slides[index]);
+    if (slides.length > 1) {
+      preloadSlide(slides[(index + 1) % slides.length]);
+    }
   }
 
   function startRotation(hero, count, seconds) {
@@ -1168,6 +1364,9 @@
           afterHomeRowsSettled(function () {
             if (hero.isConnected) {
               refreshPlayState(hero, items).catch(function () { /* keep what is shown */ });
+              // The second slide is fetched once Jellyfin's own rows have
+              // their images, not alongside them.
+              preloadSlide(hero.querySelectorAll('.heroBar-slide')[1]);
             }
           });
         });

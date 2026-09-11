@@ -377,6 +377,49 @@
         </div>
 
         <div class="verticalSection">
+          <h3>Speed</h3>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableImageTuning" name="NbEnableImageTuning" type="checkbox" is="emby-checkbox" />
+              <span>Round image sizes so rendered images are reused</span>
+            </label>
+            <div class="fieldDescription">
+              Jellyfin renders an image in a new size the first time anyone asks for it &mdash; 0.1 to 0.5
+              seconds per image &mdash; and keeps the result. Apps ask for slightly different sizes on every
+              device and window, so most images were rendered afresh. Sizes are now rounded to a short list,
+              and quality above 90 is lowered to 90, which makes posters about a third smaller with no visible
+              difference. Applies to every app, not only the web client.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableImageWarmup" name="NbEnableImageWarmup" type="checkbox" is="emby-checkbox" />
+              <span>Render images ahead of time</span>
+            </label>
+            <div class="fieldDescription">
+              Adds a <b>Warm image cache</b> task (daily at 03:00 &mdash; change it under Scheduled Tasks) that
+              renders posters, backdrops, logos and cast photos in the sizes your apps actually ask for, so they
+              show instantly the first time. New films and episodes are rendered a couple of minutes after they
+              arrive. The first run on a big library takes a while and uses some space in Jellyfin's cache folder.
+            </div>
+          </div>
+
+          <div class="checkboxContainer checkboxContainer-withDescription">
+            <label>
+              <input id="NbEnableApiCache" name="NbEnableApiCache" type="checkbox" is="emby-checkbox" />
+              <span>Remember "More like this" and collection lists</span>
+            </label>
+            <div class="fieldDescription">
+              Jellyfin 12 takes up to 1.5 seconds to work these out for a details page, every time. Each user's
+              answer is kept for 30 minutes and dropped as soon as they watch or favourite something, or the
+              library changes.
+            </div>
+          </div>
+        </div>
+
+        <div class="verticalSection">
           <h3>Header logo</h3>
 
           <div class="inputContainer">

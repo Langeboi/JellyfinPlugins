@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.5.0.0",
+        "changelog": "Forsiden hentes meget hurtigere.\n\n- Alle otte baggrunde blev hentet på én gang i 1920 gange skærmens pixeltæthed - 2880 px på en almindelig bærbar og 3,5 MB, mens forsiden stadig var ved at indlæse. Nu hentes kun det slide, der vises, og det næste, i en størrelse der passer til skærmen.\n- Logoerne hentes også først, når deres slide er på vej.\n- Indtil baggrunden er hentet, vises en sløret udgave af den.\n- Størrelserne er dem, New Badges 2.8.2.0 laver på forhånd på serveren, så billederne kommer med det samme.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.5.0.0/herobar_2.5.0.0.zip",
+        "checksum": "1ac52f1b086cb67247314490ebd3417b",
+        "timestamp": "2026-09-12T02:00:00Z"
+      },
+      {
         "version": "2.4.5.0",
         "changelog": "Intet blink i topbaren, når du scroller helt op.\n\n- Når siden ramte toppen, skiftede Jellyfin 12 topbarens udseende og fjernede samtidig den markering, der gør den gennemsigtig over banneret. I et splitsekund kom temaets farvede bar frem og forsvandt igen. Markeringen sidder nu et sted, Jellyfin ikke rører, så topbaren forbliver gennemsigtig.\n- Topbaren bliver nu gennemsigtig med det samme i stedet for at tone ud, så temaets farve ikke hænger et øjeblik i toppen, når du hopper helt op.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
         "targetAbi": "12.0.0.0",
@@ -382,6 +390,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.8.2.0",
+        "changelog": "Hurtigere billeder overalt: forsiden, søgningen og detaljesiderne.\n\n- Jellyfin laver et billede i en ny størrelse første gang, nogen beder om den, og det tager 0,1-0,5 sekunder pr. billede. Apps beder om lidt forskellige størrelser på hver enhed og i hvert vindue, så de fleste billeder blev lavet forfra. Størrelserne rundes nu til en kort liste, så et billede lavet til én enhed genbruges af den næste, og kvalitet over 90 sættes ned til 90 - et plakatkort fylder omkring en tredjedel mindre uden synlig forskel. Gælder alle apps.\n- Ny planlagt opgave \"Warm image cache\" (dagligt kl. 03:00) laver plakater, baggrunde, logoer og skuespillerbilleder på forhånd i de størrelser, jeres apps faktisk bruger. Nye film og afsnit klares et par minutter efter, de er kommet ind. Opgaven sætter farten ned, når nogen bruger serveren. Første kørsel på et stort bibliotek tager et par timer.\n- \"Mere som dette\" og samlinger på detaljesider huskes i 30 minutter pr. bruger. Jellyfin 12 bruger op til 1,5 sekund på at regne dem ud hver gang. De glemmes, så snart du ser eller markerer noget som favorit, eller biblioteket ændres.\n- Søgningen henter skuespillere og instruktørens andre film, når du holder pause i skrivningen, i stedet for ved hvert tastetryk. Skuespillerne vises, så snart de er kendt, uden at vente på instruktørens film, billeder længere ude i rækkerne hentes først, når de kommer frem, og søger du på det samme igen, står det der med det samme.\n- Mens plakater og portrætter hentes, vises en sløret udgave af billedet i stedet for en tom grå boks.\n- Det hele kan slås fra under Speed i indstillingerne.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.8.2.0/newbadges_2.8.2.0.zip",
+        "checksum": "a2ad61f39f0df417f8948e062fc9018a",
+        "timestamp": "2026-09-12T02:00:00Z"
+      },
       {
         "version": "2.7.2.0",
         "changelog": "Afsnitsnummeret er tilbage på forsiden på Jellyfin 12.\n\n- Når en serie har fået et nyt afsnit, viser Jellyfin 12 selve afsnittets kort i \"Nyligt tilføjet\" i stedet for seriens kort med antallet af usete afsnit. Det tal var det, New Badges skrev S/E-nummeret ind i, så mærket forsvandt. Afsnitskortene får nu selv et mærke med fx S4E7 samme sted og i samme stil.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",

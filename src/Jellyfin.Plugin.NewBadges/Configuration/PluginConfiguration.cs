@@ -115,6 +115,28 @@ namespace Jellyfin.Plugin.NewBadges.Configuration
         /// </summary>
         public bool EnableDetailsBackdrop { get; set; } = true;
 
+        // ---- Speed ----
+
+        /// <summary>
+        /// Round the image sizes every app asks this server for to a short
+        /// shared list, and lower quality above 90 to 90, so an image rendered
+        /// for one device is reused by the next instead of rendered again.
+        /// See Performance/ImageRequestFilter.cs.
+        /// </summary>
+        public bool EnableImageTuning { get; set; } = true;
+
+        /// <summary>
+        /// Render images ahead of time: nightly for the library, and a couple
+        /// of minutes after new items arrive. See Performance/ImageWarmer.cs.
+        /// </summary>
+        public bool EnableImageWarmup { get; set; } = true;
+
+        /// <summary>
+        /// Keep each user's "More like this" and collection lists for 30
+        /// minutes. See Performance/ApiResultCacheFilter.cs.
+        /// </summary>
+        public bool EnableApiCache { get; set; } = true;
+
         /// <summary>
         /// URL of an image to use instead of the Jellyfin wordmark in the
         /// header. Empty (the default) leaves Jellyfin's own logo alone. Any
