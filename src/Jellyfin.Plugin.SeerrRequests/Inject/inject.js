@@ -830,23 +830,26 @@
       '@keyframes seerrRequests-dotBounce{0%,12%,100%{transform:translateY(0);opacity:.5;}' +
       '6%{transform:translateY(-3px);opacity:1;}}' +
       'a.card{text-decoration:none;color:inherit;display:block;}' +
-      // Jellyfin 12's home switcher pill (see ensureNavPill). The track and
-      // hover wash are mixed from the bar's own text colour, so they read on
-      // a light theme as well as a dark one; the plain rgba line before each
-      // is what a browser without color-mix() keeps. The filled segment takes
-      // 12's primary colour - the one its own buttons use - falling back to
-      // our derived accent.
+      // Jellyfin 12's navigation pill (see ensureNavPill). The hover wash is
+      // mixed from the bar's own text colour, so it reads on a light theme as
+      // well as a dark one; the plain rgba line before a color-mix() is what
+      // an older browser keeps. The filled segment takes 12's primary colour -
+      // the one its own buttons use - falling back to our derived accent.
       '[' + PILL_REPLACED_ATTR + ']{display:none!important;}' +
       // While one of our panels is open, Jellyfin's own tab panels are hidden
       // rather than switched off - see activateInjectedTab.
       '.page.homePage[' + PANEL_ATTR + '] > .tabContent.pageTabContent' +
         ':not(#' + TAB_CONTENT_ID + '):not(#' + CAL_TAB_CONTENT_ID + '){display:none!important;}' +
       // align-self: the bar's stack stretches its children to its own 44px.
+      // No ring: over the hero, a hairline around the pill read as the
+      // outline of a bar left behind. The track is the theme's own page colour
+      // with a blur behind it - dark glass on a dark theme, light on a light
+      // one - so over artwork it reads as part of the bar, and on the solid
+      // bar it all but disappears into it.
       '.seerrNav-pill{display:inline-flex;align-self:center;align-items:center;gap:2px;padding:3px;margin:0 8px;' +
-        'border-radius:999px;background:rgba(255,255,255,.07);' +
-        'background:color-mix(in srgb,currentColor 8%,transparent);' +
-        'box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);' +
-        'box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 10%,transparent);}' +
+        'border-radius:999px;background:rgba(0,0,0,.28);' +
+        'background:color-mix(in srgb,var(--jf-palette-background-default,#101010) 55%,transparent);' +
+        '-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);}' +
       '.seerrNav-seg{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 13px 0 10px;' +
         'border-radius:999px;color:inherit;text-decoration:none;font:inherit;font-size:13px;font-weight:500;' +
         'line-height:1;white-space:nowrap;opacity:.8;cursor:pointer;' +
@@ -860,6 +863,9 @@
       '.seerrNav-seg > .material-icons.seerrRequests-tabIcon{font-size:18px;line-height:1;flex:none;' +
         'font-variation-settings:"FILL" 0;font-feature-settings:"liga";}' +
       '.seerrNav-seg.is-active > .material-icons.seerrRequests-tabIcon{font-variation-settings:"FILL" 1;}' +
+      // A library's own icon, copied from Jellyfin's link (see
+      // createPillSegment); sized here over MUI's own classes on the copy.
+      '.seerrNav-seg > svg{width:18px;height:18px;font-size:18px;fill:currentColor;flex:none;}' +
       // While one of ours is showing, the drawer's own Home or Favourites
       // entry still believes it is current - MUI works that out from the
       // address, which ours never change - so its fill is taken away and
@@ -1151,9 +1157,11 @@
   // filled in. They used to be loose links beside the libraries, where Home
   // had no entry at all and ours were marked only by a change of text colour.
   //
-  // Jellyfin's own Favourites link is hidden in favour of the pill's rather
-  // than moved into it: React owns that element and would put it back, or
-  // lose track of it. The libraries stay where they were, after the pill.
+  // The libraries are in it too, after Favourites in Jellyfin's own order,
+  // with ours last: left outside, the pill read as a bar that stopped halfway.
+  // Jellyfin's own Favourites and library links are hidden in favour of the
+  // pill's copies rather than moved into it: React owns those elements and
+  // would put them back, or lose track of them.
   // The pill is built from scratch, not cloned like the old links were - it
   // takes nothing from MUI's hashed Emotion classes, so there is nothing for
   // a jellyfin-web rebuild to change underneath it.
@@ -1168,6 +1176,7 @@
     // document-order search found the pill's own Favourites segment first and
     // hid that instead, leaving Jellyfin's link showing beside the pill.
     var favourites = nav.stack.querySelector(':scope > a[href="' + FAVOURITES_HREF + '"]');
+    var natives = (favourites ? [favourites] : []).concat(nativeLibraryLinks(nav.stack));
     var pill = nav.stack.querySelector('[' + PILL_ATTR + ']');
 
     if (!cfg.ShowRequestsTab && !cfg.ShowCalendarTab) {
@@ -1175,49 +1184,94 @@
       if (pill) {
         pill.parentNode.removeChild(pill);
       }
-      if (favourites) {
-        favourites.removeAttribute(PILL_REPLACED_ATTR);
+      natives.forEach(function (link) {
+        link.removeAttribute(PILL_REPLACED_ATTR);
+      });
+      return;
+    }
+
+    // Re-applied every tick: React can replace these elements with fresh ones.
+    natives.forEach(function (link) {
+      if (!link.hasAttribute(PILL_REPLACED_ATTR)) {
+        link.setAttribute(PILL_REPLACED_ATTR, 'true');
       }
+    });
+
+    if (!pill) {
+      pill = document.createElement('div');
+      pill.className = 'seerrNav-pill';
+      pill.setAttribute(PILL_ATTR, 'true');
+      pill.setAttribute('role', 'tablist');
+
+      // Jellyfin's own, already translated word for Favourites where it has one.
+      var favouritesLabel = favourites && favourites.textContent.trim()
+        ? favourites.textContent.trim()
+        : t('navFavorites');
+      addPillSegment(pill, 'home', null, t('navHome'), 'home', '#/home', goHomeTab);
+      addPillSegment(pill, 'favorites', null, favouritesLabel, 'favorite', FAVOURITES_HREF, goFavouritesTab);
+      if (cfg.ShowRequestsTab) {
+        addPillSegment(pill, 'requests', BUTTON_MARKER, t('navRequests'), 'add_circle', '#/home', function () {
+          openHomeTab(activateSeerrTab);
+        });
+      }
+      if (cfg.ShowCalendarTab) {
+        addPillSegment(pill, 'calendar', CAL_BUTTON_MARKER, t('navCalendar'), 'event', '#/home', function () {
+          openHomeTab(activateCalendarTab);
+        });
+      }
+
+      // Where Favourites was; straight after the server name on a build without it.
+      var first = nav.stack.querySelector(':scope > a');
+      nav.stack.insertBefore(pill, favourites ? favourites.nextSibling : (first ? first.nextSibling : null));
+    }
+
+    // Every tick, not only on creation: the libraries usually arrive after
+    // the bar has first rendered, and a server's libraries can change.
+    syncPillLibraries(pill, nativeLibraryLinks(nav.stack));
+  }
+
+  // Every other destination Jellyfin puts in the bar - the libraries, and
+  // whatever else a server has there - except the server name (#/) and Home
+  // and Favourites, which the pill has entries of its own for.
+  function nativeLibraryLinks(stack) {
+    return Array.prototype.filter.call(stack.querySelectorAll(':scope > a'), function (link) {
+      var href = link.getAttribute('href') || '';
+      return href && href !== '#/' && href.indexOf('#/home') !== 0 && (link.textContent || '').trim();
+    });
+  }
+
+  function syncPillLibraries(pill, libraries) {
+    var existing = pill.querySelectorAll('[data-seg^="lib:"]');
+    if (!libraries.length && existing.length) {
+      // Most likely React mid-re-render with the links briefly gone - keeping
+      // what is there beats the segments flickering out and back in.
       return;
     }
-
-    // Re-applied every tick: React can replace the element with a fresh one.
-    if (favourites && !favourites.hasAttribute(PILL_REPLACED_ATTR)) {
-      favourites.setAttribute(PILL_REPLACED_ATTR, 'true');
-    }
-    if (pill) {
+    var signature = libraries.map(function (link) {
+      return link.getAttribute('href') + '|' + link.textContent.trim();
+    }).join('\n');
+    if (pill.getAttribute('data-libraries') === signature) {
       return;
     }
+    pill.setAttribute('data-libraries', signature);
 
-    pill = document.createElement('div');
-    pill.className = 'seerrNav-pill';
-    pill.setAttribute(PILL_ATTR, 'true');
-    pill.setAttribute('role', 'tablist');
-
-    // Jellyfin's own, already translated word for Favourites where it has one.
-    var favouritesLabel = favourites && favourites.textContent.trim()
-      ? favourites.textContent.trim()
-      : t('navFavorites');
-    addPillSegment(pill, 'home', null, t('navHome'), 'home', '#/home', goHomeTab);
-    addPillSegment(pill, 'favorites', null, favouritesLabel, 'favorite', FAVOURITES_HREF, goFavouritesTab);
-    if (cfg.ShowRequestsTab) {
-      addPillSegment(pill, 'requests', BUTTON_MARKER, t('navRequests'), 'add_circle', '#/home', function () {
-        openHomeTab(activateSeerrTab);
-      });
-    }
-    if (cfg.ShowCalendarTab) {
-      addPillSegment(pill, 'calendar', CAL_BUTTON_MARKER, t('navCalendar'), 'event', '#/home', function () {
-        openHomeTab(activateCalendarTab);
-      });
-    }
-
-    // Where Favourites was; straight after the server name on a build without it.
-    var first = nav.stack.querySelector('a');
-    nav.stack.insertBefore(pill, favourites ? favourites.nextSibling : (first ? first.nextSibling : null));
+    Array.prototype.forEach.call(existing, function (segment) {
+      pill.removeChild(segment);
+    });
+    // After Favourites, before Request and Calendar.
+    var before = pill.querySelector('[data-seg="requests"], [data-seg="calendar"]');
+    libraries.forEach(function (link) {
+      var href = link.getAttribute('href');
+      pill.insertBefore(createPillSegment('lib:' + href, null, link.textContent.trim(), link.querySelector('svg'), href,
+        function () {
+          location.hash = href;
+        }), before);
+    });
     syncNavPill();
   }
 
-  function addPillSegment(pill, key, marker, label, icon, href, onClick) {
+  // icon: a Material ligature name, or an <svg> to copy.
+  function createPillSegment(key, marker, label, icon, href, onClick) {
     var segment = document.createElement('a');
     segment.className = 'seerrNav-seg';
     segment.setAttribute('href', href);
@@ -1226,21 +1280,40 @@
     segment.setAttribute('data-seg', key);
     if (marker) {
       // The markers the old links carried, so everything that finds our tabs
-      // by them - New Badges' drawer shortcut included - still finds them.
+      // by them still finds them.
       segment.setAttribute(marker, 'true');
     }
-    // The icon as a Material ligature by NAME, for the reason given in
-    // addTabButton: a skin may repoint the icon font.
-    segment.innerHTML =
-      '<span class="material-icons seerrRequests-tabIcon" aria-hidden="true">' + escapeHtml(icon) + '</span>' +
-      '<span class="seerrNav-label">' + escapeHtml(label) + '</span>';
+    if (typeof icon === 'string') {
+      // Our own icons as a Material ligature by NAME, for the reason given in
+      // addTabButton: a skin may repoint the icon font.
+      var glyph = document.createElement('span');
+      glyph.className = 'material-icons seerrRequests-tabIcon';
+      glyph.setAttribute('aria-hidden', 'true');
+      glyph.textContent = icon;
+      segment.appendChild(glyph);
+    } else if (icon) {
+      // A library's icon is copied from Jellyfin's own link, so a music or
+      // books library shows what Jellyfin draws for it - no mapping of ours
+      // to fall out of date.
+      var svg = icon.cloneNode(true);
+      svg.setAttribute('aria-hidden', 'true');
+      segment.appendChild(svg);
+    }
+    var text = document.createElement('span');
+    text.className = 'seerrNav-label';
+    text.textContent = label;
+    segment.appendChild(text);
     // Capture phase: none of these may run the router's own navigation.
     segment.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
       onClick();
     }, true);
-    pill.appendChild(segment);
+    return segment;
+  }
+
+  function addPillSegment(pill, key, marker, label, icon, href, onClick) {
+    pill.appendChild(createPillSegment(key, marker, label, icon, href, onClick));
   }
 
   // Ours are panels of the home page, so from anywhere else home has to be
@@ -1279,13 +1352,32 @@
     syncNavPill();
   }
 
-  // Which of the four is on screen, read from the page itself rather than
+  // Away from home, the library whose pages are showing. Matched on
+  // topParentId, which Jellyfin keeps in the address across a library's own
+  // tabs and sort changes, and on the path for a link that has none.
+  function libraryNavState(hash) {
+    var segments = document.querySelectorAll('[' + PILL_ATTR + '] [data-seg^="lib:"]');
+    var parent = /[?&]topParentId=([^&]+)/.exec(hash);
+    for (var i = 0; i < segments.length; i++) {
+      var href = segments[i].getAttribute('href') || '';
+      var hrefParent = /[?&]topParentId=([^&]+)/.exec(href);
+      var match = parent && hrefParent
+        ? parent[1] === hrefParent[1]
+        : hash.indexOf(href.split('?')[0]) === 0;
+      if (match) {
+        return segments[i].getAttribute('data-seg');
+      }
+    }
+    return null;
+  }
+
+  // Which entry is on screen, read from the page itself rather than
   // remembered from the last click - the old per-link active class was never
   // cleared from MUI links, which is how Request stayed lit after Calendar
-  // was opened. Null anywhere but home: on a library page nothing is filled.
+  // was opened. On any other page it is the library being browsed, if any.
   function currentNavState() {
     if (!isHomeRoute()) {
-      return null;
+      return libraryNavState(location.hash);
     }
     var homePage = getActiveHomePage();
     if (!homePage) {

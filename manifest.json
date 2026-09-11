@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.4.1.0",
+        "changelog": "Ingen streg under den gennemsigtige topbar.\n\n- Skyggen, der holder topbarens knapper læsbare over banneret, sad på selve topbaren og stoppede ved dens underkant, så den tegnede omridset af den gamle topbar. Den ligger nu på banneret og toner blødt ud et godt stykke længere nede.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.4.1.0/herobar_2.4.1.0.zip",
+        "checksum": "abe7864c99ed650224026c276d19c0fc",
+        "timestamp": "2026-09-11T20:30:00Z"
+      },
+      {
         "version": "2.4.0.0",
         "changelog": "Gennemsigtig topbar over banneret på Jellyfin 12.\n\n- Banneret går helt op under topbaren, og topbaren er gennemsigtig, så billedet fylder hele toppen af forsiden.\n- Når du scroller forbi banneret, bliver topbaren almindelig igen.\n- På Favoritter, Tilføj, Kalender og alle andre sider er topbaren som før.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
         "targetAbi": "12.0.0.0",
@@ -358,6 +366,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.7.1.0",
+        "changelog": "Ingen dobbelt \"Anmod om film eller serie\" i sidemenuen på Jellyfin 12.\n\n- Seerr Requests har sin egen Tilføj-knap i sidemenuen lige ovenover, så genvejen fra New Badges var den samme knap to gange. På Jellyfin 12 vises den ikke længere.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0, hvor genvejen stadig findes.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.7.1.0/newbadges_2.7.1.0.zip",
+        "checksum": "0cd3d654d4edf47ec7ed22ed517a9c0d",
+        "timestamp": "2026-09-11T20:30:00Z"
+      },
       {
         "version": "2.7.0.1",
         "changelog": "Forsiden indlæses hurtigere.\n\n- NEW-badges husker datoerne et kvarter, så forsiden ikke slår hver serie op igen, hver gang appen åbnes.\n- Højst tre serieopslag ad gangen, så plakaterne ikke står i kø bag dem.\n- Trending og den samlede Fortsæt-række vises med det samme fra sidste besøg og opdateres i baggrunden - også efter appen har været lukket.\n- Samme række hentes ikke længere to gange på én gang.\n- Om Seerr Requests er installeret, huskes et døgn.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0.",
@@ -673,6 +689,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.7.0.0",
+        "changelog": "Hele topbaren i én knapgruppe på Jellyfin 12.\n\n- Film, Serier og dine andre biblioteker er nu med i knapgruppen, efter Favoritter og før Tilføj og Kalender. Før stod de uden for, så gruppen så ud som en bar, der stoppede halvvejs.\n- Det bibliotek, du er inde i, er fyldt ud i gruppen.\n- Ingen tynd kant rundt om gruppen længere - over banneret lignede den en rest af den gamle topbar. Gruppen har nu en mørk, let sløret baggrund i stedet.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.7.0.0/seerrrequests_2.7.0.0.zip",
+        "checksum": "2aba714def35097ea4f10e3fb0119ec7",
+        "timestamp": "2026-09-11T20:30:00Z"
+      },
       {
         "version": "2.6.0.2",
         "changelog": "Ny topbar på Jellyfin 12.\n\n- Hjem, Favoritter, Tilføj og Kalender er samlet i én knapgruppe, hvor den side, du er på, er fyldt ud. Før var Hjem slet ikke med, og den aktive side blev kun vist med blå tekst.\n- Kortere navne: \"Tilføj\" og \"Kalender\" (på engelsk \"Request\" og \"Calendar\"), så topbaren også er plads til på en bærbar.\n- Tilføj og Kalender virker nu også fra andre sider end forsiden - før skete der ingenting.\n- Rettet: efter at have åbnet Kalender kunne både Tilføj og Kalender stå markeret, og i sidemenuen på mobilen kunne tre punkter være markeret på én gang.\n- Rettet: at skifte fra Tilføj eller Kalender til Hjem eller Favoritter kunne vise to faner oven i hinanden.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",

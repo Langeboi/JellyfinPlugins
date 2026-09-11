@@ -2186,8 +2186,15 @@
       });
   }
 
+  // Not on Jellyfin 12: there Seerr Requests puts its own Request entry in the
+  // drawer, directly above this block, so the shortcut was the same action
+  // twice in a row.
+  function isJellyfin12Shell() {
+    return !!document.querySelector('header.MuiAppBar-root');
+  }
+
   function showSeerrShortcut() {
-    return cfg.EnableSeerrShortcut && seerrInstalled !== false;
+    return cfg.EnableSeerrShortcut && seerrInstalled !== false && !isJellyfin12Shell();
   }
 
   // Where the drawer block goes: the container to look for an existing copy
@@ -2224,7 +2231,10 @@
     if (!cfg.EnableDrawerExtras) {
       return;
     }
-    checkSeerrInstalled();
+    if (!isJellyfin12Shell()) {
+      // Only the shortcut needs to know, and it is not drawn on 12.
+      checkSeerrInstalled();
+    }
     var host = drawerPlusHost();
     if (!host) {
       return;

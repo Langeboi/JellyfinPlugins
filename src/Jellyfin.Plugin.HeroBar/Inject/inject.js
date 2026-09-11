@@ -1229,15 +1229,22 @@
       '-webkit-mask-image:linear-gradient(to bottom,black 0%,black 86%,transparent 100%);' +
       'mask-image:linear-gradient(to bottom,black 0%,black 86%,transparent 100%);}' +
       // The bar itself while it sits over artwork: its theme background, blur
-      // and edge give way to a short scrim that keeps its icons and labels
-      // readable on a bright backdrop. !important because the bar is styled
-      // by MUI's generated classes and, on a skinned server, by the skin too.
+      // and edge all go. !important because the bar is styled by MUI's
+      // generated classes and, on a skinned server, by the skin too.
       'header.MuiAppBar-root{transition:background-color .25s ease;}' +
       'header.MuiAppBar-root.heroBar-barOverHero{background-color:transparent!important;' +
-      'background-image:linear-gradient(to bottom,rgba(var(--hb-scrim-rgb,0,0,0),.6),' +
-      'rgba(var(--hb-scrim-rgb,0,0,0),0))!important;' +
+      'background-image:none!important;' +
       '-webkit-backdrop-filter:none!important;backdrop-filter:none!important;' +
       'box-shadow:none!important;border-bottom-color:transparent!important;}' +
+      // The shade that keeps the bar's icons and labels readable on a bright
+      // backdrop lives on the hero, and eases out well below the bar. It used
+      // to be a scrim on the bar itself, exactly the bar's height - which
+      // stopped at the bar's bottom edge and so drew the outline of the very
+      // bar it was replacing.
+      '.heroBar-underBar .heroBar-gradient::before{content:"";position:absolute;left:0;right:0;top:0;' +
+      'height:calc(var(--hb-bar-h,0px) + 140px);pointer-events:none;background:linear-gradient(to bottom,' +
+      'rgba(var(--hb-scrim-rgb,0,0,0),.5) 0%,rgba(var(--hb-scrim-rgb,0,0,0),.3) 35%,' +
+      'rgba(var(--hb-scrim-rgb,0,0,0),.1) 70%,rgba(var(--hb-scrim-rgb,0,0,0),0) 100%);}' +
       '.heroBar-backdrop{position:absolute;inset:0;background-size:cover;' +
       'background-position:center 20%;}' +
       // The tint is derived from the theme's own background colour at
