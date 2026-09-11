@@ -423,6 +423,14 @@
         "timestamp": "2026-09-10T21:05:00Z"
       },
       {
+        "version": "2.3.1.0",
+        "changelog": "Genvejen \"Tilføj Film/Serie\" er fjernet fra sidemenuen.\n\n- Knappen i sidemenuen er væk, og det samme er indstillingen for den. Anmodninger laves fra Seerr Requests' egne faner på forsiden, som før.\n\nTil Jellyfin 10.11 - bygget fra 2.3.0.0 med kun denne ændring.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.3.1.0/newbadges_2.3.1.0.zip",
+        "checksum": "8145b03a41acc864ba62ec11131536c2",
+        "timestamp": "2026-09-11T21:00:00Z"
+      },
+      {
         "version": "2.3.0.0",
         "changelog": "Genvejen fra \"Nyligt tilføjet\" kender nu forskel på et nyt AFSNIT og en helt ny SERIE. Er der kommet et nyt afsnit til en serie du allerede har, fører kortet direkte til afsnittet. Er hele serien lige tilføjet, fører kortet til seriens side – for så handler kortet om serien, ikke om ét bestemt afsnit. Forskellen måles på hvor lang tid der gik mellem at serien og dens nyeste afsnit blev tilføjet: en nyimporteret serie kommer ind sammen med sine afsnit (minutter), mens en eksisterende serie er uger eller måneder ældre end sit nye afsnit. Målt på det rigtige bibliotek ligger de to grupper på henholdsvis under 4 timer og over 1100 timer, så grænsen på 12 timer rammer midt i et meget stort tomrum.",
         "targetAbi": "10.11.0.0",
