@@ -335,6 +335,62 @@
 
   var ITEM_FIELDS = 'Overview,Genres,ProductionYear,CommunityRating,OfficialRating,BackdropImageTags';
 
+  // ---- Persistent cache ----
+  // sessionStorage died with the tab, so every app launch, new tab or phone
+  // resume fetched again a pool that is deliberately stable for 48 hours -
+  // and did it while Jellyfin's own home rows were loading. Measured on a
+  // real server: 671KB, with the native rows' server time tripling under
+  // that contention. localStorage keeps it across visits; every read and
+  // write is guarded, since storage can be missing or full and caching is
+  // only ever an optimisation.
+  function storeGet(key) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function storeSet(key, value, prunePrefix) {
+    try {
+      if (prunePrefix) {
+        // The keys carry the user, the settings and the rotation window, so
+        // an older one is never read again - drop them rather than let them
+        // pile up in storage.
+        for (var i = localStorage.length - 1; i >= 0; i--) {
+          var k = localStorage.key(i);
+          if (k && k !== key && k.indexOf(prunePrefix) === 0) {
+            localStorage.removeItem(k);
+          }
+        }
+      }
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) { /* unavailable or full - just uncached */ }
+  }
+
+  // Runs work that can wait until Jellyfin's own home rows are on screen.
+  // Requests fired alongside them compete for the browser's six connections
+  // to the server and for the server itself - the native rows were measured
+  // queueing behind plugin requests for up to 0.6s. Waits for the first
+  // native card plus a short grace for the rows still loading, and never
+  // longer than a few seconds in case home has nothing to show.
+  function afterHomeRowsSettled(callback) {
+    var started = Date.now();
+    var firstCardAt = 0;
+    (function check() {
+      var now = Date.now();
+      if (!firstCardAt && document.querySelector('.page.homePage .verticalSection .itemsContainer .card')) {
+        firstCardAt = now;
+      }
+      if ((firstCardAt && now - firstCardAt >= 500) || now - started >= 3000) {
+        callback();
+        return;
+      }
+      setTimeout(check, 100);
+    })();
+  }
+
   function fetchRecentItems(limit) {
     var apiClient = window.ApiClient;
     var userId = apiClient.getCurrentUserId();
@@ -514,12 +570,11 @@
     return { label: t('play'), targetId: item.Id, ticks: 0 };
   }
 
-  // The trending/recently-added pool barely changes minute to minute, so a
-  // sessionStorage cache (10 min TTL, same as New Badges' Trending row) lets
-  // the hero paint instantly when home is revisited after a reload instead
-  // of waiting on three fetch chains. Progress (resume positions / next-up)
-  // is intentionally NOT cached - it changes while you watch, and it's two
-  // cheap requests.
+  // The trending/recently-added pool barely changes minute to minute, so it
+  // is cached (10 min, same as New Badges' Trending row) and a stale copy is
+  // still shown straight away while a fresh one is built in the background.
+  // Progress (resume positions / next-up) is refreshed on every visit, once
+  // home has loaded - see refreshPlayState.
   var POOL_CACHE_TTL_MS = 10 * 60 * 1000;
 
   function slimItem(item) {
@@ -596,10 +651,33 @@
       SortBy: 'SortName',
       SortOrder: 'Ascending',
       Limit: Math.max(cfg.SlideCount, cfg.RandomPoolSize),
-      Fields: ITEM_FIELDS,
-      ImageTypes: 'Backdrop'
+      // The server-side filter is what guarantees a backdrop, exactly as
+      // before. Only the ids are needed to shuffle - the few slides that win
+      // are fetched in full afterwards. Asking for every candidate's
+      // overview, genres and ratings made this 671KB for a 400-item pool.
+      ImageTypes: 'Backdrop',
+      EnableImages: false,
+      EnableUserData: false,
+      EnableTotalRecordCount: false
     })).then(function (result) {
-      return (result.Items || []).filter(hasBackdrop);
+      return (result.Items || []).map(function (item) { return item.Id; });
+    });
+  }
+
+  function fetchItemsByIds(ids) {
+    var apiClient = window.ApiClient;
+    return apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', {
+      Ids: ids.join(','),
+      Fields: ITEM_FIELDS
+    })).then(function (result) {
+      var byId = {};
+      (result.Items || []).forEach(function (item) {
+        byId[item.Id] = item;
+      });
+      // The Ids filter does not return items in the order it was given.
+      return ids
+        .map(function (id) { return byId[id]; })
+        .filter(function (item) { return !!item && hasBackdrop(item); });
     });
   }
 
@@ -609,27 +687,25 @@
     // exactly when it rolls over rather than on a timer of its own.
     var cacheKey = 'herobar-random-' + window.ApiClient.getCurrentUserId() +
       '-' + cfg.SlideCount + '-' + cfg.RandomPoolSize + '-' + windowIndex;
-    try {
-      var raw = sessionStorage.getItem(cacheKey);
-      if (raw) {
-        var cached = JSON.parse(raw);
-        if (cached.items && cached.items.length) {
-          return Promise.resolve(cached.items);
-        }
-      }
-    } catch (e) { /* corrupt/unavailable storage - just fetch */ }
+    var cached = storeGet(cacheKey);
+    if (cached && cached.items && cached.items.length) {
+      return Promise.resolve(cached.items);
+    }
 
-    return fetchRandomCandidates(cfg).then(function (candidates) {
-      if (!candidates.length) {
+    return fetchRandomCandidates(cfg).then(function (candidateIds) {
+      if (!candidateIds.length) {
         return [];
       }
-      var pool = seededShuffle(candidates, windowIndex)
-        .slice(0, cfg.SlideCount)
-        .map(slimItem);
-      try {
-        sessionStorage.setItem(cacheKey, JSON.stringify({ items: pool }));
-      } catch (e) { /* quota - fine, just uncached */ }
-      return pool;
+      // The same list in the same order with the same seed as before, so
+      // the slides everybody sees do not change - only what gets downloaded.
+      var chosen = seededShuffle(candidateIds, windowIndex).slice(0, cfg.SlideCount);
+      return fetchItemsByIds(chosen).then(function (items) {
+        var pool = items.map(slimItem);
+        if (pool.length) {
+          storeSet(cacheKey, { items: pool }, 'herobar-random-');
+        }
+        return pool;
+      });
     });
   }
 
@@ -651,16 +727,21 @@
     // so adjusting one in the dashboard does not keep serving the old pool.
     var cacheKey = 'herobar-pool-' + window.ApiClient.getCurrentUserId() +
       '-' + cfg.SlideCount + '-' + (cfg.IncludeTrending ? 1 : 0) + '-' + cfg.TrendingWindowDays;
-    try {
-      var raw = sessionStorage.getItem(cacheKey);
-      if (raw) {
-        var cached = JSON.parse(raw);
-        if (cached.at && (Date.now() - cached.at) < POOL_CACHE_TTL_MS && cached.items && cached.items.length) {
-          return Promise.resolve(cached.items);
-        }
+    var cached = storeGet(cacheKey);
+    if (cached && cached.items && cached.items.length) {
+      if (!cached.at || Date.now() - cached.at >= POOL_CACHE_TTL_MS) {
+        // Stale: show it now, and build a fresh one for next time once home
+        // has loaded rather than making the hero wait on three request chains.
+        afterHomeRowsSettled(function () {
+          buildTrendingAndRecentPool(cfg, cacheKey).catch(function () {});
+        });
       }
-    } catch (e) { /* corrupt/unavailable storage - just fetch */ }
+      return Promise.resolve(cached.items);
+    }
+    return buildTrendingAndRecentPool(cfg, cacheKey);
+  }
 
+  function buildTrendingAndRecentPool(cfg, cacheKey) {
     var trendingPromise = cfg.IncludeTrending
       ? fetchTrendingItems(cfg.SlideCount, cfg.TrendingWindowDays)
       : Promise.resolve([]);
@@ -682,23 +763,78 @@
         trending.forEach(add);
         recent.forEach(add);
 
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), items: pool }));
-        } catch (e) { /* quota - fine, just uncached */ }
+        storeSet(cacheKey, { at: Date.now(), items: pool }, 'herobar-pool-');
         return pool;
       });
   }
 
+  // Progress as of the last visit, so the play buttons are usually right
+  // from the first paint; refreshPlayState corrects them once home has loaded.
+  function progressCacheKey() {
+    return 'herobar-progress-' + window.ApiClient.getCurrentUserId();
+  }
+
   function buildItemPool(cfg) {
-    return Promise.all([fetchPoolItems(cfg), fetchProgress()])
-      .then(function (results) {
-        var pool = results[0];
-        var progress = results[1];
-        pool.forEach(function (item) {
-          item._playAction = resolvePlayAction(item, progress);
-        });
-        return pool;
+    return fetchPoolItems(cfg).then(function (pool) {
+      var progress = storeGet(progressCacheKey()) || { movies: {}, series: {} };
+      pool.forEach(function (item) {
+        item._playAction = resolvePlayAction(item, progress);
       });
+      return pool;
+    });
+  }
+
+  // The hero no longer waits for Resume and Next Up before it appears. Those
+  // two requests went out before Jellyfin's own home rows and slowed them
+  // down (measured: the native Resume row's server time more than doubled).
+  // They run once home has loaded instead, together with the slides' current
+  // favourite and watched state, which a pool cached for 48 hours can no
+  // longer be trusted to carry.
+  function refreshPlayState(hero, items) {
+    var apiClient = window.ApiClient;
+    var userDataPromise = apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items', {
+      Ids: items.map(function (item) { return item.Id; }).join(','),
+      EnableImages: false,
+      EnableTotalRecordCount: false
+    })).catch(function () { return {}; });
+
+    return Promise.all([fetchProgress(), userDataPromise]).then(function (results) {
+      var progress = results[0];
+      storeSet(progressCacheKey(), progress);
+      var userDataById = {};
+      (results[1].Items || []).forEach(function (item) {
+        if (item.UserData) {
+          userDataById[item.Id] = item.UserData;
+        }
+      });
+
+      items.forEach(function (item) {
+        var userData = userDataById[item.Id];
+        if (userData) {
+          item.UserData = { IsFavorite: userData.IsFavorite, PlaybackPositionTicks: userData.PlaybackPositionTicks };
+        }
+
+        // A button mid-click (disabled) is left alone - it is already acting
+        // on what it showed.
+        var play = resolvePlayAction(item, progress);
+        var playBtn = hero.querySelector('.heroBar-btn-play[data-item-id="' + item.Id + '"]');
+        if (playBtn && !playBtn.disabled) {
+          playBtn.setAttribute('data-play-id', play.targetId);
+          playBtn.setAttribute('data-play-ticks', play.ticks);
+          playBtn.innerHTML = '<span class="material-icons play_arrow" aria-hidden="true"></span> ' +
+            escapeHtml(play.label);
+        }
+
+        var favBtn = hero.querySelector('.heroBar-btn-fav[data-item-id="' + item.Id + '"]');
+        if (favBtn && userData && !favBtn.disabled) {
+          favBtn.setAttribute('data-is-fav', userData.IsFavorite ? 'true' : 'false');
+          var icon = favBtn.querySelector('.material-icons');
+          if (icon) {
+            icon.className = 'material-icons ' + (userData.IsFavorite ? 'favorite' : 'favorite_border');
+          }
+        }
+      });
+    });
   }
 
   // ---- Slide rendering ----
@@ -1029,6 +1165,11 @@
           homeTab.insertBefore(hero, homeTab.firstChild);
           wireHeroInteractions(hero);
           startRotation(hero, items.length, cfg.RotationSeconds);
+          afterHomeRowsSettled(function () {
+            if (hero.isConnected) {
+              refreshPlayState(hero, items).catch(function () { /* keep what is shown */ });
+            }
+          });
         });
       })
       .catch(function () {

@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.3.0.0",
+        "changelog": "Forsiden indlæses hurtigere.\n\n- Banneret husker sine slides mellem besøg - de skifter alligevel kun hver 48. time - så det vises med det samme, når du åbner appen. Før blev 400 titler hentet igen ved hvert besøg, mens Jellyfins egne rækker ventede.\n- Når der skal vælges nye slides, hentes kun id'erne på de 400 kandidater og derefter de 8 valgte, i stedet for alle detaljer om alle 400.\n- Afspil/Fortsæt og favorit-hjertet opdateres, når Jellyfins egne rækker er indlæst, så banneret ikke sinker dem.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.3.0.0/herobar_2.3.0.0.zip",
+        "checksum": "16c408f6dc5e6e22f23e76da16170836",
+        "timestamp": "2026-09-11T16:00:00Z"
+      },
+      {
         "version": "2.2.0.0",
         "changelog": "Indstillingssiden er tegnet om, så den ser ud som resten af Jellyfin 12.\n\nJellyfin 12 har lavet sine egne indstillingssider om: felterne er nu fyldte bokse med en lille etiket øverst i selve feltet, i stedet for en label ovenover. Denne side fulgte stadig den gamle stil og stak derfor ud fra alt andet i dashboardet.\n\nFelter, afkrydsningsfelter, overskrifter og Gem-knappen matcher nu Jellyfin 12's egne — samme højde, samme afrunding, samme farver. Farverne hentes fra Jellyfin 12's eget tema, så siden også følger med hvis du skifter tema.\n\nKun udseende. Der er ikke ændret noget i hvad siden gør, eller i indstillingerne selv. På Jellyfin 10.11 ser siden ud præcis som før — den nye stil slås kun til, hvis serveren rent faktisk er 12.",
         "targetAbi": "12.0.0.0",
@@ -342,6 +350,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.7.0.1",
+        "changelog": "Forsiden indlæses hurtigere.\n\n- NEW-badges husker datoerne et kvarter, så forsiden ikke slår hver serie op igen, hver gang appen åbnes.\n- Højst tre serieopslag ad gangen, så plakaterne ikke står i kø bag dem.\n- Trending og den samlede Fortsæt-række vises med det samme fra sidste besøg og opdateres i baggrunden - også efter appen har været lukket.\n- Samme række hentes ikke længere to gange på én gang.\n- Om Seerr Requests er installeret, huskes et døgn.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.7.0.1/newbadges_2.7.0.1.zip",
+        "checksum": "07308430b50c359c7bb5d72b417a2d85",
+        "timestamp": "2026-09-11T16:00:00Z"
+      },
       {
         "version": "2.6.2.0",
         "changelog": "Sidemenuen bliver nu lukket, når du bruger den på Jellyfin 12 - også efter genvejen til anmodninger, \"Overrask mig\" og Fortsæt med at se.\n\n2.6.1.0 fik det ikke helt løst. Jellyfin 12 lukker selv sidemenuen, så snart du trykker på noget i den, og menuens baggrund virker som en kontakt: lukkes den en gang til, åbner den igen. Når New Badges eller Seerr Requests bagefter også lukkede menuen, sprang den derfor op igen. Nu lukker New Badges kun menuen, hvis den stadig er helt fremme, og genvejen til anmodninger holder Seerr Requests' ekstra lukning væk.\n\nGenvejene i menuen har nu præcis samme skrift og placering som Jellyfins egne punkter.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0, som virker uændret.",
@@ -649,6 +665,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.5.0.0",
+        "changelog": "Forsiden indlæses hurtigere.\n\n- Kalenderens hukommelse - alle de titler, den har set - ligger nu i sin egen fil på serveren i stedet for i plugin-indstillingerne. Indstillingerne hentes af alle browsere ved hver sideindlæsning og var vokset til over 100 KB; nu er de få KB. Flytningen sker af sig selv, når serveren starter.\n- Scriptet caches af browseren og hentes kun igen, når plugin'et er opdateret.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.5.0.0/seerrrequests_2.5.0.0.zip",
+        "checksum": "422adb9ad5c191a97ad49666f5d86cc6",
+        "timestamp": "2026-09-11T16:00:00Z"
+      },
       {
         "version": "2.4.2.0",
         "changelog": "Udgivelseskalenderen viser ikke længere gamle film som Point Break og The Godfather.\n\nTMDB registrerer hver gang en film bliver vist på tv eller lagt på en streamingtjeneste - i alle lande. Kalenderen tog den første dato den fandt, så en fransk tv-visning af Point Break fra 1991 dukkede op som en kommende udgivelse. Nu gælder:\n\n- Film der allerede ligger i biblioteket, vises ikke i kalenderen.\n- Kalenderen bruger den tidligste streamingdato, ikke den første der står på listen.\n- En dato mere end to år efter filmens premiere er en genudgivelse og vises ikke.\n\nTil Jellyfin 12.",

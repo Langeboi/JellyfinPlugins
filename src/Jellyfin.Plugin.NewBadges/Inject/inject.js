@@ -410,6 +410,83 @@
   var pendingBackdropIds = new Set();
   var debounceTimer = null;
 
+  // The caches above lived only as long as the page, so every app launch
+  // looked up every Recently Added card again - one request per series, 23
+  // of them on a real home page, landing while its posters were loading.
+  // Kept across visits for a short while instead: a NEW badge is about days,
+  // so a date looked up a few minutes ago is still the right answer.
+  var DATE_CACHE_KEY = 'newBadges-dates-v1';
+  var DATE_CACHE_TTL_MS = 15 * 60 * 1000;
+  var DATE_CACHE_MAX_ENTRIES = 600;
+  var persistedDatesLoaded = false;
+
+  function loadPersistedDates() {
+    var stored;
+    try {
+      stored = JSON.parse(localStorage.getItem(DATE_CACHE_KEY) || 'null');
+    } catch (e) {
+      return;
+    }
+    if (!stored || !stored.entries || !window.ApiClient ||
+        stored.user !== window.ApiClient.getCurrentUserId()) {
+      return;
+    }
+    var now = Date.now();
+    Object.keys(stored.entries).forEach(function (id) {
+      var entry = stored.entries[id];
+      if (!entry || now - entry.t >= DATE_CACHE_TTL_MS ||
+          Object.prototype.hasOwnProperty.call(dateCache, id)) {
+        return;
+      }
+      dateCache[id] = entry.d;
+      if (entry.s) {
+        ongoingCache[id] = !!entry.o;
+        seriesAddedCache[id] = entry.a;
+        if (entry.l) {
+          episodeLabelCache[id] = entry.l;
+        }
+        if (entry.e) {
+          latestEpisodeIdCache[id] = entry.e;
+        }
+      }
+    });
+  }
+
+  function persistDates(entries, dateMap) {
+    try {
+      var userId = window.ApiClient.getCurrentUserId();
+      var stored = JSON.parse(localStorage.getItem(DATE_CACHE_KEY) || 'null');
+      if (!stored || stored.user !== userId || !stored.entries) {
+        stored = { user: userId, entries: {} };
+      }
+      var now = Date.now();
+      entries.forEach(function (entry) {
+        stored.entries[entry.id] = entry.type === 'Series'
+          ? {
+            t: now,
+            d: dateMap[entry.id] || null,
+            s: 1,
+            o: ongoingCache[entry.id] ? 1 : 0,
+            a: seriesAddedCache[entry.id] || null,
+            l: episodeLabelCache[entry.id] || null,
+            e: latestEpisodeIdCache[entry.id] || null
+          }
+          : { t: now, d: dateMap[entry.id] || null };
+      });
+      // Only fresh entries, newest first, and never more than the cap.
+      var ids = Object.keys(stored.entries).filter(function (id) {
+        return now - stored.entries[id].t < DATE_CACHE_TTL_MS;
+      });
+      ids.sort(function (a, b) { return stored.entries[b].t - stored.entries[a].t; });
+      var kept = {};
+      ids.slice(0, DATE_CACHE_MAX_ENTRIES).forEach(function (id) {
+        kept[id] = stored.entries[id];
+      });
+      stored.entries = kept;
+      localStorage.setItem(DATE_CACHE_KEY, JSON.stringify(stored));
+    } catch (e) { /* unavailable or full - just uncached */ }
+  }
+
   // Recently Added rows are the only home-page .verticalSection elements
   // without a positional sectionN class (every other row - My Media,
   // Continue Watching, Next Up, etc. - always gets one). On desktop this
@@ -801,6 +878,30 @@
     });
   }
 
+  // At most this many latest-episode lookups at a time. The browser opens only
+  // six connections to the server, and 23 of these fired together left the
+  // home page's posters queueing behind them.
+  var LATEST_EPISODE_CONCURRENCY = 3;
+  var latestEpisodeActive = 0;
+  var latestEpisodeQueue = [];
+
+  function limitedLatestEpisodeInfo(seriesId) {
+    return new Promise(function (resolve, reject) {
+      latestEpisodeQueue.push(function () {
+        latestEpisodeActive++;
+        fetchLatestEpisodeInfo(seriesId).then(resolve, reject).then(function () {
+          latestEpisodeActive--;
+          if (latestEpisodeQueue.length) {
+            latestEpisodeQueue.shift()();
+          }
+        });
+      });
+      if (latestEpisodeActive < LATEST_EPISODE_CONCURRENCY) {
+        latestEpisodeQueue.shift()();
+      }
+    });
+  }
+
   function fetchDates(entries) {
     var apiClient = window.ApiClient;
     if (!apiClient) {
@@ -815,6 +916,8 @@
 
     var map = {};
     var promises = [];
+    // Lookups that failed are not remembered across visits - see persistDates.
+    var failed = {};
 
     if (directIds.length > 0) {
       var userId = apiClient.getCurrentUserId();
@@ -854,6 +957,7 @@
         });
       }).catch(function () {
         seriesIds.forEach(function (id) {
+          failed[id] = true;
           if (ongoingCache[id] === undefined) {
             ongoingCache[id] = false;
           }
@@ -863,7 +967,7 @@
 
     seriesIds.forEach(function (seriesId) {
       promises.push(
-        fetchLatestEpisodeInfo(seriesId)
+        limitedLatestEpisodeInfo(seriesId)
           .then(function (info) {
             map[seriesId] = info.date;
             if (info.label) {
@@ -873,14 +977,28 @@
               latestEpisodeIdCache[seriesId] = info.id;
             }
           })
-          .catch(function () { map[seriesId] = null; })
+          .catch(function () {
+            map[seriesId] = null;
+            failed[seriesId] = true;
+          })
       );
     });
 
-    return Promise.all(promises).then(function () { return map; });
+    return Promise.all(promises).then(function () {
+      persistDates(entries.filter(function (entry) { return !failed[entry.id]; }), map);
+      return map;
+    });
   }
 
   function scan() {
+    // Read back on the first scan that knows who is signed in, not at start:
+    // at start Jellyfin has not always restored the session yet, so the
+    // stored dates looked like another user's and were fetched all over
+    // again - measured on the test server, every lookup repeated on reload.
+    if (!persistedDatesLoaded && window.ApiClient && window.ApiClient.getCurrentUserId()) {
+      persistedDatesLoaded = true;
+      loadPersistedDates();
+    }
     var sections = document.querySelectorAll('.verticalSection');
     var entriesToFetch = [];
     var cardsById = {};
@@ -1158,16 +1276,24 @@
   // Trending and the merged Continue Watching row both cost several
   // sequential API round-trips (SQL aggregation, batch lookups, per-series
   // date checks) that native rows don't pay, which made them visibly slower
-  // to appear than everything else on the home page. Cache each result in
-  // sessionStorage - stale-while-revalidate, so a home revisit (even across a
-  // full page reload, since sessionStorage outlives SPA navigation) paints
-  // instantly from the last-known data while a background refresh keeps it
-  // current for next time.
+  // to appear than everything else on the home page. Each result is cached
+  // stale-while-revalidate: home paints straight from the last-known data
+  // while a refresh runs in the background.
+  //
+  // In localStorage, not sessionStorage: sessionStorage dies with the tab, so
+  // every app launch and new tab paid the full cost again - measured on a
+  // real server, part of ~40 plugin requests landing while posters loaded.
+  // Because a copy can now be hours old, a refresh that comes back different
+  // is handed to onFresh, so a row painted from it (a show since finished on
+  // another device) is corrected on screen and not only for next time.
   var CACHE_PREFIX = 'newBadges-cache-';
+  // Older than this, a cached copy is not shown at all - it is fetched fresh.
+  var CACHE_MAX_STALE_MS = 24 * 60 * 60 * 1000;
+  var inflightFetches = {};
 
   function getCacheEntry(key) {
     try {
-      var raw = sessionStorage.getItem(CACHE_PREFIX + key);
+      var raw = localStorage.getItem(CACHE_PREFIX + key);
       return raw ? JSON.parse(raw) : null;
     } catch (e) {
       return null;
@@ -1176,25 +1302,44 @@
 
   function setCacheEntry(key, data) {
     try {
-      sessionStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data: data, timestamp: Date.now() }));
+      localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({ data: data, timestamp: Date.now() }));
     } catch (e) {
-      // sessionStorage can be unavailable (private browsing, quota) - caching
-      // is a pure optimization, so just skip it rather than fail the fetch.
+      // Storage can be unavailable (private browsing, quota) - caching is a
+      // pure optimization, so just skip it rather than fail the fetch.
     }
   }
 
-  function fetchWithCache(key, ttlMs, fetchFn) {
+  // One request per key at a time. Jellyfin re-renders home while our rows
+  // are still loading, and each re-render started the same fetch again -
+  // measured: Resume and Next Up both requested twice within a millisecond.
+  function fetchOnce(key, fetchFn) {
+    if (!inflightFetches[key]) {
+      inflightFetches[key] = fetchFn().then(function (data) {
+        delete inflightFetches[key];
+        setCacheEntry(key, data);
+        return data;
+      }, function (err) {
+        delete inflightFetches[key];
+        throw err;
+      });
+    }
+    return inflightFetches[key];
+  }
+
+  function fetchWithCache(key, ttlMs, fetchFn, onFresh) {
     var cached = getCacheEntry(key);
-    if (cached) {
+    if (cached && Date.now() - cached.timestamp < CACHE_MAX_STALE_MS) {
       if (Date.now() - cached.timestamp >= ttlMs) {
-        fetchFn().then(function (data) { setCacheEntry(key, data); }).catch(function () {});
+        var shown = JSON.stringify(cached.data);
+        fetchOnce(key, fetchFn).then(function (data) {
+          if (onFresh && JSON.stringify(data) !== shown) {
+            onFresh(data);
+          }
+        }).catch(function () {});
       }
       return Promise.resolve(cached.data);
     }
-    return fetchFn().then(function (data) {
-      setCacheEntry(key, data);
-      return data;
-    });
+    return fetchOnce(key, fetchFn);
   }
 
   function fetchTrendingItems() {
@@ -1406,27 +1551,43 @@
     // The window length is part of the key so changing it in settings does
     // not keep serving a cached ranking from the old window.
     var cacheKey = 'trending-' + window.ApiClient.getCurrentUserId() + '-' + cfg.TrendingWindowDays;
-    fetchWithCache(cacheKey, TRENDING_CACHE_TTL_MS, fetchTrendingItems)
+    function giveUp() {
+      // Not enough data - remove our placeholder, restore Next Up, and mark
+      // it so the scan loop doesn't retry until home re-renders.
+      section.remove();
+      nextUpSection.setAttribute(TRENDING_FAILED_ATTR, 'true');
+      nextUpSection.style.display = '';
+    }
+
+    function paint(items) {
+      // A cache hit skips fetchTrendingItems' own fetchDates() call, so
+      // dateCache needs hydrating from the date each item carried with it.
+      items.forEach(function (item) {
+        if (item._dateForBadge !== undefined) {
+          dateCache[item.Id] = item._dateForBadge;
+        }
+      });
+      section.querySelector('.itemsContainer').innerHTML = items
+        .map(function (item, index) { return buildTrendingCardHtml(item, index + 1); })
+        .join('');
+    }
+
+    fetchWithCache(cacheKey, TRENDING_CACHE_TTL_MS, fetchTrendingItems, function (fresh) {
+      if (!section.isConnected) {
+        return;
+      }
+      if (fresh.length) {
+        paint(fresh);
+      } else {
+        giveUp();
+      }
+    })
       .then(function (items) {
         if (items.length === 0) {
-          // Not enough data yet - remove our placeholder, restore Next Up,
-          // and mark it so the scan loop doesn't retry until home re-renders.
-          section.remove();
-          nextUpSection.setAttribute(TRENDING_FAILED_ATTR, 'true');
-          nextUpSection.style.display = '';
+          giveUp();
           return;
         }
-        // A cache hit skips fetchTrendingItems' own fetchDates() call, so
-        // dateCache needs hydrating from the date each item carried with it.
-        items.forEach(function (item) {
-          if (item._dateForBadge !== undefined) {
-            dateCache[item.Id] = item._dateForBadge;
-          }
-        });
-        var itemsContainer = section.querySelector('.itemsContainer');
-        itemsContainer.innerHTML = items
-          .map(function (item, index) { return buildTrendingCardHtml(item, index + 1); })
-          .join('');
+        paint(items);
       })
       .catch(function () {
         section.remove();
@@ -1668,16 +1829,34 @@
     cwSection.parentNode.insertBefore(section, cwSection.nextSibling);
 
     var cacheKey = 'continue-' + window.ApiClient.getCurrentUserId();
-    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems)
+    function giveUp() {
+      section.remove();
+      cwSection.setAttribute(CONTINUE_FAILED_ATTR, 'true');
+      cwSection.style.display = '';
+    }
+
+    function paint(items) {
+      section.querySelector('.itemsContainer').innerHTML = items.map(buildContinueCardHtml).join('');
+    }
+
+    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems, function (fresh) {
+      // Painted from an older copy - something may have been finished or
+      // started elsewhere since. Show what the server says now.
+      if (!section.isConnected) {
+        return;
+      }
+      if (fresh.length) {
+        paint(fresh);
+      } else {
+        giveUp();
+      }
+    })
       .then(function (items) {
         if (items.length === 0) {
-          section.remove();
-          cwSection.setAttribute(CONTINUE_FAILED_ATTR, 'true');
-          cwSection.style.display = '';
+          giveUp();
           return;
         }
-        var itemsContainer = section.querySelector('.itemsContainer');
-        itemsContainer.innerHTML = items.map(buildContinueCardHtml).join('');
+        paint(items);
       })
       .catch(function () {
         section.remove();
@@ -1828,12 +2007,21 @@
     var wrap = block.querySelector('.newBadges-drawerResume');
     var header = block.querySelector('.newBadges-drawerResumeHeader');
     var cacheKey = 'continue-' + window.ApiClient.getCurrentUserId();
-    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems)
-      .then(function (items) {
-        items = (items || []).slice(0, DRAWER_RESUME_COUNT);
-        wrap.innerHTML = items.map(buildDrawerResumeRowHtml).join('');
-        header.style.display = items.length ? '' : 'none';
-      })
+
+    function paint(items) {
+      items = (items || []).slice(0, DRAWER_RESUME_COUNT);
+      wrap.innerHTML = items.map(buildDrawerResumeRowHtml).join('');
+      header.style.display = items.length ? '' : 'none';
+    }
+
+    // The copy served first can be hours old now that it outlives the tab, so
+    // a newer answer replaces it while the drawer is still open.
+    fetchWithCache(cacheKey, CONTINUE_CACHE_TTL_MS, fetchMergedContinueItems, function (fresh) {
+      if (block.isConnected) {
+        paint(fresh);
+      }
+    })
+      .then(paint)
       .catch(function () {
         header.style.display = 'none';
         wrap.innerHTML = '';
@@ -1954,10 +2142,29 @@
   var seerrInstalled = null;
   var seerrCheckPending = false;
 
+  // Remembered across visits: the full plugin list was fetched on every app
+  // launch to answer a question that only changes when an admin installs or
+  // removes a plugin.
+  var SEERR_CHECK_KEY = 'newBadges-seerrInstalled';
+  var SEERR_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function rememberSeerrInstalled() {
+    try {
+      localStorage.setItem(SEERR_CHECK_KEY, JSON.stringify({ t: Date.now(), v: seerrInstalled }));
+    } catch (e) { /* just uncached */ }
+  }
+
   function checkSeerrInstalled() {
     if (seerrInstalled !== null || seerrCheckPending || !window.ApiClient) {
       return;
     }
+    try {
+      var remembered = JSON.parse(localStorage.getItem(SEERR_CHECK_KEY) || 'null');
+      if (remembered && Date.now() - remembered.t < SEERR_CHECK_TTL_MS) {
+        seerrInstalled = !!remembered.v;
+        return;
+      }
+    } catch (e) { /* just ask */ }
     seerrCheckPending = true;
     window.ApiClient.getJSON(window.ApiClient.getUrl('Plugins'))
       .then(function (plugins) {
@@ -1965,12 +2172,14 @@
           return String(p.Id).replace(/-/g, '').toLowerCase() ===
             SEERR_PLUGIN_ID.replace(/-/g, '').toLowerCase();
         });
+        rememberSeerrInstalled();
       })
       .catch(function () {
         // Non-admin users cannot list plugins. Falling back to "yes" keeps
         // the shortcut working for them; it degrades to landing on the home
         // page if the plugin genuinely is not there.
         seerrInstalled = true;
+        rememberSeerrInstalled();
       })
       .then(function () {
         seerrCheckPending = false;
@@ -2024,7 +2233,7 @@
     var existing = scroll.querySelector('.newBadges-drawerPlus');
     if (existing) {
       // Refresh the resume list at most once per cache TTL - cheap because
-      // fetchWithCache serves from sessionStorage inside the window.
+      // fetchWithCache serves from its cache inside the window.
       if (!existing._lastRefresh || Date.now() - existing._lastRefresh > CONTINUE_CACHE_TTL_MS) {
         existing._lastRefresh = Date.now();
         refreshDrawerResume(existing);

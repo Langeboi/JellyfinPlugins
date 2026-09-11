@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.SeerrRequests.Helpers;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -272,46 +273,22 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             ReleaseCache.Clear();
         }
 
-        // ---- Durable "ever requested" memory (see PluginConfiguration.KnownCalendarTitlesJson) ----
+        // ---- Durable "ever requested" memory (see Helpers.KnownTitlesStore) ----
         private static List<(string MediaType, int TmdbId)> LoadKnownCalendarTitles()
         {
-            var json = Plugin.Instance!.Configuration.KnownCalendarTitlesJson;
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return new List<(string, int)>();
-            }
-
             try
             {
-                return JArray.Parse(json)
+                return KnownTitlesStore.Read()
                     .Select(t => (MediaType: t["mediaType"]?.ToString(), TmdbId: t["tmdbId"]?.Value<int?>()))
                     .Where(t => (t.MediaType == "movie" || t.MediaType == "tv") && t.TmdbId.HasValue)
                     .Select(t => (t.MediaType!, t.TmdbId!.Value))
                     .ToList();
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException || ex is IOException || ex is UnauthorizedAccessException)
             {
-                // Corrupt/hand-edited config value - treat as empty rather
-                // than fail the whole calendar over it.
+                // Corrupt, hand-edited or unreadable memory - treat as empty
+                // rather than fail the whole calendar over it.
                 return new List<(string, int)>();
-            }
-        }
-
-        private static JArray LoadKnownCalendarTitlesRaw()
-        {
-            var json = Plugin.Instance!.Configuration.KnownCalendarTitlesJson;
-            if (string.IsNullOrWhiteSpace(json))
-            {
-                return new JArray();
-            }
-
-            try
-            {
-                return JArray.Parse(json);
-            }
-            catch (JsonException)
-            {
-                return new JArray();
             }
         }
 
@@ -324,15 +301,24 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         // a no-op once a title is already known, so this can be called freely.
         private static void RememberCalendarTitle(string mediaType, int tmdbId, string? title)
         {
-            var arr = LoadKnownCalendarTitlesRaw();
-            if (arr.Any(t => MatchesTitle(t, mediaType, tmdbId)))
+            try
             {
-                return;
-            }
+                KnownTitlesStore.Update(titles =>
+                {
+                    if (titles.Any(t => MatchesTitle(t, mediaType, tmdbId)))
+                    {
+                        return false;
+                    }
 
-            arr.Add(new JObject { ["mediaType"] = mediaType, ["tmdbId"] = tmdbId, ["title"] = title });
-            Plugin.Instance!.Configuration.KnownCalendarTitlesJson = arr.ToString(Formatting.None);
-            Plugin.Instance!.SaveConfiguration();
+                    titles.Add(new JObject { ["mediaType"] = mediaType, ["tmdbId"] = tmdbId, ["title"] = title });
+                    return true;
+                });
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Best effort: the title is still on this calendar, it just is
+                // not guaranteed to be checked again once Seerr forgets it.
+            }
         }
 
         // Explicit opt-out: the household said "no" via the plugin's own
@@ -341,16 +327,17 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
         // request list) does NOT forget it - only this does.
         private static void ForgetCalendarTitle(string mediaType, int tmdbId)
         {
-            var arr = LoadKnownCalendarTitlesRaw();
-            var match = arr.FirstOrDefault(t => MatchesTitle(t, mediaType, tmdbId));
-            if (match == null)
+            KnownTitlesStore.Update(titles =>
             {
-                return;
-            }
+                var match = titles.FirstOrDefault(t => MatchesTitle(t, mediaType, tmdbId));
+                if (match == null)
+                {
+                    return false;
+                }
 
-            arr.Remove(match);
-            Plugin.Instance!.Configuration.KnownCalendarTitlesJson = arr.ToString(Formatting.None);
-            Plugin.Instance!.SaveConfiguration();
+                titles.Remove(match);
+                return true;
+            });
         }
 
         // Confirmed live against Seerr's actual /api/v1/media response:

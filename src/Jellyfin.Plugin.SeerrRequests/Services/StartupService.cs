@@ -50,6 +50,18 @@ namespace Jellyfin.Plugin.SeerrRequests.Services
                 _logger.LogError(ex, "SeerrRequests: failed to register file transformation");
             }
 
+            try
+            {
+                // Out of the configuration right away, so browsers stop
+                // downloading the calendar's title memory on the very next page
+                // load rather than after the first calendar rebuild.
+                KnownTitlesStore.MigrateFromConfiguration();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "SeerrRequests: could not move the calendar title memory out of the configuration");
+            }
+
             _ = WarmCalendarCacheLoopAsync(_stopping.Token);
 
             return Task.CompletedTask;
