@@ -1308,10 +1308,19 @@
       '.heroBar-overview{-webkit-line-clamp:2;}' +
       // Button shape deliberately NOT overridden here - identical at all
       // widths (min-height/padding live in the base .heroBar-btn rule).
-      '.heroBar-dots{bottom:.8em;right:1em;gap:.55em;}' +
-      // Bigger touch targets for the dots without growing the visual dot -
-      // padding + background-clip keeps the painted circle small.
-      '.heroBar-dot{width:16px;height:16px;padding:4px;background-clip:content-box;}' +
+      // Smaller on phones and tablets. Eight 8px dots, each padded out to a
+      // 16px target with a 8px gap, came to a 183px row over the artwork -
+      // half a phone's width. 5px dots in 13px targets with a 4px gap keep it
+      // to about 130px; on touch the hero is mostly swiped through anyway.
+      '.heroBar-dots{bottom:.8em;right:1em;gap:4px;}' +
+      // padding + background-clip keeps the painted circle small inside the
+      // larger touch target.
+      '.heroBar-dot{width:13px;height:13px;padding:4px;background-clip:content-box;}' +
+      // background-clip again for the active dot: the base active rule sets
+      // its colour with the background shorthand, which resets the clip, so
+      // the whole touch target was painted - measured on a phone, the active
+      // dot came out at about 18px beside 5px ones.
+      '.heroBar-dot.is-active{transform:scale(1.35);background-clip:content-box;}' +
       '}' +
       // Phone-sized: shorter banner (portrait screens + landscape backdrops
       // crop badly when tall), tighter text, no logo overflow.
