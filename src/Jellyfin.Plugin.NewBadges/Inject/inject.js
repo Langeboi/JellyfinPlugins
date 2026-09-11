@@ -551,6 +551,16 @@
       'border-bottom:1px solid var(--jf-palette-divider,rgba(255,255,255,.12));}' +
       '.MuiDrawer-paper .newBadges-drawerResumeHeader{margin:0;padding:0;font-size:12.6px;font-weight:500;' +
       'line-height:48px;color:var(--jf-palette-text-secondary,rgba(255,255,255,.7));}' +
+      // The action rows are <button>s, and buttons do not inherit the page
+      // font - so beside the drawer's own items they rendered in Arial, 13px,
+      // bold. Measured against those items: Noto Sans 14.4px/400 on a 47px
+      // row, glyph at 20px and label at 56px from the drawer edge. The 4px
+      // left padding plus the block's 16px puts our glyph at 20px, and a
+      // 24px glyph with a 12px gap puts the label at 56px.
+      '.MuiDrawer-paper .newBadges-drawerAction,.MuiDrawer-paper .newBadges-drawerResumeItem{' +
+      'font-family:inherit;font-size:14.4px;font-weight:400;}' +
+      '.MuiDrawer-paper .newBadges-drawerAction{min-height:47px;gap:12px;padding:0 4px;}' +
+      '.MuiDrawer-paper .newBadges-drawerAction .material-icons{font-size:24px;width:24px;opacity:1;}' +
       '.newBadges-drawerSearchWrap{display:flex;align-items:center;gap:.5em;' +
       'background:rgba(var(--nb-fg-rgb),.08);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
       '.newBadges-drawerSearchWrap .material-icons{font-size:18px;opacity:.6;}' +
@@ -1752,12 +1762,23 @@
       });
   }
 
+  var lastMuiDrawerCloseAt = 0;
+
   function closeDrawer() {
     // Jellyfin 12's drawer is a MUI modal, closed by its backdrop. Checked
     // first because 12 still mounts the legacy .mainDrawer, just never paints
     // it - clicking that one's scrim would do nothing at all.
     var muiBackdrop = document.querySelector('.MuiDrawer-root:not(.MuiModal-hidden) .MuiBackdrop-root');
     if (muiBackdrop) {
+      // A second backdrop click while the drawer is still animating shut can
+      // send it straight back open - measured live, the drawer slid most of
+      // the way out and returned. The modal only gains MuiModal-hidden once
+      // that animation has finished, so the selector above cannot tell a
+      // closing drawer from an open one; this window is what stops a repeat.
+      if (Date.now() - lastMuiDrawerCloseAt < 600) {
+        return;
+      }
+      lastMuiDrawerCloseAt = Date.now();
       muiBackdrop.click();
       return;
     }
@@ -1871,7 +1892,6 @@
       var seerrLink = e.target.closest ? e.target.closest('.newBadges-drawerSeerr') : null;
       if (seerrLink) {
         e.preventDefault();
-        closeDrawer();
         location.hash = '#/home';
         // The Seerr tab button is injected by the Seerr Requests plugin -
         // click it once it exists. If that plugin isn't installed, this
@@ -1886,9 +1906,22 @@
           var btn = document.querySelector('[data-seerr-requests-button]');
           if (btn) {
             clearInterval(poll);
+            // On a phone on Jellyfin 12 that marker sits on Seerr Requests'
+            // own item in the MUI drawer, and that item closes the drawer
+            // itself when clicked. Closing it here first as well meant two
+            // closes landing a moment apart, which reopened it - measured,
+            // the drawer started sliding out and came straight back. So the
+            // drawer is only closed here when the tab lives somewhere else:
+            // 10.11's tab row, or 12's app bar at desktop width.
+            if (!(btn.closest && btn.closest('.MuiDrawer-root'))) {
+              closeDrawer();
+            }
             btn.click();
           } else if (++tries > 20) {
             clearInterval(poll);
+            // Seerr Requests is not there after all: land on Home with the
+            // drawer out of the way rather than leaving it open.
+            closeDrawer();
           }
         }, 150);
       }
