@@ -97,13 +97,6 @@ namespace Jellyfin.Plugin.NewBadges.Configuration
         public bool EnableDrawerExtras { get; set; } = true;
 
         /// <summary>
-        /// Show a "request a film/series" shortcut in the burger menu. Only
-        /// ever rendered when the Seerr Requests plugin is actually installed,
-        /// so this is a way to hide it even then.
-        /// </summary>
-        public bool EnableSeerrShortcut { get; set; } = true;
-
-        /// <summary>
         /// Replace Jellyfin's search page with a full-screen as-you-type
         /// overlay that also shows cast and other work by the director.
         /// </summary>

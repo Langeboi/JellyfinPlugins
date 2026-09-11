@@ -2,10 +2,6 @@
   'use strict';
 
   var PLUGIN_ID = 'b3f2a6d4-7e1a-4c9b-9f3e-2d6a8c1e4f70';
-  // The sibling Seerr Requests plugin. Its drawer shortcut is only rendered
-  // when this is actually installed, so a server without it never shows a
-  // button that leads nowhere.
-  var SEERR_PLUGIN_ID = '23b52a27-7ca8-4923-9e3b-65889d3e98e8';
 
   var BADGE_CLASS = 'newBadges-badge';
   var EPISODE_LABEL_CLASS = 'newBadges-episodeLabel';
@@ -34,7 +30,6 @@
     HoverPreviewDelayMs: 1100,
     EnableMoviesRedesign: true,
     EnableDrawerExtras: true,
-    EnableSeerrShortcut: true,
     EnableSearchOverlay: true,
     EnableDetailsBackdrop: true,
     HeaderLogoUrl: '',
@@ -73,7 +68,6 @@
       HoverPreviewDelayMs: clampInt(data.HoverPreviewDelayMs, 300, 4000, DEFAULTS.HoverPreviewDelayMs),
       EnableMoviesRedesign: flag('EnableMoviesRedesign'),
       EnableDrawerExtras: flag('EnableDrawerExtras'),
-      EnableSeerrShortcut: flag('EnableSeerrShortcut'),
       EnableSearchOverlay: flag('EnableSearchOverlay'),
       EnableDetailsBackdrop: flag('EnableDetailsBackdrop'),
       HeaderLogoUrl: data.HeaderLogoUrl || '',
@@ -96,7 +90,6 @@
     quickSearch: 'Quick search...',
     continueHeader: 'Continue',
     surpriseMe: 'Surprise me',
-    requestMedia: 'Request a film or series',
     moviesRecommended: 'Recommended for you',
     moviesFavourites: 'Favourites',
     moviesAll: 'All films',
@@ -129,7 +122,6 @@
     quickSearch: 'Hurtig søgning...',
     continueHeader: 'Fortsæt',
     surpriseMe: 'Overrask mig',
-    requestMedia: 'Tilføj Film/Serie',
     moviesRecommended: 'Anbefalet til dig',
     moviesFavourites: 'Favoritter',
     moviesAll: 'Alle film',
@@ -1776,74 +1768,14 @@
         }).catch(function () { /* nothing sensible to play */ }).finally(function () {
           surprise.disabled = false;
         });
-        return;
-      }
-
-      var seerrLink = e.target.closest ? e.target.closest('.newBadges-drawerSeerr') : null;
-      if (seerrLink) {
-        e.preventDefault();
-        closeDrawer();
-        location.hash = '#/home';
-        // The Seerr tab button is injected by the Seerr Requests plugin -
-        // click it once it exists. If that plugin isn't installed, this
-        // quietly lands on Hjem, which is a sane fallback.
-        var tries = 0;
-        var poll = setInterval(function () {
-          var btn = null;
-          document.querySelectorAll('.emby-tab-button').forEach(function (b) {
-            for (var i = 0; i < b.attributes.length; i++) {
-              if (b.attributes[i].name.indexOf('data-seerr') === 0) { btn = b; }
-            }
-          });
-          if (btn) {
-            clearInterval(poll);
-            btn.click();
-          } else if (++tries > 20) {
-            clearInterval(poll);
-          }
-        }, 150);
       }
     });
-  }
-
-  // The Seerr shortcut is only worth drawing when the Seerr Requests plugin
-  // is actually installed - otherwise it is a button that leads nowhere on
-  // someone else's server. Asked once and remembered.
-  var seerrInstalled = null;
-  var seerrCheckPending = false;
-
-  function checkSeerrInstalled() {
-    if (seerrInstalled !== null || seerrCheckPending || !window.ApiClient) {
-      return;
-    }
-    seerrCheckPending = true;
-    window.ApiClient.getJSON(window.ApiClient.getUrl('Plugins'))
-      .then(function (plugins) {
-        seerrInstalled = (plugins || []).some(function (p) {
-          return String(p.Id).replace(/-/g, '').toLowerCase() ===
-            SEERR_PLUGIN_ID.replace(/-/g, '').toLowerCase();
-        });
-      })
-      .catch(function () {
-        // Non-admin users cannot list plugins. Falling back to "yes" keeps
-        // the shortcut working for them; it degrades to landing on the home
-        // page if the plugin genuinely is not there.
-        seerrInstalled = true;
-      })
-      .then(function () {
-        seerrCheckPending = false;
-      });
-  }
-
-  function showSeerrShortcut() {
-    return cfg.EnableSeerrShortcut && seerrInstalled !== false;
   }
 
   function renderDrawerPlus() {
     if (!cfg.EnableDrawerExtras) {
       return;
     }
-    checkSeerrInstalled();
     var drawer = document.querySelector('.mainDrawer');
     if (!drawer) {
       return;
@@ -1879,11 +1811,6 @@
       '<div class="newBadges-drawerActions">' +
         '<button type="button" class="newBadges-drawerAction newBadges-drawerSurprise">' +
           '<span class="material-icons casino" aria-hidden="true"></span>' + escapeHtml(t('surpriseMe')) + '</button>' +
-        (showSeerrShortcut()
-          ? '<button type="button" class="newBadges-drawerAction newBadges-drawerSeerr">' +
-            '<span class="material-icons add_circle_outline" aria-hidden="true"></span>' +
-            escapeHtml(t('requestMedia')) + '</button>'
-          : '') +
       '</div>';
 
     homeLink.parentNode.insertBefore(block, homeLink.nextSibling);
@@ -3913,7 +3840,6 @@
     ['NbEnableMoviesRedesign', 'EnableMoviesRedesign', 'bool'],
     ['NbEnableSearchOverlay', 'EnableSearchOverlay', 'bool'],
     ['NbEnableDrawerExtras', 'EnableDrawerExtras', 'bool'],
-    ['NbEnableSeerrShortcut', 'EnableSeerrShortcut', 'bool'],
     ['NbEnableDetailsBackdrop', 'EnableDetailsBackdrop', 'bool'],
     ['NbHeaderLogoUrl', 'HeaderLogoUrl', 'text'],
     ['NbHeaderLogoWidth', 'HeaderLogoWidth', 'text']
