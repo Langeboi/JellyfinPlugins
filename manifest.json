@@ -367,6 +367,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.7.2.0",
+        "changelog": "Afsnitsnummeret er tilbage på forsiden på Jellyfin 12.\n\n- Når en serie har fået et nyt afsnit, viser Jellyfin 12 selve afsnittets kort i \"Nyligt tilføjet\" i stedet for seriens kort med antallet af usete afsnit. Det tal var det, New Badges skrev S/E-nummeret ind i, så mærket forsvandt. Afsnitskortene får nu selv et mærke med fx S4E7 samme sted og i samme stil.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.7.2.0/newbadges_2.7.2.0.zip",
+        "checksum": "83d92b59d4d2540344e9482ab14266e2",
+        "timestamp": "2026-09-11T22:30:00Z"
+      },
+      {
         "version": "2.7.1.0",
         "changelog": "Ingen dobbelt \"Anmod om film eller serie\" i sidemenuen på Jellyfin 12.\n\n- Seerr Requests har sin egen Tilføj-knap i sidemenuen lige ovenover, så genvejen fra New Badges var den samme knap to gange. På Jellyfin 12 vises den ikke længere.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0, hvor genvejen stadig findes.",
         "targetAbi": "12.0.0.0",

@@ -415,7 +415,9 @@
   // of them on a real home page, landing while its posters were loading.
   // Kept across visits for a short while instead: a NEW badge is about days,
   // so a date looked up a few minutes ago is still the right answer.
-  var DATE_CACHE_KEY = 'newBadges-dates-v1';
+  // v2: episode entries carry their S/E label too. A v1 copy has none, and
+  // would have kept episode cards badge-less until it expired.
+  var DATE_CACHE_KEY = 'newBadges-dates-v2';
   var DATE_CACHE_TTL_MS = 15 * 60 * 1000;
   var DATE_CACHE_MAX_ENTRIES = 600;
   var persistedDatesLoaded = false;
@@ -439,6 +441,9 @@
         return;
       }
       dateCache[id] = entry.d;
+      if (!entry.s && entry.l) {
+        episodeLabelCache[id] = entry.l;
+      }
       if (entry.s) {
         ongoingCache[id] = !!entry.o;
         seriesAddedCache[id] = entry.a;
@@ -471,7 +476,7 @@
             l: episodeLabelCache[entry.id] || null,
             e: latestEpisodeIdCache[entry.id] || null
           }
-          : { t: now, d: dateMap[entry.id] || null };
+          : { t: now, d: dateMap[entry.id] || null, l: episodeLabelCache[entry.id] || null };
       });
       // Only fresh entries, newest first, and never more than the cap.
       var ids = Object.keys(stored.entries).filter(function (id) {
@@ -691,7 +696,7 @@
   // of whether that episode itself is within the "NEW" freshness window -
   // this is independent of the red NEW ribbon below.
   function applyEpisodeLabelIfOngoing(card, id) {
-    if (!cfg.EnableEpisodeLabel || !ongoingCache[id]) {
+    if (!cfg.EnableEpisodeLabel) {
       return;
     }
     var label = episodeLabelCache[id];
@@ -699,6 +704,31 @@
       return;
     }
     var indicator = card.querySelector('.countIndicator.indicator');
+    if (card.getAttribute('data-type') === 'Episode') {
+      // Jellyfin 12 lists a show that got a new episode as that EPISODE's own
+      // card, where 10.11 showed the series card with its unwatched count -
+      // so there was no count badge left to relabel, and the S/E badge simply
+      // vanished. One is added in the same place instead, built from
+      // Jellyfin's own indicator classes, so it sits and looks exactly like
+      // the relabelled one on a series card.
+      if (!indicator) {
+        var container = card.querySelector('.cardImageContainer');
+        if (!container) {
+          return;
+        }
+        var indicators = container.querySelector('.cardIndicators');
+        if (!indicators) {
+          indicators = document.createElement('div');
+          indicators.className = 'cardIndicators';
+          container.appendChild(indicators);
+        }
+        indicator = document.createElement('div');
+        indicator.className = 'countIndicator indicator';
+        indicators.appendChild(indicator);
+      }
+    } else if (!ongoingCache[id]) {
+      return;
+    }
     if (indicator && indicator.textContent !== label) {
       indicator.textContent = label;
       indicator.classList.add(EPISODE_LABEL_CLASS);
@@ -928,6 +958,11 @@
       promises.push(apiClient.getJSON(url).then(function (result) {
         (result.Items || []).forEach(function (item) {
           map[item.Id] = item.DateCreated;
+          // For the S/E badge an episode card gets on Jellyfin 12 (see
+          // applyEpisodeLabelIfOngoing). The numbers come with the item.
+          if (item.Type === 'Episode' && item.ParentIndexNumber != null && item.IndexNumber != null) {
+            episodeLabelCache[item.Id] = 'S' + item.ParentIndexNumber + 'E' + item.IndexNumber;
+          }
         });
       }));
     }
