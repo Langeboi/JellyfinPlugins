@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -514,6 +515,17 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                         continue;
                     }
 
+                    // A movie already in the library has nothing left to land.
+                    // TMDB keeps listing later TV airings and streaming windows
+                    // for old films, anywhere in the world - confirmed live:
+                    // Point Break (1991) on a French Canal+ broadcast date - and
+                    // "coming soon" for something you can already play is noise.
+                    if (entry["mediaType"]?.ToString() == "movie"
+                        && (entry["mediaStatus"]?.Value<int?>() ?? 0) >= 5)
+                    {
+                        continue;
+                    }
+
                     var date = entry["date"]?.ToString();
                     if (!string.IsNullOrEmpty(date))
                     {
@@ -614,7 +626,7 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
 
                 if (mediaType == "movie")
                 {
-                    var (date, kind) = ExtractDigitalRelease(details["releases"] as JObject);
+                    var (date, kind) = ExtractDigitalRelease(details["releases"] as JObject, details["releaseDate"]?.ToString());
                     entry["date"] = date;
                     entry["dateKind"] = kind;
                 }
@@ -676,11 +688,36 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             }
         }
 
-        private static (string? Date, string? Kind) ExtractDigitalRelease(JObject? releases)
+        // A film's first streaming, TV or disc release follows its debut by
+        // months, sometimes a year or so for a late Danish window. A date
+        // further out than this is a re-release - a broadcast or streaming
+        // window for a film that has long been out - not the release itself.
+        private static readonly TimeSpan MaxReleaseLag = TimeSpan.FromDays(730);
+
+        private static (string? Date, string? Kind) ExtractDigitalRelease(JObject? releases, string? primaryReleaseDate)
         {
             if (releases?["results"] is not JArray countries)
             {
                 return (null, null);
+            }
+
+            // The film's debut: the earliest release of any kind, anywhere.
+            var debut = ParseDay(NormalizeDate(primaryReleaseDate));
+            foreach (var country in countries)
+            {
+                if (country["release_dates"] is not JArray dates)
+                {
+                    continue;
+                }
+
+                foreach (var entry in dates)
+                {
+                    var day = ParseDay(NormalizeDate(entry["release_date"]?.ToString()));
+                    if (day != null && (debut == null || day < debut))
+                    {
+                        debut = day;
+                    }
+                }
             }
 
             // Type wins over region: a digital date anywhere beats a TV date
@@ -689,6 +726,11 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
             {
                 foreach (var region in PreferredRegions.Append(null))
                 {
+                    // The EARLIEST matching date, not the first one listed.
+                    // TMDB lists every window a film ever had, and the first in
+                    // its order was once a 2026 Arte.tv window for The Godfather
+                    // (1972), whose first digital release was years earlier.
+                    string? earliest = null;
                     foreach (var country in countries)
                     {
                         if (region != null
@@ -710,17 +752,37 @@ namespace Jellyfin.Plugin.SeerrRequests.Api
                             }
 
                             var normalized = NormalizeDate(entry["release_date"]?.ToString());
-                            if (normalized != null)
+                            if (normalized != null && (earliest == null || string.CompareOrdinal(normalized, earliest) < 0))
                             {
-                                return (normalized, wantedType == 4 ? "digital" : wantedType == 6 ? "tv" : "physical");
+                                earliest = normalized;
                             }
                         }
                     }
+
+                    if (earliest == null)
+                    {
+                        continue;
+                    }
+
+                    var earliestDay = ParseDay(earliest);
+                    if (debut != null && earliestDay != null && earliestDay.Value - debut.Value > MaxReleaseLag)
+                    {
+                        // Already out long ago - no upcoming release to show,
+                        // and no point falling back to a TV or disc date either.
+                        return (null, null);
+                    }
+
+                    return (earliest, wantedType == 4 ? "digital" : wantedType == 6 ? "tv" : "physical");
                 }
             }
 
             return (null, null);
         }
+
+        private static DateTime? ParseDay(string? day) =>
+            DateTime.TryParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+                ? parsed
+                : null;
 
         // Earliest season that hasn't aired yet. Season 0 is TMDB's "Specials"
         // bucket and routinely carries a stale air date, so it never counts.
