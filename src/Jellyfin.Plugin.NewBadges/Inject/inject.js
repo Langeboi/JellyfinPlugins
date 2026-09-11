@@ -430,6 +430,27 @@
     return true;
   }
 
+  // People are never "new". The section test above is deliberately loose -
+  // it keys on the per-library Recently Added rows lacking a sectionN class -
+  // and a details page's Cast & Crew row (#castCollapsible) lacks one too, so
+  // its cards were being scanned. A person item's DateCreated is refreshed
+  // whenever its metadata is, so every actor looked freshly added: measured
+  // live, all 20 cast cards on a film carried the ribbon. Matched on both the
+  // personCard class and the data-type, which holds the credit (Actor,
+  // Director...) rather than "Person" - either alone would be one Jellyfin
+  // markup change away from silently letting them back in.
+  var PERSON_CARD_TYPES = {
+    Person: 1, Actor: 1, Director: 1, Composer: 1, Writer: 1, GuestStar: 1, Producer: 1,
+    Conductor: 1, Lyricist: 1, Arranger: 1, Engineer: 1, Mixer: 1, Remixer: 1, Creator: 1,
+    Artist: 1, AlbumArtist: 1, Author: 1, Illustrator: 1, Penciller: 1, Inker: 1,
+    Colorist: 1, Letterer: 1, CoverArtist: 1, Editor: 1, Translator: 1
+  };
+
+  function isPersonCard(card) {
+    return card.classList.contains('personCard') ||
+      !!PERSON_CARD_TYPES[card.getAttribute('data-type') || ''];
+  }
+
   // Config values that get interpolated straight into a stylesheet have to be
   // kept from closing the url()/declaration they sit in - an admin typing a
   // stray quote should get a broken logo, not an injected CSS rule.
@@ -480,10 +501,24 @@
       (cfg.HeaderLogoUrl
         ? '.pageTitleWithDefaultLogo{background-image:url("' + cssUrl(cfg.HeaderLogoUrl) + '")!important;' +
           'background-size:contain;background-position:left center;background-repeat:no-repeat;' +
-          'width:' + cssLength(cfg.HeaderLogoWidth) + ';}'
+          'width:' + cssLength(cfg.HeaderLogoWidth) + ';}' +
+          // Jellyfin 12 has no .pageTitle wordmark to replace - it is still
+          // mounted but hidden. The server name is a MUI button linking to
+          // #/ at the start of the app bar, holding Jellyfin's icon and the
+          // server name. Pure CSS on purpose: nothing is added to or changed
+          // on a React-managed element, so there is nothing for a re-render
+          // to undo. The icon and name stay in place (keeping the button's
+          // size and its accessible name) and are only made invisible.
+          'header.MuiAppBar-root a[href="#/"]{background:url("' + cssUrl(cfg.HeaderLogoUrl) + '") left center/contain no-repeat!important;' +
+          'color:transparent!important;justify-content:flex-start;overflow:hidden;' +
+          'width:' + cssLength(cfg.HeaderLogoWidth) + ';min-width:' + cssLength(cfg.HeaderLogoWidth) + ';}' +
+          'header.MuiAppBar-root a[href="#/"] > *{visibility:hidden;}'
         : '') +
       // Movies library redesign: filter pills, alphabetical grid, load-more.
       '.newBadges-moviesHome{padding-top:1em;}' +
+      // Jellyfin 12: hide the native MUI box beside the redesign (see
+      // hideNativeMoviesChildren for why this is a class, not inline style).
+      '.newBadges-moviesActive > :not(.newBadges-moviesHome){display:none!important;}' +
       '.newBadges-moviesPills{display:flex;gap:.5em;flex-wrap:wrap;margin:.3em 0 .6em;}' +
       '.newBadges-moviesPills:empty{display:none;}' +
       '.newBadges-pill{background:rgba(var(--nb-fg-rgb),.06);color:var(--nb-fg);' +
@@ -509,6 +544,13 @@
       '}' +
       // Drawer quick actions.
       '.newBadges-drawerPlus{padding:.4em .8em .6em;border-bottom:1px solid rgba(var(--nb-fg-rgb),.09);}' +
+      // Inside Jellyfin 12's MUI drawer: line up with its list items (16px
+      // gutters) and render the Continue header as its own list subheader
+      // does - measured from the drawer's "Libraries" subheader.
+      '.MuiDrawer-paper .newBadges-drawerPlus{padding:.2em 16px .6em;' +
+      'border-bottom:1px solid var(--jf-palette-divider,rgba(255,255,255,.12));}' +
+      '.MuiDrawer-paper .newBadges-drawerResumeHeader{margin:0;padding:0;font-size:12.6px;font-weight:500;' +
+      'line-height:48px;color:var(--jf-palette-text-secondary,rgba(255,255,255,.7));}' +
       '.newBadges-drawerSearchWrap{display:flex;align-items:center;gap:.5em;' +
       'background:rgba(var(--nb-fg-rgb),.08);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
       '.newBadges-drawerSearchWrap .material-icons{font-size:18px;opacity:.6;}' +
@@ -838,7 +880,7 @@
       }
       section.querySelectorAll('.card[data-id]').forEach(function (card) {
         var id = card.getAttribute('data-id');
-        if (!id) {
+        if (!id || isPersonCard(card)) {
           return;
         }
         cardsById[id] = card;
@@ -1711,6 +1753,14 @@
   }
 
   function closeDrawer() {
+    // Jellyfin 12's drawer is a MUI modal, closed by its backdrop. Checked
+    // first because 12 still mounts the legacy .mainDrawer, just never paints
+    // it - clicking that one's scrim would do nothing at all.
+    var muiBackdrop = document.querySelector('.MuiDrawer-root:not(.MuiModal-hidden) .MuiBackdrop-root');
+    if (muiBackdrop) {
+      muiBackdrop.click();
+      return;
+    }
     // Clicking the scrim is the least invasive way to ask Jellyfin to close
     // its own drawer; fall back to removing the open state directly.
     var scrim = document.querySelector('.mainDrawer-scrim, .drawer-scrim');
@@ -1828,12 +1878,12 @@
         // quietly lands on Hjem, which is a sane fallback.
         var tries = 0;
         var poll = setInterval(function () {
-          var btn = null;
-          document.querySelectorAll('.emby-tab-button').forEach(function (b) {
-            for (var i = 0; i < b.attributes.length; i++) {
-              if (b.attributes[i].name.indexOf('data-seerr') === 0) { btn = b; }
-            }
-          });
+          // The request tab's own marker, wherever Seerr Requests put it:
+          // a legacy .emby-tab-button on 10.11, a MUI nav link on 12. This
+          // used to scan .emby-tab-button for ANY data-seerr* attribute and
+          // keep the last match, which is the release-calendar tab, not the
+          // request one - and on 12 those buttons are never painted at all.
+          var btn = document.querySelector('[data-seerr-requests-button]');
           if (btn) {
             clearInterval(poll);
             btn.click();
@@ -1878,16 +1928,46 @@
     return cfg.EnableSeerrShortcut && seerrInstalled !== false;
   }
 
+  // Where the drawer block goes: the container to look for an existing copy
+  // in, and the node to insert it after.
+  //
+  // Jellyfin 12 replaced the drawer with a MUI one and left the legacy
+  // .mainDrawer mounted but never painted - so the old lookup still found a
+  // drawer, inserted into it successfully, and nobody could ever see the
+  // result. Whether the MUI shell is present decides the path, not whether
+  // .mainDrawer exists. On 12 the block sits after the home-destinations
+  // list (Home, Favourites) and before the Libraries divider, the same place
+  // it held relative to the old Hjem link; content placed there was verified
+  // to survive the drawer being closed and reopened. 12 only mounts that
+  // drawer below desktop width, so at desktop width there is simply no
+  // drawer to add to.
+  function drawerPlusHost() {
+    if (document.querySelector('header.MuiAppBar-root')) {
+      var paper = document.querySelector('.MuiDrawer-root .MuiDrawer-paper');
+      var home = paper && paper.querySelector('a[href="#/home"]');
+      var list = home && home.closest ? home.closest('ul') : null;
+      return list ? { scope: paper, after: list } : null;
+    }
+    var drawer = document.querySelector('.mainDrawer');
+    if (!drawer) {
+      return null;
+    }
+    var legacyScroll = drawer.querySelector('.mainDrawer-scrollContainer') || drawer;
+    // Anchor: directly after the Hjem link, before the "Medier" header.
+    var homeLink = legacyScroll.querySelector('a.navMenuOption[href="#/home"]');
+    return homeLink ? { scope: legacyScroll, after: homeLink } : null;
+  }
+
   function renderDrawerPlus() {
     if (!cfg.EnableDrawerExtras) {
       return;
     }
     checkSeerrInstalled();
-    var drawer = document.querySelector('.mainDrawer');
-    if (!drawer) {
+    var host = drawerPlusHost();
+    if (!host) {
       return;
     }
-    var scroll = drawer.querySelector('.mainDrawer-scrollContainer') || drawer;
+    var scroll = host.scope;
     var existing = scroll.querySelector('.newBadges-drawerPlus');
     if (existing) {
       // Refresh the resume list at most once per cache TTL - cheap because
@@ -1899,11 +1979,7 @@
       return;
     }
 
-    // Anchor: directly after the Hjem link, before the "Medier" header.
-    var homeLink = scroll.querySelector('a.navMenuOption[href="#/home"]');
-    if (!homeLink) {
-      return;
-    }
+    var homeLink = host.after;
 
     var block = document.createElement('div');
     block.className = 'newBadges-drawerPlus';
@@ -2281,6 +2357,15 @@
   }
 
   function hideNativeMoviesChildren(tab) {
+    // On Jellyfin 12 the host is the page itself and its native content is a
+    // React-managed MUI box. Hiding it with a class on the page rather than an
+    // inline style on the box keeps React from quietly undoing it on its next
+    // render; verified the box keeps the class-driven display:none through a
+    // re-render (alpha-picker filtering) with no React errors.
+    if (tab.id === 'moviesPage') {
+      tab.classList.add('newBadges-moviesActive');
+      return;
+    }
     Array.prototype.forEach.call(tab.children, function (child) {
       if (!child.classList.contains('newBadges-moviesHome') && child.style.display !== 'none') {
         child.style.display = 'none';
@@ -2300,7 +2385,12 @@
     if (!page) {
       return;
     }
-    var tab = page.querySelector('#moviesTab');
+    // 10.11 renders the library as tabs and the redesign lives in #moviesTab.
+    // Jellyfin 12 has no tabs here at all - the page is #moviesPage holding a
+    // single MUI box with the alpha picker and one grid - so #moviesTab never
+    // appeared and the redesign never started. The page itself becomes the
+    // host there, with the redesign inserted ahead of the native box.
+    var tab = page.querySelector('#moviesTab') || (page.id === 'moviesPage' ? page : null);
     if (!tab) {
       return;
     }
@@ -3035,14 +3125,23 @@
     if (!cfg.EnableSearchOverlay) {
       return;
     }
-    var btn = document.querySelector('.headerSearchButton');
-    if (btn && !btn.getAttribute('data-nb-search')) {
+    // .headerSearchButton is 10.11's. Jellyfin 12 keeps that button mounted
+    // but never paints it and searches from a MUI link in the app bar
+    // instead, so hooking only the old one meant the overlay silently never
+    // opened - clicking search just routed to #/search. Both are hooked; each
+    // node is marked, so a React re-render that swaps the link in for a fresh
+    // one simply gets hooked again on the next scan.
+    var buttons = document.querySelectorAll('.headerSearchButton, header.MuiAppBar-root a[href="#/search"]');
+    Array.prototype.forEach.call(buttons, function (btn) {
+      if (btn.getAttribute('data-nb-search')) {
+        return;
+      }
       btn.setAttribute('data-nb-search', '1');
       btn.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
         openSearchOverlay('');
       }, true);
-    }
+    });
   }
 
   // ==================================================================

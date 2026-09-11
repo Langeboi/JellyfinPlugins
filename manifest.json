@@ -343,6 +343,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.6.0.0",
+        "changelog": "Fire funktioner der holdt op med at virke på Jellyfin 12 virker igen, og NEW-mærket sidder ikke længere på skuespillere.\n\nNEW på skuespillere og instruktører: Rækken \"Cast & Crew\" på en films side fik NEW på alle kort. En person i Jellyfin får en ny oprettelsesdato hver gang dens oplysninger opdateres, så alle skuespillere så nyligt tilføjede ud. Personer får aldrig NEW nu. Den fejl fandtes også på 10.11.\n\nGenvejene i sidemenuen (hurtigsøgning, \"Fortsæt afspilning\", \"Overrask mig\" og genvejen til anmodninger): Jellyfin 12 har lavet sidemenuen om, og den gamle menu findes stadig i siden men bliver aldrig vist - så genvejene blev lagt et sted ingen kunne se dem. De sidder nu i den nye menu, lige under Hjem og Favoritter. Jellyfin 12 viser kun den menu på smalle skærme som telefoner.\n\nGenvejen til anmodninger åbnede i nogle tilfælde Udgivelseskalenderen i stedet for anmodningssiden. Den rammer nu den rigtige fane.\n\nFilmbibliotekets nye forside: Jellyfin 12 har ingen faneblade på filmsiden, og det var netop fanebladet forsiden blev sat ind i. Den dukker nu op igen i stedet for Jellyfins eget gitter.\n\nHurtigsøgningen: Søgeknappen i toppen er en ny knap på Jellyfin 12, så et klik gik direkte til Jellyfins egen søgeside. Den åbner nu hurtigsøgningen igen.\n\nEget logo i toppen: Hvis du har sat et logo op, vises det nu igen i stedet for servernavnet i den nye topbjælke.\n\nDenne udgave er bygget til Jellyfin 12 og kan kun installeres der. På 10.11 bliver du på 2.3.0.0, som virker uændret.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.6.0.0/newbadges_2.6.0.0.zip",
+        "checksum": "55d6d0a616e994939b7acedc8cab49dd",
+        "timestamp": "2026-09-11T10:00:00Z"
+      },
+      {
         "version": "2.5.0.0",
         "changelog": "Indstillingssiden er tegnet om, så den ser ud som resten af Jellyfin 12.\n\nJellyfin 12 har lavet sine egne indstillingssider om: felterne er nu fyldte bokse med en lille etiket øverst i selve feltet, i stedet for en label ovenover. Denne side fulgte stadig den gamle stil og stak derfor ud fra alt andet i dashboardet.\n\nFelter, afkrydsningsfelter, overskrifter og Gem-knappen matcher nu Jellyfin 12's egne — samme højde, samme afrunding, samme farver. Farverne hentes fra Jellyfin 12's eget tema, så siden også følger med hvis du skifter tema.\n\nKun udseende. Der er ikke ændret noget i hvad siden gør, eller i indstillingerne selv. På Jellyfin 10.11 ser siden ud præcis som før — den nye stil slås kun til, hvis serveren rent faktisk er 12.",
         "targetAbi": "12.0.0.0",
