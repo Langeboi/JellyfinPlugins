@@ -553,14 +553,15 @@
       'line-height:48px;color:var(--jf-palette-text-secondary,rgba(255,255,255,.7));}' +
       // The action rows are <button>s, and buttons do not inherit the page
       // font - so beside the drawer's own items they rendered in Arial, 13px,
-      // bold. Measured against those items: Noto Sans 14.4px/400 on a 47px
-      // row, glyph at 20px and label at 56px from the drawer edge. The 4px
-      // left padding plus the block's 16px puts our glyph at 20px, and a
-      // 24px glyph with a 12px gap puts the label at 56px.
+      // bold. Measured against those items: body1 type (the drawer paper
+      // itself is a different family, so inheriting is not enough) on a 47px
+      // row, a 1.5rem glyph at 20px and the label at 56px from the drawer
+      // edge. The block's own padding already puts our glyph at 20px, and a
+      // 36px glyph column - MUI's ListItemIcon width - puts the label at 56px.
       '.MuiDrawer-paper .newBadges-drawerAction,.MuiDrawer-paper .newBadges-drawerResumeItem{' +
-      'font-family:inherit;font-size:14.4px;font-weight:400;}' +
-      '.MuiDrawer-paper .newBadges-drawerAction{min-height:47px;gap:12px;padding:0 4px;}' +
-      '.MuiDrawer-paper .newBadges-drawerAction .material-icons{font-size:24px;width:24px;opacity:1;}' +
+      'font:var(--jf-font-body1,400 0.9rem sans-serif);}' +
+      '.MuiDrawer-paper .newBadges-drawerAction{min-height:47px;gap:0;padding:0;}' +
+      '.MuiDrawer-paper .newBadges-drawerAction .material-icons{font-size:1.5rem;width:36px;flex:none;opacity:1;}' +
       '.newBadges-drawerSearchWrap{display:flex;align-items:center;gap:.5em;' +
       'background:rgba(var(--nb-fg-rgb),.08);border-radius:10px;padding:.45em .8em;margin:.3em 0 .6em;}' +
       '.newBadges-drawerSearchWrap .material-icons{font-size:18px;opacity:.6;}' +
@@ -1768,18 +1769,26 @@
     // Jellyfin 12's drawer is a MUI modal, closed by its backdrop. Checked
     // first because 12 still mounts the legacy .mainDrawer, just never paints
     // it - clicking that one's scrim would do nothing at all.
-    var muiBackdrop = document.querySelector('.MuiDrawer-root:not(.MuiModal-hidden) .MuiBackdrop-root');
-    if (muiBackdrop) {
-      // A second backdrop click while the drawer is still animating shut can
-      // send it straight back open - measured live, the drawer slid most of
-      // the way out and returned. The modal only gains MuiModal-hidden once
-      // that animation has finished, so the selector above cannot tell a
-      // closing drawer from an open one; this window is what stops a repeat.
-      if (Date.now() - lastMuiDrawerCloseAt < 600) {
-        return;
-      }
-      lastMuiDrawerCloseAt = Date.now();
-      muiBackdrop.click();
+    if (document.querySelector('.MuiDrawer-root:not(.MuiModal-hidden) .MuiBackdrop-root')) {
+      // That backdrop toggles the drawer rather than closing it: clicked
+      // while the drawer is shut, or already sliding shut, it opens it again
+      // - measured, one click on the backdrop of a closed drawer brought it
+      // straight back. And 12 closes the drawer by itself on any click
+      // inside it, our own buttons included. So look again once that close
+      // has had time to start, and only click for a drawer still fully out.
+      // Until the slide has finished the modal lacks MuiModal-hidden, so a
+      // closing drawer is told apart by its faded backdrop or moving paper.
+      setTimeout(function () {
+        var backdrop = document.querySelector('.MuiDrawer-root:not(.MuiModal-hidden) .MuiBackdrop-root');
+        var paper = backdrop ? backdrop.closest('.MuiDrawer-root').querySelector('.MuiDrawer-paper') : null;
+        if (!backdrop || backdrop.style.opacity === '0' ||
+            (paper && paper.getBoundingClientRect().left < -1) ||
+            Date.now() - lastMuiDrawerCloseAt < 600) {
+          return;
+        }
+        lastMuiDrawerCloseAt = Date.now();
+        backdrop.click();
+      }, 300);
       return;
     }
     // Clicking the scrim is the least invasive way to ask Jellyfin to close
@@ -1907,16 +1916,27 @@
           if (btn) {
             clearInterval(poll);
             // On a phone on Jellyfin 12 that marker sits on Seerr Requests'
-            // own item in the MUI drawer, and that item closes the drawer
-            // itself when clicked. Closing it here first as well meant two
-            // closes landing a moment apart, which reopened it - measured,
-            // the drawer started sliding out and came straight back. So the
-            // drawer is only closed here when the tab lives somewhere else:
-            // 10.11's tab row, or 12's app bar at desktop width.
-            if (!(btn.closest && btn.closest('.MuiDrawer-root'))) {
-              closeDrawer();
+            // own item in the MUI drawer, and that item closes the drawer by
+            // clicking its backdrop. By now the drawer is already shutting -
+            // 12 closed it when our shortcut was tapped - and the backdrop
+            // is a toggle, so that click reopened it. Swallowed for the length
+            // of this one synchronous click, it never reaches the drawer.
+            var drawerRoot = btn.closest ? btn.closest('.MuiDrawer-root') : null;
+            var drawerBackdrop = drawerRoot ? drawerRoot.querySelector('.MuiBackdrop-root') : null;
+            var swallowClick = function (ev) { ev.stopImmediatePropagation(); };
+            if (drawerBackdrop) {
+              drawerBackdrop.addEventListener('click', swallowClick, true);
             }
-            btn.click();
+            try {
+              btn.click();
+            } finally {
+              if (drawerBackdrop) {
+                drawerBackdrop.removeEventListener('click', swallowClick, true);
+              }
+            }
+            // 10.11's tab row and 12's app bar leave the drawer to us; on 12
+            // this only acts if the drawer somehow is still fully open.
+            closeDrawer();
           } else if (++tries > 20) {
             clearInterval(poll);
             // Seerr Requests is not there after all: land on Home with the

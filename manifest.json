@@ -343,6 +343,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.6.2.0",
+        "changelog": "Sidemenuen bliver nu lukket, når du bruger den på Jellyfin 12 - også efter genvejen til anmodninger, \"Overrask mig\" og Fortsæt med at se.\n\n2.6.1.0 fik det ikke helt løst. Jellyfin 12 lukker selv sidemenuen, så snart du trykker på noget i den, og menuens baggrund virker som en kontakt: lukkes den en gang til, åbner den igen. Når New Badges eller Seerr Requests bagefter også lukkede menuen, sprang den derfor op igen. Nu lukker New Badges kun menuen, hvis den stadig er helt fremme, og genvejen til anmodninger holder Seerr Requests' ekstra lukning væk.\n\nGenvejene i menuen har nu præcis samme skrift og placering som Jellyfins egne punkter.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0, som virker uændret.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.6.2.0/newbadges_2.6.2.0.zip",
+        "checksum": "0e4c64404fc264057b9e565550f653d7",
+        "timestamp": "2026-09-11T12:30:00Z"
+      },
+      {
         "version": "2.6.1.0",
         "changelog": "Sidemenuen lukker nu rigtigt når du bruger genvejen til anmodninger på Jellyfin 12, og genvejene i menuen har fået samme skrift som resten af menuen.\n\nGenvejen til anmodninger åbnede den rigtige fane, men sidemenuen blev stående åben. Både New Badges og Seerr Requests lukkede menuen, lige efter hinanden - og en ekstra lukning mens menuen stadig er ved at glide ud, åbner den igen i stedet. Nu lukkes den kun én gang.\n\n\"Overrask mig\" og genvejen til anmodninger stod med en anden, fed skrift end resten af menuen. De bruger nu samme skrift, størrelse og placering som Hjem og Favoritter.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.0.0, som virker uændret.",
         "targetAbi": "12.0.0.0",
