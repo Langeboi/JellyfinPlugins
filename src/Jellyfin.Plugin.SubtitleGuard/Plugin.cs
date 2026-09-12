@@ -19,7 +19,7 @@ namespace Jellyfin.Plugin.SubtitleGuard
 
         public override string Name => "Subtitle Guard";
 
-        public override string Description => "Standardizes subtitle size across players and watches every playback to make sure selected subtitles actually render, re-applying them when they silently fail.";
+        public override string Description => "Standardizes subtitle size across players and watches every playback to make sure selected subtitles actually render, re-applying them when they silently fail. Pairs with the Subtitle Guard hub for syncing, transcription and translation.";
 
         public override Guid Id => Guid.Parse("288e2c30-9a8f-42f7-90a5-729528f5013a");
 

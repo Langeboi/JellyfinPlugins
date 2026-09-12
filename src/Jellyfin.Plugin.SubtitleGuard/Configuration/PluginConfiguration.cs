@@ -2,8 +2,28 @@ using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.SubtitleGuard.Configuration
 {
+    /// <summary>
+    /// What is left in Jellyfin from 3.0 on: how subtitles look and behave in
+    /// the player, plus where the hub is. Everything about workers, schedules,
+    /// hotwords and paths now lives in the Subtitle Guard hub, which is the
+    /// one place that decides what work gets done.
+    /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
+        /// <summary>
+        /// Address of the Subtitle Guard hub, e.g. http://10.10.100.4:8700.
+        /// Empty = the item-page buttons stay hidden; the player features
+        /// below keep working, since they need nothing but this plugin.
+        /// </summary>
+        public string HubUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The hub's companion key (Jellyfin connection page in the hub).
+        /// Sent as X-SG-Key on every call. Never reaches the browser: the
+        /// requests are made by this plugin, server to server.
+        /// </summary>
+        public string HubKey { get; set; } = string.Empty;
+
         /// <summary>
         /// UI language for the config page and player-facing texts: "da"
         /// (default) or "en". Strings live in inject.js; this just selects
@@ -42,13 +62,13 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// Opacity (0-100) of a black box drawn behind the subtitle text.
         /// 0 = no box; 60-70 gives the classic semi-transparent TV look.
         /// </summary>
-        public int SubtitleBackgroundOpacity { get; set; } = 0;
+        public int SubtitleBackgroundOpacity { get; set; }
 
         /// <summary>
         /// Drop-shadow strength (0-4, 0 = none) cast below/right of the text.
         /// Independent of the outline; both can be combined.
         /// </summary>
-        public int SubtitleShadowStrength { get; set; } = 0;
+        public int SubtitleShadowStrength { get; set; }
 
         /// <summary>
         /// Watch active playback and re-apply the selected subtitle stream
@@ -64,92 +84,6 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// there. iOS-only; other devices keep the styled overlay.
         /// </summary>
         public bool IosBurnInSubtitles { get; set; } = true;
-
-        /// <summary>
-        /// JSON array of enrolled workers:
-        /// [{"Name":"...","Url":"http://ip:8099","ApiKey":"..."}]. Managed
-        /// by the config page. Empty disables all sync features.
-        /// </summary>
-        public string WorkersJson { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Legacy single-worker fields from v1.1.0.0 - migrated into
-        /// <see cref="WorkersJson"/> on first read, kept only so an upgrade
-        /// doesn't lose the configured worker.
-        /// </summary>
-        public string WorkerUrl { get; set; } = string.Empty;
-
-        /// <summary>Legacy single-worker API key (see WorkerUrl).</summary>
-        public string WorkerApiKey { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Path prefix as Jellyfin sees the media (e.g. /media). Rewritten
-        /// to <see cref="PathMapTo"/> before submitting to the worker.
-        /// Empty = paths are identical on both machines.
-        /// </summary>
-        public string PathMapFrom { get; set; } = string.Empty;
-
-        /// <summary>Path prefix as the worker machine sees the media.</summary>
-        public string PathMapTo { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Comma-separated two-letter language codes. Items lacking a text
-        /// subtitle in ANY of these languages get queued for Whisper
-        /// transcription by the nightly task.
-        /// </summary>
-        public string TranscribeLanguages { get; set; } = "da,en";
-
-        /// <summary>
-        /// Build a per-item hotword list (names, fictional terms) from the
-        /// item's Jellyfin metadata and pass it to Whisper, so transcription
-        /// gets character/place names right instead of guessing phonetically.
-        /// </summary>
-        public bool EnableMetadataHotwords { get; set; } = true;
-
-        /// <summary>Maximum number of hotword terms per item.</summary>
-        public int HotwordMaxTerms { get; set; } = 75;
-
-        /// <summary>Maximum total characters of the hotword string.</summary>
-        public int HotwordMaxChars { get; set; } = 800;
-
-        /// <summary>Include actor names in the hotword list.</summary>
-        public bool HotwordIncludeCast { get; set; } = true;
-
-        /// <summary>Include directors/writers/other crew in the hotword list.</summary>
-        public bool HotwordIncludeCrew { get; set; }
-
-        /// <summary>Mine proper nouns from episode/series/movie overviews.</summary>
-        public bool HotwordFromOverview { get; set; } = true;
-
-        /// <summary>Include studio/network names in the hotword list.</summary>
-        public bool HotwordIncludeStudios { get; set; }
-
-        /// <summary>Log the full generated term list (not just the count).</summary>
-        public bool HotwordDebugLog { get; set; }
-
-        /// <summary>
-        /// Master switch for the English->Danish translation feature (the
-        /// nightly translate task AND the post-transcription chain). Off for
-        /// users who don't want machine-translated Danish subtitles.
-        /// </summary>
-        public bool EnableTranslation { get; set; } = true;
-
-        /// <summary>
-        /// After a successful ENGLISH transcription, immediately queue the
-        /// en->da translation on the same worker instead of waiting for the
-        /// nightly translate task - one flow, Danish subtitle by morning.
-        /// Only takes effect while <see cref="EnableTranslation"/> is on.
-        /// </summary>
-        public bool ChainTranslateAfterTranscribe { get; set; } = true;
-
-        /// <summary>
-        /// Comma-separated path prefixes (as Jellyfin sees them). When set,
-        /// the scheduled tasks only touch items under these paths - e.g.
-        /// "/Media/Movies,/Media/Shows" keeps Standup/Western/etc. out of
-        /// the pool entirely. Empty = whole library. The per-item buttons
-        /// deliberately ignore this (an explicit request wins).
-        /// </summary>
-        public string IncludedPathPrefixes { get; set; } = string.Empty;
 
         /// <summary>
         /// Hide unwanted subtitle tracks in the player's selection menu:

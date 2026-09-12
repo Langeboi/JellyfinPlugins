@@ -28,26 +28,23 @@ Opdateringer dukker selv op i kataloget når nye versioner udgives.
 
 Undertekster der passer i størrelse, er i sync og altid vises.
 
-* **Udseende**: én ensartet, viewport-skaleret undertekststørrelse på alle
+* **I afspilleren**: én ensartet, viewport-skaleret undertekststørrelse på alle
   enheder (50–200 %), valgfri skrifttype, kant, baggrundsboks og skygge.
   Vagthund der genanvender valgte undertekster hvis de fejler stille.
-  iOS-indbrænding så fuldskærm på iPhone/iPad altid har tekst.
-* **Sync**: den natlige opgave retter skæve eksterne undertekster mod
-  lydsporet (ffsubsync) — original gemmes altid som `.bak`, alt kan fortrydes,
-  også alle på én gang.
-* **Transskription**: genererer manglende undertekster med Whisper
-  (large-v3 på GPU), med automatiske hotwords fra Jellyfin-metadata så navne
-  staves rigtigt. Justerbare indstillinger pr. worker fra plugin-siden.
-* **Oversættelse**: engelsk → dansk med NLLB-200, automatisk efter
-  transskription eller som natlig opgave. Kan slås fra.
-* **Worker-pool**: det tunge arbejde køres af én eller flere Linux-maskiner
-  du selv tilmelder — med roller, kø-styring, work-stealing, live fremdrift,
-  fejl-triage og automatisk selv-opdatering.
+  iOS-indbrænding så fuldskærm på iPhone/iPad altid har tekst. Oprydning i
+  undertekst-menuen, så der står ét rent valg pr. sprog.
+* **To knapper på emne-siden**: ret underteksternes sync, eller generér dem
+  med Whisper. Begge springer forrest i køen.
+* **Selve arbejdet** — sync (ffsubsync), transskription (Whisper), oversættelse
+  (NLLB-200), workers, natlige kørsler, hotwords og stier — ligger fra version
+  3.0 i **Subtitle Guard-hubben**: en beholder der kører for sig selv, med sin
+  egen side hvor det hele kan følges mens det sker. Pluginet peger blot på den.
 
-➡ Opsætning: tryk **Getting Started** øverst på plugin-siden, eller læs
-[worker-guiden](worker/subtitle-worker/README.md). **Vigtigst af alt:**
+➡ Opsætning: sæt hubbens adresse og companion-nøgle ind på plugin-siden —
+begge står på hubbens **Jellyfin-forbindelse**-side. **Vigtigst af alt:**
 worker-kontoen skal have skriveadgang til medierne — tjek det med
-[check-permissions-scriptet](#tjek-worker-rettigheder) herunder.
+[check-permissions-scriptet](#tjek-worker-rettigheder) herunder, og læs
+[worker-guiden](worker/subtitle-worker/README.md).
 
 ### 📅 Seerr Requests
 
@@ -119,9 +116,9 @@ et lyst filmbillede.
 * **File Transformation**-pluginet
 * **Playback Reporting** (kun til Trending-rækken og Hero Bars trending —
   begge falder pænt tilbage uden)
-* Subtitle Guard-workers: Debian/Ubuntu med medierne mountet;
-  NVIDIA-GPU til transskription/oversættelse i fuld kvalitet
-  (CPU kan transskribere med en mindre model)
+* Subtitle Guard: **hubben** (sin egen beholder) og dens workers — Debian/Ubuntu
+  med medierne mountet; NVIDIA-GPU til transskription/oversættelse i fuld
+  kvalitet (CPU kan transskribere med en mindre model)
 
 ## Tjek worker-rettigheder
 
@@ -140,5 +137,5 @@ slette filer — en ægte skrivetest, fordi `ls -l` lyver på netværks-mounts.
 ## Versioner & fejl
 
 Hver plugin-version står i [manifest.json](manifest.json) med changelog.
-Workers opdaterer sig selv dagligt; deres version vises på Workers-fanen.
-Fejl-triage med løsningsforslag findes på Subtitle Guards Status-fane.
+Workers opdaterer sig selv dagligt; deres version vises i Subtitle Guard-hubben,
+som også har fejl-triage med løsningsforslag.
