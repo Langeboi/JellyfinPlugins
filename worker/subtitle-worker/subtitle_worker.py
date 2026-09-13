@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "3.0.1"
+WORKER_VERSION = "3.0.2"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -751,6 +751,14 @@ ACKNOWLEDGEMENTS = {
     "aye aye": "Javel", "aye aye sir": "Javel",
     "no sir": "Nej",
     "negative": "Negativ", "negative sir": "Negativ",
+    # The odd one out, and the only entry whose Danish was a judgement call
+    # rather than a measurement: "Yeah, well." is not an acknowledgement at
+    # all but someone tailing off mid-thought ("How bad's the ship?" / "We'll
+    # fix it." / "Yeah, well." / "I mean, I need that woman."). NLLB rendered
+    # it "Ja, det gor jeg." - "Yes, I do" - which answers a question nobody
+    # asked. It is here because the wrong output was measured; the right
+    # output was chosen by the maintainer, not derived.
+    "yeah well": "Ja, altså",
 }
 
 # Body and trailing terminal punctuation, so the cue's own ending survives.
