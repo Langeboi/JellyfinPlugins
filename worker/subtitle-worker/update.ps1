@@ -51,6 +51,22 @@ if ($currentVersion -eq $newVersion) {
     exit 0
 }
 
+# Never go backwards. The check above only asked whether the versions DIFFER,
+# so a box updated by hand - or one left on a newer build while the published
+# copy lagged - was silently rolled back on the next timer run, wrapper
+# scripts and all. Observed: a hand-installed 3.0.0 reverted to 2.3.4 at
+# 05:00. An unparseable version on either side falls through to the old
+# behaviour, so a non-numeric scheme still updates exactly as it used to.
+$currentParsed = $null
+$newParsed = $null
+if ([version]::TryParse($currentVersion, [ref]$currentParsed) -and
+    [version]::TryParse($newVersion, [ref]$newParsed) -and
+    $newParsed -lt $currentParsed) {
+    Write-Output "published $newVersion is older than installed $currentVersion - keeping current"
+    Remove-Item -Force $tmp
+    exit 0
+}
+
 Copy-Item -Force $tmp $workerFile
 Remove-Item -Force $tmp
 

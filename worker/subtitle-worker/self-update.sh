@@ -39,6 +39,22 @@ if ! "$INSTALL_DIR/venv/bin/python" -m py_compile "$TMP"; then
   exit 0
 fi
 
+# Never go backwards. The compare above only asks whether the published file
+# DIFFERS, so a box updated by hand - or one left on a newer build while the
+# published copy lagged - was silently rolled back on the next timer run.
+# Observed on the Windows twin: a hand-installed 3.0.0 reverted to 2.3.4.
+# An unreadable version on either side falls through to the old behaviour, so
+# a non-numeric scheme still updates exactly as it used to.
+cur_ver=$(sed -n 's/^WORKER_VERSION = "\(.*\)"/\1/p' "$INSTALL_DIR/subtitle_worker.py" 2>/dev/null | head -n1)
+new_ver=$(sed -n 's/^WORKER_VERSION = "\(.*\)"/\1/p' "$TMP" 2>/dev/null | head -n1)
+if [ -n "${cur_ver:-}" ] && [ -n "${new_ver:-}" ] && [ "$cur_ver" != "$new_ver" ]; then
+  older=$(printf '%s\n%s\n' "$cur_ver" "$new_ver" | sort -V | head -n1)
+  if [ "$older" = "$new_ver" ]; then
+    echo "published $new_ver is older than installed $cur_ver, keeping current"
+    exit 0
+  fi
+fi
+
 # Don't restart under a running job - killing a transcription mid-file just
 # wastes work (it would retry, but no reason to interrupt). Next run gets it.
 PORT=$(grep '^SUBWORKER_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
