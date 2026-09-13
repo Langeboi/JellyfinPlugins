@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "3.0.0"
+WORKER_VERSION = "3.0.1"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -721,25 +721,89 @@ def translate_units(unit_texts):
     return [" ".join(done[i:i + n]).strip() for i, n in spans]
 
 
+# Bare acknowledgements, which NLLB reliably ruins. Handed "Yes, sir." with no
+# surrounding dialogue it invents a subject and a verb: measured across five
+# real episodes, 42 cues came back as "Nej/Ja, det gør jeg [ikke]." - "No/Yes,
+# I do[n't]" - which can flatly contradict the scene. Even "Negative." became
+# "Nej, det gør jeg ikke.". These have one right answer in Danish, so they do
+# not need a model at all.
+#
+# Deliberately conservative. Only forms that were measured wrong are here;
+# "Copy that." and "Roger that." are left to NLLB because "Jeg har forstået."
+# is already acceptable Danish, and overriding it would be taste, not a fix.
+#
+# The leading dash is part of the answer, not decoration. Danish subtitles mark
+# a change of speaker with it (12/12 professional Danish files here use it, on
+# about 10.2% of cues), and an acknowledgement is by definition a reply. NLLB
+# already knew this: of 32 whole-cue acknowledgements measured, 32 carried a
+# dash and none did not. Dropping it cost roughly 8 dashes an episode and
+# pushed a file from 10.2% down to 8.1%, below the professional norm - so the
+# table emits the dash and the earlier behaviour is preserved exactly.
+#
+# It belongs here rather than at cue assembly because this runs per SENTENCE,
+# and that is the unit NLLB dashes: "You'll get them there. Yes, sir." becomes
+# "Du får dem dertil. - Ja, det gør jeg." with the dash mid-cue, at the reply.
+# Prefixing whole cues instead would misplace it on every such mixed cue.
+ACKNOWLEDGEMENTS = {
+    "yes": "Ja", "yeah": "Ja", "ya": "Ja", "yep": "Ja", "yup": "Ja",
+    "no": "Nej", "nope": "Nej",
+    "yes sir": "Javel", "aye": "Javel", "aye sir": "Javel",
+    "aye aye": "Javel", "aye aye sir": "Javel",
+    "no sir": "Nej",
+    "negative": "Negativ", "negative sir": "Negativ",
+}
+
+# Body and trailing terminal punctuation, so the cue's own ending survives.
+ACK_SPLIT_RE = re.compile(r"(.*?)([.!?]*)\s*$", re.S)
+
+
+def fixed_acknowledgement(text):
+    """The Danish for a bare acknowledgement, or None to let NLLB translate.
+
+    Whole strings only - anything with more in it still goes to the model, so
+    this can never eat part of a real sentence. The final punctuation is kept
+    rather than normalised, because a questioning "No?" must stay "Nej?" and
+    not collapse into a flat "Nej.". The dialogue dash is included; see the
+    note on ACKNOWLEDGEMENTS for why it is part of the translation.
+    """
+    body, tail = ACK_SPLIT_RE.match(text.strip()).groups()
+    key = re.sub(r"[,\s]+", " ", body.strip().lower()).strip()
+    danish = ACKNOWLEDGEMENTS.get(key)
+    if danish is None:
+        return None
+    return "- " + danish + ("?" if "?" in tail else "!" if "!" in tail else ".")
+
+
 def translate_texts_en_to_da(texts):
-    """Batch-translate English lines to Danish, preserving list order."""
+    """Batch-translate English lines to Danish, preserving list order.
+
+    Acknowledgements are answered from the table above and never reach the
+    model; everything else is batched exactly as before. Order is preserved by
+    translating only the gaps and writing them back into their own slots.
+    """
+    out = [fixed_acknowledgement(t) for t in texts]
+    pending = [i for i, done in enumerate(out) if done is None]
+    if not pending:
+        # Nothing for the model - don't even load it.
+        return out
+
     translator, tok = get_translator()
-    out = []
     batch_size = 16
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i + batch_size]
+    for i in range(0, len(pending), batch_size):
+        chunk = pending[i:i + batch_size]
+        batch = [texts[j] for j in chunk]
         source = [tok.convert_ids_to_tokens(tok.encode(t)) for t in batch]
         results = translator.translate_batch(
             source,
             target_prefix=[["dan_Latn"]] * len(batch),
             beam_size=4,
         )
-        for r in results:
+        for j, r in zip(chunk, results):
             tokens = r.hypotheses[0]
             # drop the forced dan_Latn target-language token
             if tokens and tokens[0] == "dan_Latn":
                 tokens = tokens[1:]
-            out.append(tok.decode(tok.convert_tokens_to_ids(tokens), skip_special_tokens=True).strip())
+            out[j] = tok.decode(tok.convert_tokens_to_ids(tokens), skip_special_tokens=True).strip()
     return out
 
 
