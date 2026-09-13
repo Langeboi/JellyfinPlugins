@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "2.3.4"
+WORKER_VERSION = "3.0.0"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -281,12 +281,29 @@ WHISPER_VAD = os.environ.get("SUBWORKER_WHISPER_VAD", "1") != "0"
 WHISPER_VAD_THRESHOLD = os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD")
 WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
 
-# Max characters of the hotword prompt handed to Whisper. Kept well under
-# half the 448-token decoder context so hotwords + previous-text conditioning
-# don't overflow it (which crashes transcription). This is a soft measure -
-# the real guarantee is the no-hotwords retry in process_transcribe_job, so a
-# list that still overflows never stops a subtitle being produced.
-HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "250"))
+# Max characters of the hotword prompt handed to Whisper. The limit is real -
+# hotwords and the previous-text conditioning share the half of Whisper's
+# 448-token context that faster-whisper reserves for the prompt (224 tokens),
+# and overflowing it raises "maximum decoding length must be > 0" while the
+# segments are being consumed.
+#
+# 250 was far more cautious than that limit needs. Measured against large-v3
+# with this file's own initial_prompt, transcribing a real episode:
+#
+#     250 chars =  92 tokens  ok
+#     400 chars = 140 tokens  ok
+#     600 chars = 193 tokens  ok
+#     800 chars = 253 tokens  fails
+#
+# So the cliff sits just past 600 characters, and 250 was throwing away two
+# thirds of the list the hub had built - measured across ten episodes, 324 of
+# 486 terms, including the character names hotwords exist to get right. 500
+# leaves a comfortable margin under the cliff and keeps most of them.
+#
+# This is still a soft measure: the real guarantee is the no-hotwords retry in
+# process_transcribe_job, so a list that somehow still overflows never stops a
+# subtitle being produced.
+HOTWORDS_MAX_CHARS = int(os.environ.get("SUBWORKER_HOTWORDS_MAX_CHARS", "500"))
 
 # ---- Which audio track to transcribe ----
 # Whisper transcribes whatever audio ffmpeg hands it, which is the container's
@@ -1432,6 +1449,7 @@ def enqueue_job(job: dict) -> bool:
     if not _persist_job(job):
         return False
     _enqueue_in_memory(job)
+    emit("queued", job)
     return True
 
 
@@ -1450,6 +1468,38 @@ state = {
     "ml_progress": None,
 }
 state_lock = threading.Lock()
+
+# ---- Live events ----
+# Every step this worker takes, kept in a small ring the hub reads with
+# GET /events?after=<seq>. The hub holds one request open per worker and is
+# answered the moment something happens, so its activity view is live
+# without polling for it. An older hub simply never calls this, and /status
+# keeps reporting exactly what it always did.
+EVENTS_MAX = 500
+events: "list[dict]" = []
+events_seq = 0
+events_condition = threading.Condition()
+
+
+def emit(kind: str, job: dict | None = None, **fields):
+    """Record one step. Never raises - telemetry must not break a job."""
+    global events_seq  # noqa: PLW0603
+    try:
+        entry = {"kind": kind, "at": datetime.now(timezone.utc).isoformat()}
+        if job is not None:
+            entry["job"] = job.get("type") or "sync"
+            entry["path"] = job.get("subtitle_path") or job.get("media_path") or ""
+        entry.update({key: value for key, value in fields.items() if value is not None})
+        with events_condition:
+            events_seq += 1
+            entry["seq"] = events_seq
+            events.append(entry)
+            if len(events) > EVENTS_MAX:
+                del events[: len(events) - EVENTS_MAX]
+            events_condition.notify_all()
+    except Exception:  # noqa: BLE001
+        pass
+
 
 # set = running, cleared = paused. Threads finish their current job and
 # then wait; pausing never kills work mid-file. The paused state persists
@@ -1753,6 +1803,16 @@ def record(sub_path: str, mtime: float, offset, status: str):
     finally:
         conn.close()
 
+    # Every outcome funnels through here, whatever kind of job produced it,
+    # so this is where the hub hears that a file is done. Paths are reported
+    # the way they were submitted (see rp), like /processed does.
+    kind, path = "sync", sub_path
+    for prefix, name in (("transcribe:", "transcribe"), ("translate:", "translate")):
+        if sub_path.startswith(prefix):
+            kind, path = name, sub_path[len(prefix):]
+            break
+    emit("finished", {"type": kind, "subtitle_path": rp(path)}, status=status, offset=offset)
+
 
 # ---- Provenance markers for machine-generated subtitles ----
 # A Whisper transcription is built FROM the audio, and a translation copies
@@ -1901,6 +1961,7 @@ def process_job(job: dict):
             state["skipped"] += 1
         return
 
+    emit("stage", job, stage="measuring")
     out_fd, out_path = tempfile.mkstemp(suffix=os.path.splitext(sub)[1])
     os.close(out_fd)
     try:
@@ -2079,6 +2140,7 @@ def process_transcribe_job(job: dict):
     out_path = None
     audio_tmp = None
     try:
+        emit("stage", job, stage="loading-model")
         model = get_whisper_model()
 
         # Choose the audio track BEFORE transcribing (see PREFERRED_AUDIO_LANGS).
@@ -2208,12 +2270,19 @@ def process_transcribe_job(job: dict):
         media_name = os.path.basename(media)
         with state_lock:
             state["ml_progress"] = {"file": media_name, "pct": 0}
+        emit("stage", job, stage="transcribing")
+        last_emitted = [-5]
 
         def _progress(seg_end):
             if duration > 0:
                 pct = max(0, min(100, int(seg_end / duration * 100)))
                 with state_lock:
                     state["ml_progress"] = {"file": media_name, "pct": pct}
+                # Every five percent is plenty for a progress bar, and keeps
+                # the event ring from filling up with ticks.
+                if pct >= last_emitted[0] + 5:
+                    last_emitted[0] = pct
+                    emit("progress", job, pct=pct)
 
         # The "maximum decoding length must be > 0" error is raised while the
         # generator is CONSUMED (here, not at transcribe()), when hotwords +
@@ -2310,6 +2379,7 @@ def worker_loop():
         label = job.get("subtitle_path") or job.get("media_path")
         with state_lock:
             state["processing"][name] = label
+        emit("started", job)
         _mark_attempt(job)
         try:
             process_job(job)
@@ -2351,6 +2421,7 @@ def ml_loop():
         label = prefix + os.path.basename(job.get("media_path") or "")
         with state_lock:
             state["processing"][name] = label
+        emit("started", job)
         _mark_attempt(job)
         try:
             with transcribe_job_lock:
@@ -2948,6 +3019,21 @@ def history(kind: str = "transcribe", limit: int = 20, x_api_key: str = Header(d
         for p, s, at in rows
     ]
     return {"kind": kind, "items": items}
+
+
+@app.get("/events")
+def event_stream(after: int = 0, wait: float = 25.0, x_api_key: str = Header(default="")):
+    """Steps taken since `after`. The request is held open until there is
+    something to report or `wait` seconds pass, so the hub learns about a
+    stage change immediately instead of on its next poll."""
+    check_key(x_api_key)
+    timeout = max(0.0, min(float(wait), 60.0))
+    with events_condition:
+        if not events or events[-1]["seq"] <= after:
+            events_condition.wait_for(lambda: bool(events) and events[-1]["seq"] > after, timeout=timeout)
+        fresh = [entry for entry in events if entry["seq"] > after]
+        latest = events[-1]["seq"] if events else after
+    return {"seq": latest, "events": fresh}
 
 
 @app.get("/status")
