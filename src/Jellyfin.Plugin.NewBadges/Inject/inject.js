@@ -4306,6 +4306,30 @@
     cwPreviewVideoEl = video;
   }
 
+  // Starts playback in this browser. The hidden native Continue Watching and
+  // Next Up rows stay mounted, and their cards carry Jellyfin's own resume
+  // button, which plays in the page itself - so that goes first. The remote
+  // PlayNow command only reaches a client whose live connection to the
+  // server is up: measured on Jellyfin 12, a web session whose /socket kept
+  // being refused reported no remote control, the command could not reach
+  // it, and the click ended on the details page instead of playing.
+  function playContinueCard(homePage, itemId, ticks) {
+    if (homePage && /^[0-9a-f]+$/i.test(itemId || '')) {
+      var natives = homePage.querySelectorAll('.card[data-id="' + itemId + '"]');
+      for (var i = 0; i < natives.length; i++) {
+        if (natives[i].closest('.newBadges-continueSection')) {
+          continue;
+        }
+        var resume = natives[i].querySelector('[data-action="resume"]');
+        if (resume) {
+          resume.click();
+          return;
+        }
+      }
+    }
+    drawerPlayItem(itemId, ticks);
+  }
+
   function wireContinueWatchingPreview() {
     if (!cfg.EnableContinueWatchingPreview) {
       return;
@@ -4361,7 +4385,7 @@
         stopContinuePreview();
         cwPreviewCard = null;
         clearTimeout(cwPreviewTimer);
-        drawerPlayItem(itemId, ticks);
+        playContinueCard(homePage, itemId, ticks);
       });
     });
   }
