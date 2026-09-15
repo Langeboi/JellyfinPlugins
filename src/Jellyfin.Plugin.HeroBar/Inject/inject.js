@@ -163,6 +163,53 @@
     return !!a && !!b && a.r === b.r && a.g === b.g && a.b === b.b;
   }
 
+  // Both colours of a themed button, read inside a parent wearing the
+  // page container's class, since themes style item-page buttons through
+  // that container rather than the button's own classes alone.
+  function probeButton(className, parentClass) {
+    var parent = document.createElement('div');
+    parent.className = parentClass + ' ' + PROBE_CLASS;
+    parent.style.cssText = 'position:fixed;left:-9999px;top:-9999px;pointer-events:none;opacity:0;';
+    var el = document.createElement('button');
+    el.className = className;
+    parent.appendChild(el);
+    document.body.appendChild(parent);
+    var style = getComputedStyle(el);
+    var look = { bg: parseColor(style.backgroundColor), fg: parseColor(style.color) };
+    parent.parentNode.removeChild(parent);
+    return look.bg && look.fg ? look : null;
+  }
+
+  // ElegantFin arrives through an @import from a CDN, so the first reading
+  // on every page load is taken before it has landed. The last good look is
+  // kept and used while the theme may still be loading, so the button does
+  // not start blue and turn grey a moment later. After the grace period a
+  // failed reading means the theme really has no such button (a theme was
+  // switched), and the stored look stops applying.
+  var PLAY_LOOK_KEY = 'heroBar-playLook';
+  var THEME_LOAD_GRACE_MS = 15000;
+  var scriptStartedAt = Date.now();
+
+  function storedPlayLook() {
+    try {
+      var look = JSON.parse(localStorage.getItem(PLAY_LOOK_KEY) || 'null');
+      return look && look.bg && look.fg ? look : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function rememberPlayLook(look) {
+    try {
+      var value = JSON.stringify(look);
+      if (localStorage.getItem(PLAY_LOOK_KEY) !== value) {
+        localStorage.setItem(PLAY_LOOK_KEY, value);
+      }
+    } catch (e) {
+      // Only saves the brief wrong colour on the next load.
+    }
+  }
+
   function applyPalette() {
     if (!document.body) {
       return;
@@ -173,28 +220,54 @@
       opaqueBackground(document.documentElement) ||
       (luminance(fg) > 0.5 ? { r: 16, g: 16, b: 16, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
 
+    // A bare button wearing none of Jellyfin's classes shows what the
+    // browser itself paints. If a themed probe matches that, no theme
+    // claimed the class and the reading is the user agent's own default
+    // grey - which must not be mistaken for someone's accent colour.
+    var uaDefault = probeColor('', 'backgroundColor');
+
+    // The theme's own Play button on an item page is the closest match for
+    // the hero's Play, so its look wins whenever the theme paints one.
+    // ElegantFin makes it a light grey pill with black text, while Jellyfin
+    // 12's --jf-palette-primary-main token stays stock blue underneath -
+    // reading the token first left the hero's Play the one blue button on
+    // the page. The stock theme draws that button flat, so there it is
+    // transparent and the readings below take over.
+    var accent = null;
+    var accentFg = null;
+    var fromTheme = false;
+    var play = probeButton('button-flat btnPlay detailButton emby-button', 'detailPagePrimaryContainer');
+    if (play && play.bg.a > 0.5 && !sameColor(play.bg, uaDefault) && !sameColor(play.bg, surface)) {
+      accent = play.bg;
+      accentFg = play.fg;
+      fromTheme = true;
+      rememberPlayLook(play);
+    } else if (Date.now() - scriptStartedAt < THEME_LOAD_GRACE_MS && storedPlayLook()) {
+      accent = storedPlayLook().bg;
+      accentFg = storedPlayLook().fg;
+      fromTheme = true;
+    }
+
     // .button-submit is the one class every Jellyfin theme - and every skin
     // built on one - paints with its accent colour.
-    // Ask the theme directly first. The probe below depends on
+    // Ask the theme's token before that. The probe below depends on
     // .button-submit actually being painted, and Jellyfin 12 renders its
     // buttons as MUI components that never carry that class - measured live,
     // .raised matches nothing there at all - so on 12 the probe finds
     // nothing and quietly falls back to a hardcoded colour.
-    var accent = tokenColor('--jf-palette-primary-main');
-    var fromToken = !!accent;
+    var fromToken = false;
+    if (!accent) {
+      accent = tokenColor('--jf-palette-primary-main');
+      fromToken = !!accent;
+    }
     if (!accent) {
       accent = probeColor('emby-button raised button-submit', 'backgroundColor');
     }
-    // A bare button wearing none of Jellyfin's classes shows what the
-    // browser itself paints. If the themed probe matches that, no theme
-    // claimed the class and the reading is the user agent's own default
-    // grey - which must not be mistaken for someone's accent colour.
-    var uaDefault = probeColor('', 'backgroundColor');
     // Skipped entirely when the theme told us its accent outright: these
     // are sanity checks on a *guess*, and the luminance test in particular
     // would reject a perfectly good declared accent that happens to sit
     // close to the surface colour.
-    if (!fromToken && (!accent || accent.a < 0.5 || sameColor(accent, uaDefault) ||
+    if (!fromTheme && !fromToken && (!accent || accent.a < 0.5 || sameColor(accent, uaDefault) ||
         Math.abs(luminance(accent) - luminance(surface)) < 0.04)) {
       // The probe failed - but that usually means the theme's stylesheet
       // has not landed YET, not that the theme has no accent. On this
@@ -228,7 +301,9 @@
     // over from the theme.
     var vars = {
       '--hb-accent': 'rgb(' + rgbList(accent) + ')',
-      '--hb-accent-fg': luminance(accent) > 0.6 ? '#000' : '#fff',
+      '--hb-accent-fg': accentFg && sameColor(accent, (play && play.bg) || storedPlayLook() && storedPlayLook().bg)
+        ? 'rgb(' + rgbList(accentFg) + ')'
+        : (luminance(accent) > 0.6 ? '#000' : '#fff'),
       '--hb-scrim-rgb': rgbList(scrim),
       // Everything the hero draws sits on top of artwork, so it is white in
       // every theme, for the same reason the scrim stays dark.

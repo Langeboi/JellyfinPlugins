@@ -866,6 +866,18 @@
       // A library's own icon, copied from Jellyfin's link (see
       // createPillSegment); sized here over MUI's own classes on the copy.
       '.seerrNav-seg > svg{width:18px;height:18px;font-size:18px;fill:currentColor;flex:none;}' +
+      // The compact pill (see ensureCompactPill): icons only, with the name
+      // written out on the entry that is showing and a tooltip on the rest.
+      // It scrolls sideways rather than pushing the header's own buttons off,
+      // and on a phone it steps aside - the menu already holds everything.
+      '.seerrNav-pill.seerrNav-compact{margin:0 auto 0 6px;min-width:0;overflow-x:auto;' +
+        'scrollbar-width:none;}' +
+      '.seerrNav-compact::-webkit-scrollbar{display:none;}' +
+      '.seerrNav-compact .seerrNav-seg{padding:0 8px;gap:0;flex:none;}' +
+      '.seerrNav-compact .seerrNav-label{display:none;}' +
+      '.seerrNav-compact .seerrNav-seg.is-active{padding:0 12px 0 9px;gap:6px;}' +
+      '.seerrNav-compact .seerrNav-seg.is-active .seerrNav-label{display:inline;}' +
+      '@media (max-width:559px){.seerrNav-compact{display:none;}}' +
       // While one of ours is showing, the drawer's own Home or Favourites
       // entry still believes it is current - MUI works that out from the
       // address, which ours never change - so its fill is taken away and
@@ -1230,6 +1242,149 @@
     syncPillLibraries(pill, nativeLibraryLinks(nav.stack));
   }
 
+  // ---- Jellyfin 12: the compact pill ----
+  //
+  // Below 900px 12 swaps the centre links for a menu button (measured: the
+  // links are there at 900 and gone at 899), and the pill went with them -
+  // a half-width window had no pill at all. There are no library links left
+  // in that bar to build one from, so this one is mounted beside the menu
+  // button and takes the libraries from the API instead.
+  var COMPACT_ATTR = 'data-seerr-nav-compact';
+  var LIBRARY_ROUTES = { movies: '#/movies', tvshows: '#/tv', music: '#/music', livetv: '#/livetv' };
+  var LIBRARY_GLYPHS = {
+    music: 'library_music', livetv: 'live_tv', books: 'menu_book', photos: 'photo_library',
+    homevideos: 'photo_library', boxsets: 'collections', playlists: 'queue_music'
+  };
+  // Jellyfin's own Movie and TV icons, copied from the wide bar so both
+  // layouts draw the same pictures.
+  var LIBRARY_SVG_PATHS = {
+    movies: 'm18 4 2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4z',
+    tvshows: 'M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 1.99-.9 1.99-2L23 5c0-1.1-.9-2-2-2m0 14H3V5h18z'
+  };
+  var userViewsPromise = null;
+
+  function loadUserViews() {
+    if (!userViewsPromise) {
+      var apiClient = window.ApiClient;
+      userViewsPromise = apiClient.getJSON(apiClient.getUrl('UserViews', { userId: apiClient.getCurrentUserId() }))
+        .then(function (result) {
+          return result.Items || [];
+        })
+        .catch(function () {
+          // Asked again the next time the pill is built.
+          userViewsPromise = null;
+          return [];
+        });
+    }
+    return userViewsPromise;
+  }
+
+  // The same addresses the wide bar's library links use.
+  function libraryHref(view) {
+    var route = LIBRARY_ROUTES[view.CollectionType];
+    return route
+      ? route + '?topParentId=' + view.Id + '&collectionType=' + view.CollectionType
+      : '#/list?parentId=' + view.Id;
+  }
+
+  function libraryIcon(type) {
+    var path = LIBRARY_SVG_PATHS[type];
+    if (!path) {
+      return LIBRARY_GLYPHS[type] || 'folder';
+    }
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    var shape = document.createElementNS(ns, 'path');
+    shape.setAttribute('d', path);
+    svg.appendChild(shape);
+    return svg;
+  }
+
+  // The box holding the header's right-hand buttons, when the bar is in its
+  // compact form. That form leads with the menu button; the wide one leads
+  // with the server-name stack, where the regular pill lives.
+  function compactNavHost() {
+    var toolbar = document.querySelector('header.MuiAppBar-root .MuiToolbar-root');
+    if (!toolbar || toolbar.children.length < 2) {
+      return null;
+    }
+    var host = toolbar.children[1];
+    if (toolbar.children[0].tagName !== 'BUTTON' || host.querySelector(':scope > a.MuiButton-root')) {
+      return null;
+    }
+    return host;
+  }
+
+  function removeCompactPill() {
+    document.querySelectorAll('[' + COMPACT_ATTR + ']').forEach(function (pill) {
+      pill.parentNode.removeChild(pill);
+    });
+  }
+
+  function titleSegments(pill) {
+    pill.querySelectorAll('.seerrNav-seg').forEach(function (segment) {
+      var label = segment.querySelector('.seerrNav-label');
+      if (label && !segment.title) {
+        segment.title = label.textContent;
+      }
+    });
+  }
+
+  function ensureCompactPill() {
+    var host = compactNavHost();
+    if (!host || (!cfg.ShowRequestsTab && !cfg.ShowCalendarTab)) {
+      removeCompactPill();
+      return;
+    }
+    var pill = host.querySelector(':scope > [' + COMPACT_ATTR + ']');
+    if (pill) {
+      if (host.firstElementChild !== pill) {
+        host.insertBefore(pill, host.firstElementChild);
+      }
+      return;
+    }
+    // A copy left behind in a header React has since replaced.
+    removeCompactPill();
+
+    pill = document.createElement('div');
+    pill.className = 'seerrNav-pill seerrNav-compact';
+    pill.setAttribute(PILL_ATTR, 'true');
+    pill.setAttribute(COMPACT_ATTR, 'true');
+    pill.setAttribute('role', 'tablist');
+    addPillSegment(pill, 'home', null, t('navHome'), 'home', '#/home', goHomeTab);
+    addPillSegment(pill, 'favorites', null, t('navFavorites'), 'favorite', FAVOURITES_HREF, goFavouritesTab);
+    if (cfg.ShowRequestsTab) {
+      addPillSegment(pill, 'requests', BUTTON_MARKER, t('navRequests'), 'add_circle', '#/home', function () {
+        openHomeTab(activateSeerrTab);
+      });
+    }
+    if (cfg.ShowCalendarTab) {
+      addPillSegment(pill, 'calendar', CAL_BUTTON_MARKER, t('navCalendar'), 'event', '#/home', function () {
+        openHomeTab(activateCalendarTab);
+      });
+    }
+    titleSegments(pill);
+    host.insertBefore(pill, host.firstElementChild);
+
+    loadUserViews().then(function (views) {
+      if (!pill.isConnected || !views.length) {
+        return;
+      }
+      // After Favourites, before Request and Calendar, as in the wide pill.
+      var before = pill.querySelector('[data-seg="requests"], [data-seg="calendar"]');
+      views.forEach(function (view) {
+        var href = libraryHref(view);
+        pill.insertBefore(createPillSegment('lib:' + href, null, view.Name, libraryIcon(view.CollectionType), href,
+          function () {
+            location.hash = href;
+          }), before);
+      });
+      titleSegments(pill);
+      syncNavPill();
+    });
+  }
+
   // Every other destination Jellyfin puts in the bar - the libraries, and
   // whatever else a server has there - except the server name (#/) and Home
   // and Favourites, which the pill has entries of its own for.
@@ -1536,6 +1691,9 @@
     if (nav) {
       attachMuiNavWatcher(nav.stack);
       ensureNavPill(nav);
+      removeCompactPill();
+    } else {
+      ensureCompactPill();
     }
 
     var drawer = muiDrawerList();
