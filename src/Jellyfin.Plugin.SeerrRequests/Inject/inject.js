@@ -856,10 +856,10 @@
         'transition:background-color .2s ease,color .2s ease,opacity .2s ease;}' +
       '.seerrNav-seg:hover{opacity:1;background:rgba(255,255,255,.08);' +
         'background:color-mix(in srgb,currentColor 10%,transparent);}' +
-      '.seerrNav-seg:focus-visible{outline:2px solid var(--jf-palette-primary-main,var(--seerr-accent));' +
-        'outline-offset:1px;}' +
-      '.seerrNav-seg.is-active{opacity:1;background:var(--jf-palette-primary-main,var(--seerr-accent));' +
-        'color:var(--jf-palette-primary-contrastText,#fff);}' +
+      // White rather than the theme's primary colour: on ElegantFin that token
+      // is still Jellyfin's stock blue, the one blue thing in a grey header.
+      '.seerrNav-seg:focus-visible{outline:2px solid #fff;outline-offset:1px;}' +
+      '.seerrNav-seg.is-active{opacity:1;background:#fff;color:#000;}' +
       '.seerrNav-seg > .material-icons.seerrRequests-tabIcon{font-size:18px;line-height:1;flex:none;' +
         'font-variation-settings:"FILL" 0;font-feature-settings:"liga";}' +
       '.seerrNav-seg.is-active > .material-icons.seerrRequests-tabIcon{font-variation-settings:"FILL" 1;}' +
