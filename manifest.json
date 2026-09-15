@@ -220,6 +220,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.5.1.0",
+        "changelog": "Afspil-knappen følger temaets egne farver - på ElegantFin lysegrå med sort tekst - i stedet for Jellyfins blå, også mens temaet indlæses.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/herobar-v2.5.1.0/herobar_2.5.1.0.zip",
+        "checksum": "f31980efc6cdda8e669d784fa2dc35ac",
+        "timestamp": "2026-09-15T21:00:00Z"
+      },
+      {
         "version": "2.5.0.0",
         "changelog": "Forsiden hentes meget hurtigere.\n\n- Alle otte baggrunde blev hentet på én gang i 1920 gange skærmens pixeltæthed - 2880 px på en almindelig bærbar og 3,5 MB, mens forsiden stadig var ved at indlæse. Nu hentes kun det slide, der vises, og det næste, i en størrelse der passer til skærmen.\n- Logoerne hentes også først, når deres slide er på vej.\n- Indtil baggrunden er hentet, vises en sløret udgave af den.\n- Størrelserne er dem, New Badges 2.8.2.0 laver på forhånd på serveren, så billederne kommer med det samme.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.0.4.0.",
         "targetAbi": "12.0.0.0",
@@ -390,6 +398,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.9.0.0",
+        "changelog": "Forsiden står stille igen på Jellyfin 12.\n\n- Fortsæt afspilning og Næste afsnit er én række igen, og Trending virker igen. Den gav op, når andre havde set mange afsnit den seneste måned.\n- Rækkerne hopper ikke længere rundt, mens forsiden indlæses, og billederne på Fortsæt afspilning skifter ikke: de viser seriens billede, ligesom Jellyfins egen række.\n- Ingen S/E-mærker på Fortsæt afspilning.\n- Filmbibliotekernes redesign (Anbefalet til dig, favoritter og filtre) er fjernet, så bibliotekerne ser ud som i Jellyfin selv.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.9.0.0/newbadges_2.9.0.0.zip",
+        "checksum": "b78cf15345d2b3886b88dd22e7fb4eb9",
+        "timestamp": "2026-09-15T21:00:00Z"
+      },
       {
         "version": "2.8.2.0",
         "changelog": "Hurtigere billeder overalt: forsiden, søgningen og detaljesiderne.\n\n- Jellyfin laver et billede i en ny størrelse første gang, nogen beder om den, og det tager 0,1-0,5 sekunder pr. billede. Apps beder om lidt forskellige størrelser på hver enhed og i hvert vindue, så de fleste billeder blev lavet forfra. Størrelserne rundes nu til en kort liste, så et billede lavet til én enhed genbruges af den næste, og kvalitet over 90 sættes ned til 90 - et plakatkort fylder omkring en tredjedel mindre uden synlig forskel. Gælder alle apps.\n- Ny planlagt opgave \"Warm image cache\" (dagligt kl. 03:00) laver plakater, baggrunde, logoer og skuespillerbilleder på forhånd i de størrelser, jeres apps faktisk bruger. Nye film og afsnit klares et par minutter efter, de er kommet ind. Opgaven sætter farten ned, når nogen bruger serveren. Første kørsel på et stort bibliotek tager et par timer.\n- \"Mere som dette\" og samlinger på detaljesider huskes i 30 minutter pr. bruger. Jellyfin 12 bruger op til 1,5 sekund på at regne dem ud hver gang. De glemmes, så snart du ser eller markerer noget som favorit, eller biblioteket ændres.\n- Søgningen henter skuespillere og instruktørens andre film, når du holder pause i skrivningen, i stedet for ved hvert tastetryk. Skuespillerne vises, så snart de er kendt, uden at vente på instruktørens film, billeder længere ude i rækkerne hentes først, når de kommer frem, og søger du på det samme igen, står det der med det samme.\n- Mens plakater og portrætter hentes, vises en sløret udgave af billedet i stedet for en tom grå boks.\n- Det hele kan slås fra under Speed i indstillingerne.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
@@ -737,6 +753,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.7.1.0",
+        "changelog": "- Menupillen øverst findes nu også i et halvt vindue: ikoner, med navnet på den side du er på, og et hint på resten. På en telefon ligger alt i menuen som før.\n- Den valgte knap i pillen er hvid i stedet for blå.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.7.1.0/seerrrequests_2.7.1.0.zip",
+        "checksum": "1b97b43104fdaf87118ecb0a2b87ee2a",
+        "timestamp": "2026-09-15T21:00:00Z"
+      },
       {
         "version": "2.7.0.0",
         "changelog": "Hele topbaren i én knapgruppe på Jellyfin 12.\n\n- Film, Serier og dine andre biblioteker er nu med i knapgruppen, efter Favoritter og før Tilføj og Kalender. Før stod de uden for, så gruppen så ud som en bar, der stoppede halvvejs.\n- Det bibliotek, du er inde i, er fyldt ud i gruppen.\n- Ingen tynd kant rundt om gruppen længere - over banneret lignede den en rest af den gamle topbar. Gruppen har nu en mørk, let sløret baggrund i stedet.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
