@@ -85,12 +85,6 @@ namespace Jellyfin.Plugin.NewBadges.Configuration
         // ---- Elsewhere ----
 
         /// <summary>
-        /// Replace the flat alphabetical wall on movie libraries with
-        /// recommendations, favourites and a filtered, paged catalogue.
-        /// </summary>
-        public bool EnableMoviesRedesign { get; set; } = true;
-
-        /// <summary>
         /// Add quick search, a resume list and shortcuts to the top of the
         /// burger menu.
         /// </summary>
