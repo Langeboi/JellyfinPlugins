@@ -399,6 +399,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.9.1.0",
+        "changelog": "Et klik på Fortsæt afspilning afspiller med det samme, også i browsere hvor Jellyfins fjernbetjening ikke har forbindelse - dér endte klikket før på afsnittets side.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.9.1.0/newbadges_2.9.1.0.zip",
+        "checksum": "ede781c15f1a503ba9d538751d6306f2",
+        "timestamp": "2026-09-15T23:00:00Z"
+      },
+      {
         "version": "2.9.0.0",
         "changelog": "Forsiden står stille igen på Jellyfin 12.\n\n- Fortsæt afspilning og Næste afsnit er én række igen, og Trending virker igen. Den gav op, når andre havde set mange afsnit den seneste måned.\n- Rækkerne hopper ikke længere rundt, mens forsiden indlæses, og billederne på Fortsæt afspilning skifter ikke: de viser seriens billede, ligesom Jellyfins egen række.\n- Ingen S/E-mærker på Fortsæt afspilning.\n- Filmbibliotekernes redesign (Anbefalet til dig, favoritter og filtre) er fjernet, så bibliotekerne ser ud som i Jellyfin selv.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
         "targetAbi": "12.0.0.0",
