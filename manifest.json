@@ -399,6 +399,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.9.2.0",
+        "changelog": "Forhåndsvisningen på Fortsæt afspilning starter med det samme i stedet for efter tre sekunder, og klikker du på kortet, fortsætter afspilningen dér, hvor forhåndsvisningen er nået til.\n\nI browsere uden forbindelse til serverens fjernbetjening starter klikket stadig - dér fra det gemte sted, et par sekunder før billedet på skærmen.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.9.2.0/newbadges_2.9.2.0.zip",
+        "checksum": "b4c98fc189bca4362113d74a6bf1ebfb",
+        "timestamp": "2026-09-16T08:00:00Z"
+      },
+      {
         "version": "2.9.1.0",
         "changelog": "Et klik på Fortsæt afspilning afspiller med det samme, også i browsere hvor Jellyfins fjernbetjening ikke har forbindelse - dér endte klikket før på afsnittets side.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
         "targetAbi": "12.0.0.0",
