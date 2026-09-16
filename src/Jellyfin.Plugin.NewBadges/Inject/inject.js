@@ -1089,11 +1089,18 @@
     return Math.round(px);
   }
 
-  function sizedImageUrl(itemId, type, tag, cssWidth) {
-    var density = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  // density is image pixels per CSS pixel, and defaults to the screen's own
+  // (capped at 2) because cards and posters are looked at closely. The
+  // page-filling backdrop passes 1 instead: it sits behind a dark scrim at
+  // low contrast, where the extra detail cannot be seen, and at 2 it was the
+  // largest image the page asked for - measured on a scaled display, 2560px
+  // wide for a 1268px window, a size the server usually has to render from
+  // scratch first.
+  function sizedImageUrl(itemId, type, tag, cssWidth, density) {
+    var scale = density || Math.min(2, Math.max(1, window.devicePixelRatio || 1));
     var options = {
       type: type,
-      maxWidth: imageBucket(cssWidth * density),
+      maxWidth: imageBucket(cssWidth * scale),
       quality: type === 'Backdrop' ? 80 : 90
     };
     if (tag) {
@@ -1244,7 +1251,7 @@
         // Rounded to the shared size list (see sizedImageUrl), so every
         // window size between two steps reuses one image - from the
         // browser's cache and from the server's.
-        var imgUrl = sizedImageUrl(imageItemId, 'Backdrop', tag, window.innerWidth);
+        var imgUrl = sizedImageUrl(imageItemId, 'Backdrop', tag, window.innerWidth, 1);
 
         var freshContainer = document.querySelector('.backdropContainer');
         if (!freshContainer || freshContainer.querySelector('.displayingBackdropImage')) {
