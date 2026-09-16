@@ -2565,6 +2565,12 @@
       loadHomeSectionTypes();
       renderTrendingIfHome();
       renderContinueIfHome();
+      // With the row on screen a frame after home renders, but its hover
+      // listeners still waiting on the scan debounce, there was a window
+      // where the cards were there and nothing was listening: the first
+      // card hovered after a page load did nothing, while the next one
+      // worked at once. Wiring is idempotent, so it rides along here.
+      wireContinueWatchingPreview();
     });
   }
 
@@ -4264,7 +4270,11 @@
   function startContinuePreview(card) {
     var itemId = card.getAttribute('data-id');
     var scalable = card.querySelector('.cardScalable');
-    if (!itemId || !scalable || scalable.querySelector('.newBadges-cwPreviewVideo')) {
+    // isConnected: the row repaints itself when fresher data arrives, and a
+    // card replaced between the hover and this call is no longer on the
+    // page - the video would load into a detached node and never be seen.
+    if (!itemId || !scalable || !card.isConnected ||
+        scalable.querySelector('.newBadges-cwPreviewVideo')) {
       return;
     }
     var ticks = parseInt(card.getAttribute('data-ticks'), 10) || 0;
@@ -4373,6 +4383,21 @@
         return;
       }
       homePage.setAttribute(CW_PREVIEW_WIRED_ATTR, 'true');
+
+      // The pointer can already be sitting on a card by the time the
+      // listeners go on, and a pointer that does not move fires no further
+      // mouseover - so that first card would stay dead until it was left
+      // and hovered again. Picked up here instead, on the same delay.
+      var resting = homePage.querySelector('.newBadges-cwCard:hover');
+      if (resting) {
+        cwPreviewCard = resting;
+        clearTimeout(cwPreviewTimer);
+        cwPreviewTimer = setTimeout(function () {
+          if (cwPreviewCard === resting) {
+            startContinuePreview(resting);
+          }
+        }, CW_PREVIEW_DELAY_MS);
+      }
 
       homePage.addEventListener('mouseover', function (e) {
         if (!window.matchMedia('(hover: hover)').matches) {
