@@ -2176,7 +2176,10 @@
   // Same self-remote-control PlayNow mechanism Hero Bar uses (validated
   // live there): the web client is a controllable session and acts on
   // commands sent to itself. startTicks resumes mid-item.
-  function drawerPlayItem(itemId, startTicks) {
+  // Resolves true when this browser's own session accepted the command, and
+  // false when it could not be reached - callers decide what to do instead,
+  // rather than every one of them landing on the details page.
+  function playViaSession(itemId, startTicks) {
     var apiClient = window.ApiClient;
     return apiClient.getJSON(apiClient.getUrl('Sessions', { deviceId: apiClient.deviceId() }))
       .then(function (sessions) {
@@ -2193,14 +2196,20 @@
         });
       })
       .then(function (resp) {
-        if (!resp.ok) {
-          throw new Error('PlayNow failed');
-        }
+        return !!resp.ok;
       })
       .catch(function () {
+        return false;
+      });
+  }
+
+  function drawerPlayItem(itemId, startTicks) {
+    return playViaSession(itemId, startTicks).then(function (played) {
+      if (!played) {
         // Fall back to the details page rather than doing nothing.
         location.hash = '#/details?id=' + itemId;
-      });
+      }
+    });
   }
 
   var lastMuiDrawerCloseAt = 0;
@@ -4229,7 +4238,10 @@
   //  details is overridden here too, not just while a preview is active.
   // ==================================================================
 
-  var CW_PREVIEW_DELAY_MS = 3000;
+  // Long enough that sweeping the pointer across the row does not open a
+  // stream per card, short enough to feel immediate. The wait used to be
+  // three seconds.
+  var CW_PREVIEW_DELAY_MS = 150;
   var CW_PREVIEW_WIRED_ATTR = 'data-nb-cwpreview-wired';
   var cwPreviewTimer = null;
   var cwPreviewCard = null;
@@ -4313,19 +4325,41 @@
   // server is up: measured on Jellyfin 12, a web session whose /socket kept
   // being refused reported no remote control, the command could not reach
   // it, and the click ended on the details page instead of playing.
-  function playContinueCard(homePage, itemId, ticks) {
-    if (homePage && /^[0-9a-f]+$/i.test(itemId || '')) {
-      var natives = homePage.querySelectorAll('.card[data-id="' + itemId + '"]');
-      for (var i = 0; i < natives.length; i++) {
-        if (natives[i].closest('.newBadges-continueSection')) {
-          continue;
-        }
-        var resume = natives[i].querySelector('[data-action="resume"]');
-        if (resume) {
-          resume.click();
+  function clickNativeResume(homePage, itemId) {
+    if (!homePage || !/^[0-9a-f]+$/i.test(itemId || '')) {
+      return false;
+    }
+    var natives = homePage.querySelectorAll('.card[data-id="' + itemId + '"]');
+    for (var i = 0; i < natives.length; i++) {
+      if (natives[i].closest('.newBadges-continueSection')) {
+        continue;
+      }
+      var resume = natives[i].querySelector('[data-action="resume"]');
+      if (resume) {
+        resume.click();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function playContinueCard(homePage, itemId, ticks, previewTicks) {
+    // Jellyfin's own resume button starts at the position the server has,
+    // which is where the preview began, not where it has got to. So when a
+    // preview is actually running, the command carrying a start position
+    // goes first and the button is the fallback; with no preview the button
+    // goes first, since it needs no live connection to the server.
+    if (previewTicks) {
+      playViaSession(itemId, previewTicks).then(function (played) {
+        if (played || clickNativeResume(homePage, itemId)) {
           return;
         }
-      }
+        location.hash = '#/details?id=' + itemId;
+      });
+      return;
+    }
+    if (clickNativeResume(homePage, itemId)) {
+      return;
     }
     drawerPlayItem(itemId, ticks);
   }
@@ -4382,10 +4416,18 @@
         e.stopPropagation();
         var itemId = card.getAttribute('data-id');
         var ticks = parseInt(card.getAttribute('data-ticks'), 10) || 0;
+        // Read before the preview is torn down: the real player picks up
+        // from the frame on screen instead of jumping back to where the
+        // preview started. A preview that never got going has no position
+        // to carry over, and the saved one is used as before.
+        var previewTicks = 0;
+        if (cwPreviewCard === card && cwPreviewVideoEl && cwPreviewVideoEl.currentTime > 0) {
+          previewTicks = Math.round(cwPreviewVideoEl.currentTime * 10000000);
+        }
         stopContinuePreview();
         cwPreviewCard = null;
         clearTimeout(cwPreviewTimer);
-        playContinueCard(homePage, itemId, ticks);
+        playContinueCard(homePage, itemId, ticks, previewTicks);
       });
     });
   }
