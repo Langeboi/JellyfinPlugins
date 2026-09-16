@@ -399,6 +399,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.9.6.0",
+        "changelog": "Baggrundsbilledet på detaljesider lægger sig ikke længere oven på Jellyfins eget. Jellyfin tegner selv et baggrundsbillede i vinduer over 1000 px, og det kunne nå frem, mens vores stadig blev hentet - så lå der to lag og tonede hen over hinanden. Kontrollen sker nu lige før billedet sættes ind, i stedet for inden hentningen begynder.\n\nMålt på Jellyfin 12: ved 1200 px vinder Jellyfins eget, ved 900 px vores. Begge dele sker, og i begge tilfælde vises nu præcis ét billede.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.9.6.0/newbadges_2.9.6.0.zip",
+        "checksum": "1618132ff8ffd88f44dd54793583af48",
+        "timestamp": "2026-09-16T21:00:00Z"
+      },
+      {
         "version": "2.9.5.0",
         "changelog": "Baggrundsbilledet på detaljesider hentes nu i vinduets egen bredde i stedet for det dobbelte. På en skærm med skalering bad siden før om et 2560 px bredt billede til et 1268 px vindue; nu er det 1280 px - omkring en fjerdedel så mange bytes, og en størrelse serveren som regel har lavet i forvejen.\n\nBilledet ligger bag et mørkt slør, hvor detaljerne alligevel ikke kan ses. Kort og plakater er uændrede: de ses tæt på og hentes stadig i skærmens egen opløsning.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
         "targetAbi": "12.0.0.0",
