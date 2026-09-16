@@ -25,7 +25,8 @@ namespace Jellyfin.Plugin.NewBadges.Performance
 
         public string Description =>
             "Renders posters, backdrops, logos and cast photos in the sizes this server's apps ask for, so they load " +
-            "instantly the first time they are shown. Images that are already rendered are skipped in milliseconds.";
+            "instantly the first time they are shown. Covers recent arrivals each night and the whole library on " +
+            "Sundays. Images that are already rendered are skipped in milliseconds.";
 
         public string Category => "New Badges";
 
@@ -37,7 +38,17 @@ namespace Jellyfin.Plugin.NewBadges.Performance
                 return;
             }
 
-            await _warmer.WarmLibraryAsync(progress, cancellationToken).ConfigureAwait(false);
+            // Everything older than a few weeks is already rendered, so a nightly
+            // full pass spends its time confirming that and little else - an hour
+            // and a half of it on a real library. The full sweep still happens, once
+            // a week, to pick up sizes a new client has started asking for.
+            if (DateTime.Now.DayOfWeek == DayOfWeek.Sunday)
+            {
+                await _warmer.WarmLibraryAsync(progress, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            await _warmer.WarmRecentAsync(progress, cancellationToken).ConfigureAwait(false);
         }
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

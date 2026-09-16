@@ -40,6 +40,12 @@ namespace Jellyfin.Plugin.NewBadges.Performance
         private const int InUseDelayMs = 300;
         private static readonly TimeSpan InUseWindow = TimeSpan.FromSeconds(45);
         private const int RecentEpisodeDays = 45;
+        // Nightly, only titles added this recently are gone over. The whole
+        // catalogue is swept once a week instead: measured on a real library,
+        // a nightly full pass looked at 69,174 images to render 7,513 of them
+        // and took an hour and a half, because everything older was already
+        // cached and only being checked.
+        private const int RecentTitleDays = 45;
 
         // About as many portraits as the search overlay's cast row shows before
         // anyone scrolls it; the rest render when scrolled to.
@@ -107,8 +113,13 @@ namespace Jellyfin.Plugin.NewBadges.Performance
             return combos.Where(combo => WarmableKinds.Contains(combo.Kind)).ToList();
         }
 
+        /// <summary>Everything, however long ago it was added. Weekly.</summary>
         public Task<WarmResult> WarmLibraryAsync(IProgress<double>? progress, CancellationToken cancellationToken) =>
             RunAsync("library", CollectLibrary, progress, cancellationToken);
+
+        /// <summary>Only what arrived in the last few weeks. The other nights.</summary>
+        public Task<WarmResult> WarmRecentAsync(IProgress<double>? progress, CancellationToken cancellationToken) =>
+            RunAsync("recent", CollectRecent, progress, cancellationToken);
 
         public Task<WarmResult> WarmItemsAsync(IReadOnlyCollection<Guid> itemIds, CancellationToken cancellationToken) =>
             RunAsync(
@@ -168,25 +179,32 @@ namespace Jellyfin.Plugin.NewBadges.Performance
             return kind == "Movie" || kind == "Series";
         }
 
-        private List<(BaseItem Item, ImageCombo Combo)> CollectLibrary(IReadOnlyList<ImageCombo> combos)
+        private List<(BaseItem Item, ImageCombo Combo)> CollectLibrary(IReadOnlyList<ImageCombo> combos) =>
+            CollectTitles(combos, null);
+
+        private List<(BaseItem Item, ImageCombo Combo)> CollectRecent(IReadOnlyList<ImageCombo> combos) =>
+            CollectTitles(combos, DateTime.UtcNow.AddDays(-RecentTitleDays));
+
+        /// <param name="addedSince">Null for the whole library.</param>
+        private List<(BaseItem Item, ImageCombo Combo)> CollectTitles(IReadOnlyList<ImageCombo> combos, DateTime? addedSince)
         {
             var byKind = GroupByKind(combos);
             var units = new List<(BaseItem, ImageCombo)>();
 
             // Films and series first, newest first: their posters, backdrops and
             // logos are what the home page, search and details pages open with.
-            var titles = Query(new[] { BaseItemKind.Movie, BaseItemKind.Series }, null);
+            var titles = Query(new[] { BaseItemKind.Movie, BaseItemKind.Series }, addedSince);
             AddUnits(units, titles, byKind);
             AddPeople(units, titles, byKind);
 
             if (byKind.ContainsKey("BoxSet"))
             {
-                AddUnits(units, Query(new[] { BaseItemKind.BoxSet }, null), byKind);
+                AddUnits(units, Query(new[] { BaseItemKind.BoxSet }, addedSince), byKind);
             }
 
             if (byKind.ContainsKey("Season"))
             {
-                AddUnits(units, Query(new[] { BaseItemKind.Season }, null), byKind);
+                AddUnits(units, Query(new[] { BaseItemKind.Season }, addedSince), byKind);
             }
 
             // Only recent episodes: they are the ones on the home page. A full
