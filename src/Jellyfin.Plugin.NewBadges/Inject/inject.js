@@ -1260,6 +1260,21 @@
 
         var img = new Image();
         img.onload = function () {
+          // The guard above ran before this image started loading, and
+          // Jellyfin draws its own backdrop on anything wider than 1000px -
+          // which can land in the meantime. Appending anyway leaves two
+          // layers fading over one another: the backdrop appearing to load
+          // twice. Measured on 12.0, both orders really happen - at 1200px
+          // Jellyfin's own got there first, at 900px ours did - so the only
+          // safe moment to check is now, immediately before appending.
+          // Leaving is right either way: whichever layer arrived first is
+          // already showing the same artwork.
+          if (!freshContainer.isConnected ||
+              freshContainer.querySelector('.displayingBackdropImage') ||
+              getCurrentDetailsItemId() !== itemId) {
+            return;
+          }
+
           var div = document.createElement('div');
           div.className = 'backdropImage displayingBackdropImage';
           div.style.backgroundImage = "url('" + imgUrl + "')";
