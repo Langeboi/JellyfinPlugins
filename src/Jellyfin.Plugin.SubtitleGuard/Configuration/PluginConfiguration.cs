@@ -84,15 +84,5 @@ namespace Jellyfin.Plugin.SubtitleGuard.Configuration
         /// there. iOS-only; other devices keep the styled overlay.
         /// </summary>
         public bool IosBurnInSubtitles { get; set; } = true;
-
-        /// <summary>
-        /// Hide unwanted subtitle tracks in the player's selection menu:
-        /// anything not in <see cref="VisibleSubtitleLanguages"/>, hearing-
-        /// impaired variants, and duplicate tracks of the same language.
-        /// </summary>
-        public bool EnableTrackFilter { get; set; } = true;
-
-        /// <summary>Languages allowed to appear in the subtitle menu.</summary>
-        public string VisibleSubtitleLanguages { get; set; } = "da,en";
     }
 }

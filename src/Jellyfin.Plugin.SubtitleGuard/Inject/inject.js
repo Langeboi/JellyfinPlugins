@@ -84,12 +84,6 @@
     'Indbrænd undertekster på iOS (Safari)': 'Burn in subtitles on iOS (Safari)',
     'iPhone/iPad viser undertekster i fuldskærm ved at brænde dem ind i videoen - Apples indbyggede afspiller ignorerer Jellyfins overlay, så tekst-undertekster forsvinder ellers i fuldskærm. Kun iOS; andre enheder bruger fortsat det stylede overlay. Kræver transkodning på iOS-afspilning.':
       'iPhone/iPad shows subtitles in fullscreen by burning them into the video - the built-in Apple player ignores the Jellyfin overlay, so text subtitles would otherwise disappear in fullscreen. iOS only; other devices continue to use the styled overlay. Requires transcoding on iOS playback.',
-    'Ryd op i undertekst-menuen': 'Clean up the subtitle menu',
-    'Skjuler uønskede spor i afspillerens undertekst-menu: sprog uden for listen herunder, hørehæmmede-varianter (SDH/CC) og dubletter - ét rent valg pr. sprog.':
-      'Hides unwanted tracks in the subtitle menu of the player: languages outside the list below, hearing-impaired variants (SDH/CC), and duplicates - one clean choice per language.',
-    'Synlige undertekst-sprog': 'Visible subtitle languages',
-    'Kommaseparerede to-bogstavs koder. Spor uden sprog-tag beholdes.':
-      'Comma-separated two-letter codes. Tracks without a language tag are kept.',
 
     // -- Save / reset --
     'Gem': 'Save',
@@ -192,9 +186,7 @@
     SubtitleBackgroundOpacity: 0,
     SubtitleShadowStrength: 0,
     EnableWatchdog: true,
-    IosBurnInSubtitles: true,
-    EnableTrackFilter: true,
-    VisibleSubtitleLanguages: 'da,en'
+    IosBurnInSubtitles: true
   };
 
   // Only the player-side fields are read here. The hub address and key are
@@ -214,9 +206,7 @@
           SubtitleBackgroundOpacity: Math.min(100, Math.max(0, data.SubtitleBackgroundOpacity || 0)),
           SubtitleShadowStrength: Math.min(4, Math.max(0, data.SubtitleShadowStrength || 0)),
           EnableWatchdog: data.EnableWatchdog !== false,
-          IosBurnInSubtitles: data.IosBurnInSubtitles !== false,
-          EnableTrackFilter: data.EnableTrackFilter !== false,
-          VisibleSubtitleLanguages: data.VisibleSubtitleLanguages || 'da,en'
+          IosBurnInSubtitles: data.IosBurnInSubtitles !== false
         };
         SG_LANG = data.UiLanguage === 'en' ? 'en' : 'da';
         return config;
@@ -582,178 +572,6 @@
       });
   }
 
-  // ---- Subtitle menu cleanup ----
-  // Hides unwanted tracks in the player's subtitle selection sheet: any
-  // language outside VisibleSubtitleLanguages, hearing-impaired (SDH/CC)
-  // variants, and duplicates - keeping ONE clean choice per language.
-  // Works on the action sheet's buttons (their data-id is the subtitle
-  // stream index), using the own-session NowPlayingItem's MediaStreams as
-  // the source of truth. Untagged tracks are kept (better safe).
-
-  var LANG_MAP = { eng: 'en', dan: 'da' };
-
-  function sgNormLang(lang) {
-    var l = String(lang || '').trim().toLowerCase();
-    return LANG_MAP[l] || (l.length > 2 ? l.slice(0, 2) : l);
-  }
-
-  function isHearingImpairedStream(stream) {
-    if (stream.IsHearingImpaired) {
-      return true;
-    }
-    var label = ((stream.Title || '') + ' ' + (stream.DisplayTitle || '')).toLowerCase();
-    return /\bsdh\b|\bcc\b|hearing|hørehæm/.test(label);
-  }
-
-  function filterSubtitleSheet() {
-    if (!config || !config.EnableTrackFilter) {
-      return;
-    }
-    var video = document.querySelector('.videoPlayerContainer video') || document.querySelector('video');
-    if (!video) {
-      return;
-    }
-    var sheet = document.querySelector('.actionSheet:not([data-sg-subfiltered])');
-    if (!sheet) {
-      return;
-    }
-    // Only touch the SUBTITLE sheet - identified by its title text.
-    var titleEl = sheet.querySelector('.actionSheetTitle, h1, h2');
-    if (!titleEl || !/undertekst|subtitle/i.test(titleEl.textContent || '')) {
-      return;
-    }
-    sheet.setAttribute('data-sg-subfiltered', 'true');
-
-    var apiClient = window.ApiClient;
-    apiClient.getJSON(apiClient.getUrl('Sessions', { deviceId: apiClient.deviceId() }))
-      .then(function (sessions) {
-        var item = sessions && sessions[0] && sessions[0].NowPlayingItem;
-        var streams = (item && item.MediaStreams) || [];
-        var subs = streams.filter(function (s) { return s.Type === 'Subtitle'; });
-        if (!subs.length) {
-          return;
-        }
-
-        var visible = (config.VisibleSubtitleLanguages || 'da,en')
-          .split(',').map(function (l) { return l.trim().toLowerCase(); }).filter(Boolean);
-
-        // Pick one track per visible language: prefer non-SDH, lowest index.
-        var allowed = {};
-        visible.forEach(function (lang) {
-          var candidates = subs.filter(function (s) { return sgNormLang(s.Language) === lang; });
-          if (!candidates.length) {
-            return;
-          }
-          var pick = candidates.filter(function (s) { return !isHearingImpairedStream(s); })[0] || candidates[0];
-          allowed[pick.Index] = true;
-        });
-        // Untagged tracks stay visible - hiding them risks hiding the only
-        // usable subtitle on sloppily-tagged files.
-        subs.forEach(function (s) {
-          if (!s.Language) {
-            allowed[s.Index] = true;
-          }
-        });
-
-        sheet.querySelectorAll('button[data-id]').forEach(function (btn) {
-          var id = parseInt(btn.getAttribute('data-id'), 10);
-          if (!isNaN(id) && id >= 0 && !allowed[id]) {
-            btn.style.display = 'none';
-          }
-        });
-      })
-      .catch(function () { /* leave the sheet untouched */ });
-  }
-
-  // ---- Detail-page subtitle selector cleanup ----
-  // The item detail page has its own subtitle <select> (independent of the
-  // player's action sheet), and it showed every language. Option values are
-  // stream indexes, so the item's MediaStreams (fetched once per item, text
-  // labels are locale-dependent and unreliable) decide what stays: one track
-  // per visible language (non-SDH preferred), untagged tracks, and whatever
-  // is currently selected (never yank the user's active choice).
-
-  var detailStreamsCache = {}; // itemId -> merged MediaStreams
-
-  function filterDetailSubtitleSelect() {
-    if (!config || !config.EnableTrackFilter || !window.ApiClient) {
-      return;
-    }
-    var m = location.hash.match(/#\/details\?id=([a-f0-9]+)/i);
-    if (!m) {
-      return;
-    }
-    var itemId = m[1];
-    var selects = document.querySelectorAll('select.selectSubtitles');
-    var pending = [];
-    for (var i = 0; i < selects.length; i++) {
-      if (selects[i].getAttribute('data-sg-filtered') !== itemId && selects[i].options.length > 1) {
-        pending.push(selects[i]);
-      }
-    }
-    if (!pending.length) {
-      return;
-    }
-
-    var apiClient = window.ApiClient;
-    var streamsPromise = detailStreamsCache[itemId]
-      ? Promise.resolve(detailStreamsCache[itemId])
-      : apiClient.getJSON(apiClient.getUrl('Users/' + apiClient.getCurrentUserId() + '/Items/' + itemId))
-          .then(function (item) {
-            var streams = [];
-            ((item && item.MediaSources) || []).forEach(function (src) {
-              (src.MediaStreams || []).forEach(function (s) { streams.push(s); });
-            });
-            detailStreamsCache[itemId] = streams;
-            return streams;
-          });
-
-    streamsPromise.then(function (streams) {
-      var subs = streams.filter(function (s) { return s.Type === 'Subtitle'; });
-      if (!subs.length) {
-        return;
-      }
-      var visible = (config.VisibleSubtitleLanguages || 'da,en')
-        .split(',').map(function (l) { return l.trim().toLowerCase(); }).filter(Boolean);
-
-      // Same policy as the player menu: one track per visible language
-      // (non-SDH preferred), untagged tracks always kept.
-      var allowed = {};
-      visible.forEach(function (lang) {
-        var candidates = subs.filter(function (s) { return sgNormLang(s.Language) === lang; });
-        if (!candidates.length) {
-          return;
-        }
-        var pick = candidates.filter(function (s) { return !isHearingImpairedStream(s); })[0] || candidates[0];
-        allowed[pick.Index] = true;
-      });
-      subs.forEach(function (s) {
-        if (!s.Language) {
-          allowed[s.Index] = true;
-        }
-      });
-      var subIndexes = {};
-      subs.forEach(function (s) { subIndexes[s.Index] = true; });
-
-      pending.forEach(function (sel) {
-        sel.setAttribute('data-sg-filtered', itemId);
-        // Removal (not display:none) because Safari ignores hidden options;
-        // Jellyfin rebuilds the select on item/source change and the marker
-        // above lets us re-filter the fresh copy.
-        Array.prototype.slice.call(sel.options).forEach(function (opt) {
-          var idx = parseInt(opt.value, 10);
-          if (isNaN(idx) || idx < 0 || !subIndexes[idx] || allowed[idx]) {
-            return; // "Ingen", unknown values, and allowed tracks stay
-          }
-          if (opt.selected) {
-            return; // never remove the user's active choice
-          }
-          opt.remove();
-        });
-      });
-    }).catch(function () { /* leave the select untouched */ });
-  }
-
   // ---- The two buttons on item detail pages ----
   // One tap asks the hub to do this item now, ahead of the nightly queue.
   // Both go through this plugin's own controller, which holds the hub
@@ -951,9 +769,7 @@
       SgBackgroundOpacity: 'SubtitleBackgroundOpacity',
       SgShadowStrength: 'SubtitleShadowStrength',
       SgEnableWatchdog: 'EnableWatchdog',
-      SgIosBurnIn: 'IosBurnInSubtitles',
-      SgEnableTrackFilter: 'EnableTrackFilter',
-      SgVisibleLanguages: 'VisibleSubtitleLanguages'
+      SgIosBurnIn: 'IosBurnInSubtitles'
     };
 
     function setBtnLabel(btn, text) {
@@ -1158,8 +974,6 @@
         if (mutations[i].addedNodes.length > 0) {
           wireConfigPageIfPresent();
           renderSyncButton();
-          filterSubtitleSheet();
-          filterDetailSubtitleSelect();
           // Catches the <video> appearing on playback start (not a resize),
           // so the player-relative size is set as soon as there's a player.
           updateSubtitleScale();
@@ -1180,7 +994,6 @@
       });
       wireConfigPageIfPresent();
       renderSyncButton();
-      filterDetailSubtitleSelect();
     });
   }
 
