@@ -33,7 +33,7 @@ from pydantic import BaseModel
 # Surfaced in /status so the plugin's worker list can show which version each
 # box runs and flag stragglers. Bump on every worker release - the self-update
 # timer ships this file alone, so this constant IS the deployed version.
-WORKER_VERSION = "3.0.2"
+WORKER_VERSION = "3.0.6"
 
 API_KEY = os.environ.get("SUBWORKER_API_KEY", "")
 DB_PATH = os.environ.get("SUBWORKER_DB", os.path.expanduser("~/.subtitle-worker.db"))
@@ -280,6 +280,24 @@ WHISPER_VAD = os.environ.get("SUBWORKER_WHISPER_VAD", "1") != "0"
 # None => use faster-whisper's default VAD tuning (known-good for punctuation).
 WHISPER_VAD_THRESHOLD = os.environ.get("SUBWORKER_WHISPER_VAD_THRESHOLD")
 WHISPER_VAD_PAD_MS = os.environ.get("SUBWORKER_WHISPER_VAD_PAD_MS")
+# Feed each 30s window the text of the one before it (Whisper's default)?
+# Off, because together with hotwords it LOOPS. Measured on the first prod
+# batch (large-v3, 52 transcriptions): The Last Ship 2x03 locked onto one
+# line at 4:22 and emitted it 40 times over the remaining 37 minutes; 3x05
+# alternated two lines 58 times; 3x10, 4x03 and 4x06 lost their last 35-39
+# minutes (write_srt collapses consecutive repeats, so a loop is saved as a
+# near-empty subtitle and counted as a success). Re-run with this off, all
+# three came back whole - and on 2x03 it was the best arm outright:
+# hotwords + off 94% of segments end in punctuation and 13 names right,
+# against 77% / 10 for the pre-hotword default (no hotwords, on), at 3%
+# fewer words. The hotwords, sent with every window, keep the style that
+# the previous text was there to keep, without the feedback loop.
+# Not a cure-all: Mad Max Beyond Thunderdome (music, heavy accents) drifts
+# into unpunctuated run-ons with this off, and only partly less with it on.
+# Putting the punctuation prompt in front of the hotwords to reach every
+# window was tried too - it made segments LONGER (2x03: 328 -> 121). Set
+# SUBWORKER_WHISPER_CONDITION=1 to restore the old behaviour.
+WHISPER_CONDITION = os.environ.get("SUBWORKER_WHISPER_CONDITION", "0") == "1"
 
 # Max characters of the hotword prompt handed to Whisper. The limit is real -
 # hotwords and the previous-text conditioning share the half of Whisper's
@@ -462,6 +480,40 @@ _whisper_model = None
 _whisper_lock = threading.Lock()
 
 
+def _guard_word_alignment():
+    """Stop one unalignable window from failing the whole transcription.
+
+    faster-whisper (1.2.1) aligns words per 30s window. When CTranslate2
+    returns no alignment pairs for a window, find_alignment still pads a
+    "jump" onto the empty index array and fails: "boolean index did not
+    match indexed array along axis 0; size of axis is 0 but size of
+    corresponding boolean axis is 1". Reproduced on The Last Ship 2x03:
+    every window aligned except the last one, 38s of credits - and the
+    whole episode was lost, from either decode route.
+
+    An empty list is already what find_alignment returns for a window with
+    nothing to align (its own eot-only guard), and add_word_timestamps and
+    _tight_bounds both handle it: those segments keep their VAD bounds,
+    everything else stays word-timed. Only this IndexError is caught, and
+    only around this one method, so any other failure still surfaces."""
+    from faster_whisper.transcribe import WhisperModel
+
+    original = WhisperModel.find_alignment
+    if getattr(original, "_sg_guarded", False):
+        return
+
+    def find_alignment(self, tokenizer, text_tokens, *args, **kwargs):
+        try:
+            return original(self, tokenizer, text_tokens, *args, **kwargs)
+        except IndexError as exc:
+            print(f"[whisper] word timing unavailable for one window, "
+                  f"keeping its segment bounds ({exc})", flush=True)
+            return [[] for _ in text_tokens]
+
+    find_alignment._sg_guarded = True
+    WhisperModel.find_alignment = find_alignment
+
+
 def get_whisper_model():
     """Lazy singleton: the model (~3GB for large-v3) downloads on first use
     and stays loaded so back-to-back jobs don't pay the load cost again.
@@ -475,6 +527,7 @@ def get_whisper_model():
     compute = "float16" if WHISPER_DEVICE == "cuda" else "int8"
     with _whisper_lock:
         if _whisper_model is None:
+            _guard_word_alignment()
             try:
                 _whisper_model = WhisperModel(
                     WHISPER_MODEL_NAME, device=WHISPER_DEVICE,
@@ -880,6 +933,12 @@ def process_translate_job(job: dict):
             state["skipped"] += 1
         return
 
+    if not folder_writable(os.path.dirname(target)):
+        record(key, mtime, None, "not-writable")
+        with state_lock:
+            state["failed"] += 1
+        return
+
     # Someone else's subtitle being replaced is kept, same .bak convention
     # the other paths use. Ours are reproducible, so they need no copy.
     if os.path.exists(target) and not is_machine_generated(target):
@@ -1185,10 +1244,214 @@ def _split_overlong_cue(cue):
     return out
 
 
-def write_srt(segments, path: str, progress=None) -> int:
+# ---- Rescuing a long gap that still has speech in it ----
+# The VAD filter is what stops large-v3 hallucinating over music and silence
+# (measured: 100s of silence and tone produced zero segments with it on, five
+# invented "you" segments with it off), so it stays on for the file. But it
+# decides what Whisper is even allowed to hear, and under loud weather or
+# gunfire it throws real dialogue away: The Last Ship 4x06 has a 5.8 minute
+# battle with NO cues at all, and re-running just that stretch with the
+# filter off returned 59 segments of real dialogue against 10 with it on -
+# a whole medical-bay scene ("Sir, can you hear me?" / "Do you speak
+# English?" / "A little.") that no viewer would otherwise get.
+#
+# So: keep the filter for the file, then look at what came out. A stretch
+# long enough to be a real hole, which VAD itself says holds speech, is
+# transcribed again with the filter off and merged in. Narrow on purpose -
+# only a few of the worst per file, and only where the silence is not real -
+# because filter-off output over true silence is exactly where the
+# hallucinations live.
+GAP_RESCUE_ENABLED = os.environ.get("SUBWORKER_GAP_RESCUE", "1") != "0"
+GAP_RESCUE_MIN_SECONDS = float(os.environ.get("SUBWORKER_GAP_RESCUE_MIN", "240"))
+# 15% of the stretch being speech separates the broken files from the rest:
+# measured over 276 gaps in this library, end credits and action sequences
+# sat at 0-1% (Interstellar, Gladiator II, The Big Short all 0%), while every
+# genuinely broken subtitle was above it (The Last Ship 3x10 at 50%).
+GAP_RESCUE_MIN_SPEECH = float(os.environ.get("SUBWORKER_GAP_RESCUE_SPEECH", "0.15"))
+GAP_RESCUE_MAX_GAPS = int(os.environ.get("SUBWORKER_GAP_RESCUE_MAX", "3"))
+SAMPLE_RATE = 16000
+
+
+def _timing_seconds(timing: str):
+    """'00:01:02,500 --> 00:01:04,000' -> (62.5, 64.0)."""
+    out = []
+    for part in timing.split("-->"):
+        h, m, rest = part.strip().split(":")
+        s, ms = rest.split(",")
+        out.append(int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000)
+    return out[0], out[1]
+
+
+def cue_spans(srt_path: str):
+    """[(start, end, block_text)] for a file this worker just wrote."""
+    with open(srt_path, encoding="utf-8") as fh:
+        text = fh.read()
+    spans = []
+    for timing, cue_text in parse_srt(text):
+        try:
+            start, end = _timing_seconds(timing)
+        except (ValueError, IndexError):
+            continue
+        spans.append((start, end, cue_text))
+    return spans
+
+
+# Silero (as faster-whisper drives it) runs 10,000 windows of 512 samples per
+# ONNX call - 320 s - and threads the LSTM state from one batch into the next,
+# where every window of a batch shares one starting state. So the answer for a
+# stretch depends on where the batch boundaries fall: measured on 4x06's battle,
+# the whole 342 s gap came out 4.4% speech, its middle 240 s 17.1%, and its two
+# halves 8.9% and 1.7% - which cannot all be true at once. Every measurement
+# here therefore stays inside one batch, and a gap is scored by its busiest
+# piece: the question is whether dialogue was dropped ANYWHERE in it.
+SPEECH_PIECE_SECONDS = 240
+
+
+def speech_share(audio) -> float:
+    """Share of this audio the VAD hears as speech, measured piece by piece."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    piece_samples = SPEECH_PIECE_SECONDS * SAMPLE_RATE
+    best = 0.0
+    for start in range(0, max(1, len(audio)), piece_samples):
+        piece = audio[start:start + piece_samples]
+        if len(piece) < SAMPLE_RATE:
+            continue
+        speech = sum(t["end"] - t["start"] for t in get_speech_timestamps(piece, VadOptions()))
+        best = max(best, speech / len(piece))
+    return best
+
+
+def find_speech_gaps(spans, audio, duration: float):
+    """Stretches with no cues that the VAD still hears speech in, worst first."""
+
+    holes = []
+    previous_end = 0.0
+    for start, end, _ in spans:
+        if start - previous_end >= GAP_RESCUE_MIN_SECONDS:
+            holes.append((previous_end, start))
+        previous_end = max(previous_end, end)
+    if duration and duration - previous_end >= GAP_RESCUE_MIN_SECONDS:
+        holes.append((previous_end, duration))
+
+    scored = []
+    for start, end in holes:
+        chunk = audio[int(start * SAMPLE_RATE):int(end * SAMPLE_RATE)]
+        if len(chunk) < SAMPLE_RATE:
+            continue
+        speech = speech_share(chunk)
+        if speech >= GAP_RESCUE_MIN_SPEECH:
+            scored.append((start, end, speech))
+    scored.sort(key=lambda hole: -hole[2])
+    return scored[:GAP_RESCUE_MAX_GAPS]
+
+
+def merge_cues(spans, extra):
+    """Add rescued cues to the file's own, dropping any that overlap what is
+    already there - the rescue re-hears the edges of its window, and the
+    filtered pass is the better-timed of the two where both have a line."""
+    kept = list(spans)
+    for start, end, text in extra:
+        if any(start < other_end and end > other_start for other_start, other_end, _ in spans):
+            continue
+        kept.append((start, end, text))
+    kept.sort(key=lambda cue: cue[0])
+    return kept
+
+
+def rescue_gaps(model, source, srt_path: str, duration: float, kw: dict, hotwords: str, job: dict) -> int:
+    """Re-transcribe the holes that still hold speech, filter off, and merge.
+
+    Returns the cue count of the file as it now stands - unchanged when there
+    is nothing to rescue, which is the normal case."""
+    from faster_whisper.audio import decode_audio
+
+    name = os.path.basename(job.get("media_path") or srt_path)
+    spans = cue_spans(srt_path)
+    if not spans:
+        return 0
+    audio = decode_audio(source) if isinstance(source, str) else source
+    gaps = find_speech_gaps(spans, audio, duration)
+    print(f"[whisper] gap check on {name}: {len(spans)} cue(s), last ends "
+          f"{spans[-1][1] / 60:.1f} min of {duration / 60:.1f} min, "
+          f"{len(gaps)} gap(s) worth rescuing", flush=True)
+    if not gaps:
+        return len(spans)
+
+    emit("stage", job, stage="rescuing-gaps")
+    rescued = []
+    for start, end, speech in gaps:
+        print(f"[whisper] {(end - start) / 60:.1f} min without a cue from "
+              f"{start / 60:.1f} min, {speech:.0%} of it speech - transcribing it "
+              f"again with the VAD filter off", flush=True)
+        window = audio[int(start * SAMPLE_RATE):int(end * SAMPLE_RATE)]
+        segments, _ = model.transcribe(window, **{**kw, "vad_filter": False, "vad_parameters": None})
+        fd, window_srt = tempfile.mkstemp(suffix=".srt")
+        os.close(fd)
+        try:
+            write_srt(segments, window_srt, hotwords=hotwords)
+            found = cue_spans(window_srt)
+        finally:
+            os.unlink(window_srt)
+        rescued.extend((cue_start + start, cue_end + start, text) for cue_start, cue_end, text in found)
+        print(f"[whisper] rescued {len(found)} cue(s) there", flush=True)
+
+    if not rescued:
+        return len(spans)
+    merged = merge_cues(spans, rescued)
+    print(f"[whisper] {len(merged) - len(spans)} cue(s) added by the rescue pass", flush=True)
+    return write_cues(merged, srt_path)
+
+
+def write_cues(cues, path: str) -> int:
+    """Write already-built cues back out, renumbered."""
+    with open(path, "w", encoding="utf-8") as fh:
+        for number, (start, end, text) in enumerate(cues, start=1):
+            fh.write(f"{number}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{text}\n\n")
+    return len(cues)
+
+
+# Whisper sometimes reads its own hotword prompt back out as dialogue: a cue
+# that is just the episode title and a run of cast names. Measured over the
+# 2,526 generated subtitles in the library, about 20 files carry one or more
+# (Vikings 6x12 had 16, For All Mankind 3x10 eight). They are invented lines,
+# so they go. Deliberately narrow, because real dialogue introduces people
+# too ("I'm Blake Gallo. This is Darren Ritter and... Violet Mikami." is
+# three hotwords and must stay): the cue has to be made almost entirely OF
+# hotwords - four or more of them, seven tenths of its characters, and no
+# more than two words of its own left over.
+ECHO_MIN_TERMS = 4
+ECHO_MIN_COVERAGE = 0.7
+ECHO_MAX_OTHER_WORDS = 2
+
+
+def hotword_terms(hotwords: str) -> list:
+    """The individual terms of a hotword prompt, longest first so that
+    matching a long one cannot be undone by a short one inside it."""
+    terms = {t.strip().lower() for t in (hotwords or "").split(",") if len(t.strip()) >= 4}
+    return sorted(terms, key=len, reverse=True)
+
+
+def is_hotword_echo(text: str, terms: list) -> bool:
+    if not terms:
+        return False
+    rest = text.lower()
+    found = covered = 0
+    for term in terms:
+        if term in rest:
+            found += 1
+            covered += len(term)
+            rest = rest.replace(term, " ")
+    if found < ECHO_MIN_TERMS or covered / max(1, len(text)) < ECHO_MIN_COVERAGE:
+        return False
+    return len([w for w in re.findall(r"[^\W\d_]+", rest) if len(w) > 1]) <= ECHO_MAX_OTHER_WORDS
+
+
+def write_srt(segments, path: str, progress=None, hotwords: str = "") -> int:
     """Build a tightly-timed SRT from Whisper segments. Consuming the
     generator is where the transcription time is actually spent, which is
     why progress (if given) is reported per consumed segment."""
+    echo_terms = hotword_terms(hotwords)
     cues = []  # [start, end, text]
     for segment in segments:
         if progress is not None:
@@ -1237,6 +1500,9 @@ def write_srt(segments, path: str, progress=None) -> int:
     repeat_run = 0
     for cue in cues:
         if HALLUCINATION_RE.search(cue[2]):
+            continue
+        if is_hotword_echo(cue[2], echo_terms):
+            print(f"[whisper] dropped a cue that was just the hotwords: {cue[2][:70]}", flush=True)
             continue
         if cleaned and cue[2].strip().lower() == cleaned[-1][2].strip().lower():
             repeat_run += 1
@@ -1973,6 +2239,35 @@ LOW_QUALITY_RE = re.compile(r"low-quality alignment", re.IGNORECASE)
 SCORE_RE = re.compile(r"score:\s*(-?[\d.]+)", re.IGNORECASE)
 
 
+def folder_writable(folder: str) -> bool:
+    """Can this worker create a file in `folder`? Asked by actually creating
+    (and removing) one: os.access cannot answer it - on Windows it only reads
+    the read-only attribute, and over SMB neither side can see the share's
+    ACL evaluation for this session. Checked BEFORE the expensive part of a
+    job that always writes, because the write is otherwise the very last
+    step: a folder created 755 by another identity (Radarr/Sonarr on
+    TrueNAS) let Whisper spend 8-10 minutes of GPU per film on a subtitle
+    that then could not be saved. Sync does not ask - most syncs end
+    in-sync and write nothing, which such a folder allows.
+
+    Not tempfile.mkstemp: on Windows it reads PermissionError as a name
+    collision whenever os.access says the folder is writable - which, as
+    above, it always does - and retries 10,000 names. Over SMB that hung
+    for minutes on a single locked folder."""
+    import secrets
+    probe = os.path.join(folder, f".sgprobe-{secrets.token_hex(6)}.tmp")
+    try:
+        fd = os.open(probe, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        return False
+    os.close(fd)
+    try:
+        os.remove(probe)
+    except OSError as exc:
+        print(f"[probe] could not remove {probe}: {exc}", flush=True)
+    return True
+
+
 def place_subtitle(out_path: str, sub: str):
     """Move the corrected subtitle into place. Normally a plain overwrite,
     but many external subs (e.g. Jellyfin's OpenSubtitles plugin downloads)
@@ -2202,11 +2497,27 @@ def process_transcribe_job(job: dict):
             state["failed"] += 1
         return
 
+    # ffmpeg reads an ISO as one flat MPEG stream and never finds its audio
+    # ("tuple index out of range", after loading Whisper). The hub no longer
+    # plans these; this covers anything else that sends one.
+    if media.lower().endswith(".iso"):
+        record(key, 0, None, "disc-image")
+        with state_lock:
+            state["failed"] += 1
+        return
+
     mtime = os.path.getmtime(media)
     force = bool(job.get("force"))
     if not force and already_processed(key, mtime):
         with state_lock:
             state["skipped"] += 1
+        return
+
+    # The subtitle lands beside the media, whatever language Whisper hears.
+    if not folder_writable(os.path.dirname(media)):
+        record(key, mtime, None, "not-writable")
+        with state_lock:
+            state["failed"] += 1
         return
 
     out_path = None
@@ -2215,12 +2526,20 @@ def process_transcribe_job(job: dict):
         emit("stage", job, stage="loading-model")
         model = get_whisper_model()
 
-        # Choose the audio track BEFORE transcribing (see PREFERRED_AUDIO_LANGS).
-        # When a preferred track exists it is extracted to a temporary wav and
-        # transcribed instead of the file, because faster-whisper decodes the
-        # container's default track and gives no way to ask for another.
-        # 16kHz mono is exactly what Whisper resamples to anyway, so this
-        # costs a short ffmpeg pass and no quality.
+        # Choose the audio track BEFORE transcribing (see PREFERRED_AUDIO_LANGS),
+        # and always hand Whisper a 16kHz mono wav the ffmpeg CLI made - never
+        # the file itself. 16kHz mono is exactly what Whisper resamples to
+        # anyway, so this costs no quality.
+        #
+        # Letting faster-whisper open the file means PyAV decodes it in-process,
+        # and PyAV is the weak link. Measured on files that failed in the first
+        # prod batch: a DTS track raised "Frame does not match AudioFifo
+        # parameters" after 113s, an AC3 track killed the whole worker
+        # (0xC0000005, three times, until the queue abandoned it). The ffmpeg
+        # CLI decoded both in 9-20s - it was also the faster route on every
+        # file tried (7s against 22s for a plain AAC episode). It used to run
+        # only to pick a preferred track out of several; a single-track file
+        # now gets its first audio stream, which is the one PyAV would take.
         source = media
         forced_lang = job.get("language") or None
         picked_index, picked_lang = (None, None)
@@ -2232,25 +2551,29 @@ def process_transcribe_job(job: dict):
             # the file itself says it is, rather than guessing.
             if picked_lang:
                 forced_lang = picked_lang
-        if picked_index is not None:
-            fd, audio_tmp = tempfile.mkstemp(suffix=".wav")
-            os.close(fd)
-            extract = subprocess.run(
-                ["ffmpeg", "-y", "-v", "error", "-i", media, "-map", f"0:{picked_index}",
-                 "-vn", "-ac", "1", "-ar", "16000", audio_tmp],
-                capture_output=True, text=True, timeout=1800,
-            )
-            if extract.returncode == 0 and os.path.getsize(audio_tmp) > 0:
-                source = audio_tmp
+        fd, audio_tmp = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        stream_map = f"0:{picked_index}" if picked_index is not None else "0:a:0"
+        emit("stage", job, stage="extracting-audio")
+        extract = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", media, "-map", stream_map,
+             "-vn", "-ac", "1", "-ar", "16000", audio_tmp],
+            capture_output=True, text=True, timeout=1800,
+        )
+        if extract.returncode == 0 and os.path.getsize(audio_tmp) > 0:
+            source = audio_tmp
+            if picked_index is not None:
                 forced_lang = picked_lang
                 print(f"[whisper] using audio stream {picked_index} ({picked_lang}) "
                       f"of {os.path.basename(media)}", flush=True)
-            else:
-                # Extraction failed - fall back to the default track rather
-                # than failing a job that would otherwise have produced
-                # something usable.
-                os.unlink(audio_tmp)
-                audio_tmp = None
+        else:
+            # Extraction failed - let faster-whisper try the file itself
+            # rather than failing a job that might still produce something.
+            print(f"[whisper] ffmpeg could not extract {stream_map} of "
+                  f"{os.path.basename(media)} (rc {extract.returncode}): "
+                  f"{(extract.stderr or '').strip()[-200:]}", flush=True)
+            os.unlink(audio_tmp)
+            audio_tmp = None
         # language=None auto-detects the SPOKEN language; Whisper transcribes
         # in that language (it can translate to English but never to Danish -
         # translation is a future, separate step). word_timestamps=True gives
@@ -2265,6 +2588,8 @@ def process_transcribe_job(job: dict):
         if len(hotwords) > HOTWORDS_MAX_CHARS:
             hotwords = hotwords[:HOTWORDS_MAX_CHARS].rsplit(",", 1)[0].strip()
 
+        used_kw: dict = {}
+
         def transcribe(use_hotwords):
             # language=None auto-detects the SPOKEN language. word_timestamps
             # gives per-word timing so write_srt can hug real speech. Wider
@@ -2275,7 +2600,10 @@ def process_transcribe_job(job: dict):
             # composes fine with hotwords (faster-whisper concatenates
             # hotwords_tokens then previous_tokens - which start with this
             # prompt - into the same decode window; see get_prompt() in
-            # faster_whisper/transcribe.py). Kept short so it can't meaningfully
+            # faster_whisper/transcribe.py). With WHISPER_CONDITION off (the
+            # default) previous_tokens reset every window, so the prompt only
+            # primes the first one - the hotwords carry the style after that
+            # (see WHISPER_CONDITION for the measurements). Kept short so it can't meaningfully
             # eat into the hotwords/decode budget that HOTWORDS_MAX_CHARS and
             # the no-hotwords retry below already guard.
             kw = {
@@ -2284,6 +2612,7 @@ def process_transcribe_job(job: dict):
                 "beam_size": WHISPER_BEAM,
                 "vad_filter": WHISPER_VAD,
                 "vad_parameters": _whisper_vad_parameters() if WHISPER_VAD else None,
+                "condition_on_previous_text": WHISPER_CONDITION,
                 "initial_prompt": WHISPER_PUNCTUATION_PROMPT.get(
                     forced_lang, WHISPER_PUNCTUATION_PROMPT["en"]
                 ),
@@ -2299,6 +2628,9 @@ def process_transcribe_job(job: dict):
                     kw["hotwords"] = hotwords
                 else:
                     kw["initial_prompt"] += " Names and terms used: " + hotwords + "."
+            # The rescue pass below re-uses these, with the VAD filter off.
+            used_kw.clear()
+            used_kw.update(kw)
             # `source` is the extracted preferred track when there was one,
             # otherwise the media file itself.
             return model.transcribe(source, **kw)
@@ -2362,11 +2694,11 @@ def process_transcribe_job(job: dict):
         # that happens, transcribe ONCE MORE without hotwords - they're a
         # best-effort spelling bias and must never stop a subtitle being made.
         try:
-            count = write_srt(segments, out_path, progress=_progress)
+            count = write_srt(segments, out_path, progress=_progress, hotwords=hotwords)
         except (ValueError, RuntimeError) as exc:
             if hotwords and "decoding length" in str(exc).lower():
                 segments, info = transcribe(use_hotwords=False)
-                count = write_srt(segments, out_path, progress=_progress)
+                count = write_srt(segments, out_path, progress=_progress, hotwords=hotwords)
             else:
                 raise
         if count == 0:
@@ -2374,6 +2706,16 @@ def process_transcribe_job(job: dict):
             with state_lock:
                 state["failed"] += 1
             return
+
+        # Anything the VAD filter threw away wholesale (see GAP_RESCUE_ENABLED).
+        if GAP_RESCUE_ENABLED and duration:
+            try:
+                rescue_kw = {k: v for k, v in used_kw.items() if not k.startswith("language_detection")}
+                rescue_kw["language"] = info.language
+                count = rescue_gaps(model, source, out_path, duration, rescue_kw, hotwords, job)
+            except Exception as exc:  # noqa: BLE001 - a rescue must never lose the subtitle
+                print(f"[whisper] gap rescue failed, keeping the first pass: "
+                      f"{type(exc).__name__}: {exc}", flush=True)
 
         place_subtitle(out_path, target)  # overwrite, or re-own if refused
         out_path = None
@@ -2996,7 +3338,7 @@ def _failure_kind(status: str) -> str | None:
     if _stat_category(s) != "failed":
         return None
     low = s.lower()
-    if "permission denied" in low or "errno 13" in low:
+    if s == "not-writable" or "permission denied" in low or "errno 13" in low:
         return "permission"
     if s == "missing-file":
         return "missing-file"
