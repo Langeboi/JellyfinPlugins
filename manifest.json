@@ -399,6 +399,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "2.10.0.0",
+        "changelog": "Burger-menu på brede skærme.\n\nJellyfin 12 viser kun burger-knappen i smalle vinduer. Denne version lægger en\nburger-knap i venstre side af app-baren på brede skærme også. Den åbner den\nsamme menu - med ekstra-punkterne øverst og Seerr Requests-linksene - og\nskjules igen, mens en video spiller.\n\nSlås til under \"Burger menu on desktop screens\". Ingen effekt på Jellyfin 10.11\neller i smalle vinduer.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/newbadges-v2.10.0.0/newbadges_2.10.0.0.zip",
+        "checksum": "ea5719c2205af520c3b360b14b6d15d9",
+        "timestamp": "2026-09-24T10:46:00Z"
+      },
+      {
         "version": "2.9.6.0",
         "changelog": "Baggrundsbilledet på detaljesider lægger sig ikke længere oven på Jellyfins eget. Jellyfin tegner selv et baggrundsbillede i vinduer over 1000 px, og det kunne nå frem, mens vores stadig blev hentet - så lå der to lag og tonede hen over hinanden. Kontrollen sker nu lige før billedet sættes ind, i stedet for inden hentningen begynder.\n\nMålt på Jellyfin 12: ved 1200 px vinder Jellyfins eget, ved 900 px vores. Begge dele sker, og i begge tilfælde vises nu præcis ét billede.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.3.1.0.",
         "targetAbi": "12.0.0.0",
@@ -801,6 +809,14 @@
     "category": "General",
     "imageUrl": "",
     "versions": [
+      {
+        "version": "2.8.0.0",
+        "changelog": "Requests og Kalender i burger-menuen.\n\nNår Jellyfin 12 kører med den gamle skuffe - f.eks. med New Badges' burger-knap\npå brede skærme - lægges de to links nu også ind der, lige under Hjem. Menuen\nlukker af sig selv, når man klikker på dem.\n\nStyres af de indstillinger, der allerede findes (Requests-fanen og\nKalender-fanen). Ingen nye indstillinger.\n\nKun Jellyfin 12.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Langeboi/JellyfinPlugins/releases/download/seerrrequests-v2.8.0.0/seerrrequests_2.8.0.0.zip",
+        "checksum": "ed4d740522869fe0aeb0fbbe1e0fbd5d",
+        "timestamp": "2026-09-24T10:46:00Z"
+      },
       {
         "version": "2.7.1.0",
         "changelog": "- Menupillen øverst findes nu også i et halvt vindue: ikoner, med navnet på den side du er på, og et hint på resten. På en telefon ligger alt i menuen som før.\n- Den valgte knap i pillen er hvid i stedet for blå.\n\nKun Jellyfin 12. På 10.11 bliver du på 2.2.2.0.",
